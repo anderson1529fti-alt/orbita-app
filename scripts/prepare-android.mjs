@@ -40,6 +40,7 @@ if (!styles.includes('windowSplashScreenBackground')) {
 const manifestPath = path.join(app, 'src', 'main', 'AndroidManifest.xml');
 let manifest = fs.readFileSync(manifestPath, 'utf8');
 const perms = [
+  'android.permission.READ_MEDIA_AUDIO',
   'android.permission.RECORD_AUDIO',
   'android.permission.MODIFY_AUDIO_SETTINGS',
   'android.permission.FOREGROUND_SERVICE',
@@ -49,8 +50,20 @@ const perms = [
 for (const p of perms) {
   if (!manifest.includes(`"${p}"`)) manifest = manifest.replace('</manifest>', `    <uses-permission android:name="${p}" />\n</manifest>`);
 }
+if (!manifest.includes('"android.permission.READ_EXTERNAL_STORAGE"')) {
+  manifest = manifest.replace('</manifest>', '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n</manifest>');
+}
 if (!manifest.includes('android:hardwareAccelerated')) manifest = manifest.replace('<application', '<application\n        android:hardwareAccelerated="true"');
 fs.writeFileSync(manifestPath, manifest);
+
+// 3b) Módulo nativo que lee la música del móvil (MediaStore) sin copiarla
+const appId = JSON.parse(fs.readFileSync(path.join(root, 'capacitor.config.json'), 'utf8')).appId;
+const javaDir = path.join(app, 'src', 'main', 'java', ...appId.split('.'));
+fs.mkdirSync(javaDir, { recursive: true });
+for (const f of fs.readdirSync(path.join(root, 'android-src'))) {
+  const code = fs.readFileSync(path.join(root, 'android-src', f), 'utf8').replace(/__PACKAGE__/g, appId);
+  fs.writeFileSync(path.join(javaDir, f), code);
+}
 
 // 4) Versión: 1.0.<número de compilación>
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
