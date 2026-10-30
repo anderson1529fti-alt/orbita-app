@@ -1,0 +1,17 @@
+{
+  "appId": "io.github.orbita.musica",
+  "appName": "Órbita",
+  "webDir": "www",
+  "backgroundColor": "#06050b",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DARK",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}
