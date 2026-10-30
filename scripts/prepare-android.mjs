@@ -54,18 +54,64 @@ if (!manifest.includes('"android.permission.READ_EXTERNAL_STORAGE"')) {
   manifest = manifest.replace('</manifest>', '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n</manifest>');
 }
 if (!manifest.includes('android:hardwareAccelerated')) manifest = manifest.replace('<application', '<application\n        android:hardwareAccelerated="true"');
+// Radios de internet que emiten por http (sin cifrar)
+if (!manifest.includes('android:usesCleartextTraffic')) manifest = manifest.replace('<application', '<application\n        android:usesCleartextTraffic="true"');
+
+// EXTRAS=0 es el plan B del workflow: la app sin widget ni «Compartir con Órbita», con el módulo nativo de la 1.1
+const extras = process.env.EXTRAS !== '0';
+if (extras) {
+  // «Compartir › Órbita» desde YouTube, WhatsApp, el gestor de archivos…
+  const share = `
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+`;
+  if (!manifest.includes('android.intent.action.SEND')) {
+    const m = manifest.match(/<activity[\s\S]*?android:name="\.MainActivity"[\s\S]*?<\/activity>/) || manifest.match(/<activity[\s\S]*?<\/activity>/);
+    if (m) manifest = manifest.replace(m[0], m[0].replace(/<\/activity>$/, share + '        </activity>'));
+    else console.warn('No encuentro la actividad principal: sin «Compartir con Órbita»');
+  }
+  // Widget de la pantalla de inicio
+  if (!manifest.includes('.OrbitaWidget')) {
+    manifest = manifest.replace('</application>', `    <receiver
+            android:name=".OrbitaWidget"
+            android:exported="false"
+            android:label="@string/orbita_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/orbita_widget_info" />
+        </receiver>
+    </application>`);
+  }
+}
 fs.writeFileSync(manifestPath, manifest);
 
-// 3b) Módulo nativo que lee la música del móvil (MediaStore) sin copiarla
+// 3b) Módulo nativo: música del móvil (MediaStore, sin copiarla), widget, copias de seguridad y compartir
 const appId = JSON.parse(fs.readFileSync(path.join(root, 'capacitor.config.json'), 'utf8')).appId;
 const javaDir = path.join(app, 'src', 'main', 'java', ...appId.split('.'));
 fs.mkdirSync(javaDir, { recursive: true });
-for (const f of fs.readdirSync(path.join(root, 'android-src'))) {
-  const code = fs.readFileSync(path.join(root, 'android-src', f), 'utf8').replace(/__PACKAGE__/g, appId);
-  fs.writeFileSync(path.join(javaDir, f), code);
+const javaFrom = [path.join(root, extras ? 'android-src' : 'android-safe')];
+if (extras) javaFrom.push(path.join(root, 'android-extras', 'java'));
+for (const dir of javaFrom) {
+  for (const f of fs.readdirSync(dir)) {
+    const code = fs.readFileSync(path.join(dir, f), 'utf8').replace(/__PACKAGE__/g, appId);
+    fs.writeFileSync(path.join(javaDir, f), code);
+  }
 }
+if (extras) copyDir(path.join(root, 'android-extras', 'res'), res);
 
-// 4) Versión: 1.0.<número de compilación>
+// 4) Versión: <mayor>.<menor>.<número de compilación>
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const build = parseInt(process.env.BUILD_NUMBER || '1', 10);
 const [maj, min] = String(pkg.version || '1.0.0').split('.');
@@ -110,4 +156,4 @@ fs.writeFileSync(path.join(root, 'www', 'app-config.js'),
 
 // Salidas para los siguientes pasos del workflow
 if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
-console.log(`Órbita ${version} preparada (repo: ${repo || 'sin configurar'})`);
+console.log(`Órbita ${version} preparada (repo: ${repo || 'sin configurar'}${extras ? '' : ', modo seguro sin widget'})`);

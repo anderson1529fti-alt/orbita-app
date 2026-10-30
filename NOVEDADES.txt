@@ -1,0 +1,10 @@
+Órbita 2.0: mezclas de DJ entre canciones, ecualizador, letras, radios de todo el mundo y tu mezcla del día.
+
+- Mezclas entre canciones al estilo DJ: Órbita detecta el ritmo, quita los silencios, iguala el tempo y pasa los graves de una canción a otra. También fundido, eco o corte seco.
+- Ecualizador con modos (reguetón, electrónica, voces…) y volumen igualado entre canciones.
+- Tu DJ te conoce: recuerda lo que escuchas, a qué hora y lo que te saltas. Mezcla del día, canción del día y la pantalla «Tú» con tu resumen.
+- Letras sincronizadas en Ahora suena.
+- Música online: avances de 30 segundos, miles de radios y YouTube dentro de la app.
+- Personalización: tu color, fondo, esquinas, tamaño de letra, nombre y personalidad de la DJ.
+- Widget para la pantalla de inicio, copia de seguridad y «Compartir › Órbita».
+- Animación de entrada nueva, fluida y más rápida.

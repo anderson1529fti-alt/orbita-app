@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="orbita_widget_label">Órbita</string>
+    <string name="orbita_widget_desc">Tu música y tu DJ en la pantalla de inicio</string>
+    <string name="orbita_widget_play">Reproducir o pausar</string>
+    <string name="orbita_widget_next">Siguiente</string>
+    <string name="orbita_widget_prev">Anterior</string>
+</resources>
