@@ -1,3 +1,9 @@
+Órbita 2.0.1: animación de entrada arreglada y más fluida, y las radios conectan mejor.
+
+- Corregido: el logo de la animación de entrada no se veía.
+- La animación va más fluida: la app espera quieta detrás hasta que termina.
+- Radios: si un servidor del directorio falla, Órbita prueba otros automáticamente.
+
 Órbita 2.0: mezclas de DJ entre canciones, ecualizador, letras, radios de todo el mundo y tu mezcla del día.
 
 - Mezclas entre canciones al estilo DJ: Órbita detecta el ritmo, quita los silencios, iguala el tempo y pasa los graves de una canción a otra. También fundido, eco o corte seco.

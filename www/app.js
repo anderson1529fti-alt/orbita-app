@@ -1,3 +1,5 @@
+/* The app starts two frames after the opening animation has painted, so the animation never waits for it */
+function orbitaMain() {
 (() => {
 'use strict';
 const $ = (s, r = document) => r.querySelector(s);
@@ -2420,6 +2422,15 @@ const NET_UA = 'Orbita/2.0 (app de música personal; Android)';
 async function netJSON(url, { headers = {}, timeout = 15000 } = {}) {
   const http = NATIVE && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
   if (http) {
+    try { return await nativeJSON(http, url, headers, timeout); }
+    catch (e) { if (e && e.status) throw e; /* the native client failed to connect: try the WebView's own */ }
+  }
+  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), timeout);
+  try { const r = await fetch(url, { signal: ctl.signal, headers }); if (!r.ok) { const e = new Error('http ' + r.status); e.status = r.status; throw e; } return await r.json(); }
+  finally { clearTimeout(to); }
+}
+async function nativeJSON(http, url, headers, timeout) {
+  {
     const r = await Promise.race([
       http.request({ url, method: 'GET', headers: { Accept: 'application/json', 'User-Agent': NET_UA, ...headers }, responseType: 'json', connectTimeout: timeout, readTimeout: timeout }),
       sleep(timeout + 2000).then(() => { throw new Error('timeout'); })
@@ -2427,9 +2438,6 @@ async function netJSON(url, { headers = {}, timeout = 15000 } = {}) {
     if (!r || r.status < 200 || r.status >= 300) { const e = new Error('http ' + (r && r.status)); e.status = r && r.status; throw e; }
     return typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
   }
-  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), timeout);
-  try { const r = await fetch(url, { signal: ctl.signal, headers }); if (!r.ok) { const e = new Error('http ' + r.status); e.status = r.status; throw e; } return await r.json(); }
-  finally { clearTimeout(to); }
 }
 const ccGuess = (() => { for (const l of (navigator.languages || [navigator.language || ''])) { const m = /^[a-z]{2,3}-([A-Z]{2})$/.exec(l || ''); if (m) return m[1]; } return ''; })();
 
@@ -2450,13 +2458,24 @@ async function previewFor(title, artist) {
 }
 
 /* Internet radio: thousands of stations from radio-browser.info */
-const RB_HOSTS = ['https://de1.api.radio-browser.info', 'https://nl1.api.radio-browser.info', 'https://at1.api.radio-browser.info', 'https://fi1.api.radio-browser.info', 'https://de2.api.radio-browser.info'];
-let rbHost = null;
+/* radio-browser.info has several mirrors that come and go; "all" points at whichever are alive */
+let RB_HOSTS = ['https://all.api.radio-browser.info', 'https://de2.api.radio-browser.info', 'https://fi1.api.radio-browser.info', 'https://nl1.api.radio-browser.info', 'https://at1.api.radio-browser.info', 'https://de1.api.radio-browser.info'];
+let rbHost = LS.get('rbHost', null), rbFound = false;
 async function rbGet(path) {
-  const hosts = rbHost ? [rbHost, ...RB_HOSTS.filter(h => h !== rbHost)] : shuffleArr(RB_HOSTS);
+  const hosts = [...new Set([rbHost, RB_HOSTS[0], ...shuffleArr(RB_HOSTS.slice(1))].filter(Boolean))];
   let err;
-  for (const h of hosts) { try { const j = await netJSON(h + path, { timeout: 9000 }); rbHost = h; return j; } catch (e) { err = e; } }
+  for (const h of hosts) {
+    try { const j = await netJSON(h + path, { timeout: 8000 }); if (rbHost !== h) { rbHost = h; LS.set('rbHost', h); } rbDiscover(h); return j; }
+    catch (e) { err = e; }
+  }
   throw err || new Error('radio');
+}
+function rbDiscover(h) {
+  if (rbFound) return; rbFound = true;
+  netJSON(h + '/json/servers', { timeout: 8000 }).then(list => {
+    const names = (Array.isArray(list) ? list : []).map(x => x && x.name).filter(n => /^[a-z0-9.-]+\.radio-browser\.info$/i.test(n || ''));
+    if (names.length) RB_HOSTS = [RB_HOSTS[0], ...new Set(names.map(n => 'https://' + n))];
+  }).catch(() => {});
 }
 const RADIO_TAGS = [['', 'Populares'], ['pop', 'Pop'], ['reggaeton', 'Reguetón'], ['latin', 'Latina'], ['rock', 'Rock'], ['dance', 'Dance'], ['electronic', 'Electrónica'], ['hip hop', 'Hip hop'], ['salsa', 'Salsa'], ['bachata', 'Bachata'], ['cumbia', 'Cumbia'], ['80s', 'Años 80'], ['90s', 'Años 90'], ['jazz', 'Jazz'], ['classical', 'Clásica'], ['lofi', 'Lo-fi'], ['chillout', 'Chill'], ['news', 'Noticias']];
 const RADIO_CC = [['', 'Todo el mundo'], ['ES', 'España'], ['MX', 'México'], ['AR', 'Argentina'], ['CO', 'Colombia'], ['CL', 'Chile'], ['PE', 'Perú'], ['VE', 'Venezuela'], ['EC', 'Ecuador'], ['US', 'EE. UU.'], ['CU', 'Cuba'], ['DO', 'Rep. Dominicana'], ['PR', 'Puerto Rico'], ['UY', 'Uruguay'], ['PY', 'Paraguay'], ['BO', 'Bolivia'], ['CR', 'Costa Rica'], ['GT', 'Guatemala'], ['HN', 'Honduras'], ['NI', 'Nicaragua'], ['PA', 'Panamá'], ['SV', 'El Salvador'], ['GB', 'Reino Unido'], ['FR', 'Francia'], ['IT', 'Italia'], ['DE', 'Alemania'], ['BR', 'Brasil'], ['PT', 'Portugal']];
@@ -2476,7 +2495,7 @@ async function loadRadios() {
     if (radio.req !== my) return;
     const seen = new Set();
     radio.list = (Array.isArray(j) ? j : []).filter(s => s && (s.url_resolved || s.url) && !s.hls && s.lastcheckok !== 0 && !seen.has(norm(s.name)) && seen.add(norm(s.name))).slice(0, 40).map(stationTrack);
-  } catch { if (radio.req === my) { radio.list = []; radio.err = 'No he podido cargar las radios. ¿Tienes internet?'; } }
+  } catch (e) { if (radio.req === my) { radio.list = null; radio.err = navigator.onLine === false ? 'No tienes conexión a internet.' : `No he podido conectar con el directorio de radios${e && e.status ? ' (error ' + e.status + ')' : ''}. Prueba otra vez en un momento.`; } }
   if (radio.req === my) { radio.loading = false; renderRadios(); }
 }
 const isFav = uuid => radio.favs.some(f => f.stationuuid === uuid);
@@ -3328,7 +3347,7 @@ function grooves(W, R, dR) {
 function draw(ts) {
   requestAnimationFrame(draw);
   const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
-  if (state.view !== 'inicio' || document.hidden || state.heroMode !== 'vinyl' || !$('#np').hidden) return;
+  if (state.view !== 'inicio' || document.hidden || state.heroMode !== 'vinyl' || !$('#np').hidden || root.classList.contains('booting')) return;
   const t = current(); const d = act(); const playing = !d.paused && !!t;
   if (playing && !reduceMotion) angle += dt * 2.0;
   const minGap = !playing ? 90 : state.anim === 'lite' ? 33 : 0;
@@ -3439,3 +3458,5 @@ async function boot() {
 if (window.ORBITA_DEBUG) window.__orbita = { state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
+}
+requestAnimationFrame(function () { requestAnimationFrame(orbitaMain); });
