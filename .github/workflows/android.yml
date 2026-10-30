@@ -44,6 +44,8 @@ jobs:
 
       - name: Preparar Android SDK
         uses: android-actions/setup-android@v3
+        with:
+         packages: 'platform-tools'
 
       - name: Instalar dependencias
         run: npm install --no-audit --no-fund
