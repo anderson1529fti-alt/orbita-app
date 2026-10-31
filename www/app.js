@@ -2423,7 +2423,7 @@ async function netJSON(url, { headers = {}, timeout = 15000 } = {}) {
   const http = NATIVE && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
   if (http) {
     try { return await nativeJSON(http, url, headers, timeout); }
-    catch (e) { if (e && e.status) throw e; /* the native client failed to connect: try the WebView's own */ }
+    catch (e) { if (e && e.status && e.status < 500) throw e; /* no connection or a server hiccup: try again through the WebView */ }
   }
   const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), timeout);
   try { const r = await fetch(url, { signal: ctl.signal, headers }); if (!r.ok) { const e = new Error('http ' + r.status); e.status = r.status; throw e; } return await r.json(); }
@@ -2464,9 +2464,12 @@ let rbHost = LS.get('rbHost', null), rbFound = false;
 async function rbGet(path) {
   const hosts = [...new Set([rbHost, RB_HOSTS[0], ...shuffleArr(RB_HOSTS.slice(1))].filter(Boolean))];
   let err;
-  for (const h of hosts) {
-    try { const j = await netJSON(h + path, { timeout: 8000 }); if (rbHost !== h) { rbHost = h; LS.set('rbHost', h); } rbDiscover(h); return j; }
-    catch (e) { err = e; }
+  for (let round = 0; round < 2; round++) {
+    for (const h of hosts) {
+      try { const j = await netJSON(h + path, { timeout: 8000 }); if (rbHost !== h) { rbHost = h; LS.set('rbHost', h); } rbDiscover(h); return j; }
+      catch (e) { err = e; }
+    }
+    await sleep(1500);
   }
   throw err || new Error('radio');
 }
@@ -2494,8 +2497,17 @@ async function loadRadios() {
     const j = await rbGet('/json/stations/search?' + p.toString());
     if (radio.req !== my) return;
     const seen = new Set();
-    radio.list = (Array.isArray(j) ? j : []).filter(s => s && (s.url_resolved || s.url) && !s.hls && s.lastcheckok !== 0 && !seen.has(norm(s.name)) && seen.add(norm(s.name))).slice(0, 40).map(stationTrack);
-  } catch (e) { if (radio.req === my) { radio.list = null; radio.err = navigator.onLine === false ? 'No tienes conexión a internet.' : `No he podido conectar con el directorio de radios${e && e.status ? ' (error ' + e.status + ')' : ''}. Prueba otra vez en un momento.`; } }
+    const raw = (Array.isArray(j) ? j : []).filter(s => s && (s.url_resolved || s.url) && !s.hls && s.lastcheckok !== 0 && !seen.has(norm(s.name)) && seen.add(norm(s.name))).slice(0, 40);
+    radio.list = raw.map(stationTrack); radio.stale = false;
+    /* Keep a copy, so the radios still work when the directory is down */
+    try { const c = LS.get('radioCache', {}); c[p.toString()] = { ts: Date.now(), list: raw.map(st => stationTrack(st).raw) }; const keys = Object.keys(c).sort((a, b) => c[b].ts - c[a].ts).slice(0, 25); LS.set('radioCache', Object.fromEntries(keys.map(k => [k, c[k]]))); } catch {}
+  } catch (e) {
+    if (radio.req === my) {
+      const c = (LS.get('radioCache', {}) || {})[p.toString()];
+      if (c && c.list && c.list.length) { radio.list = c.list.map(stationTrack); radio.stale = true; radio.err = ''; }
+      else { radio.list = null; radio.err = navigator.onLine === false ? 'No tienes conexión a internet.' : `El directorio de radios no responde ahora mismo${e && e.status ? ' (error ' + e.status + ', es un fallo de su servidor)' : ''}. Tus radios guardadas con el corazón siguen funcionando. Prueba otra vez en unos minutos.`; }
+    }
+  }
   if (radio.req === my) { radio.loading = false; renderRadios(); }
 }
 const isFav = uuid => radio.favs.some(f => f.stationuuid === uuid);
@@ -2520,7 +2532,7 @@ function renderRadios() {
   if (radio.loading && !radio.list) body = `<div class="panel thinking"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div><b>Sintonizando emisoras…</b></div>`;
   else if (radio.err) body = `<p class="note">${esc(radio.err)} <button class="link" data-act="r-retry">Reintentar</button></p>`;
   else if (radio.list && !radio.list.length) body = `<p class="note">No hay emisoras con esos filtros. Prueba otro género o «Todo el mundo».</p>`;
-  else body = radio.list ? `<ul class="results${radio.loading ? ' dim' : ''}">${radio.list.map(t => stationRow(t, 'all')).join('')}</ul>` : '';
+  else body = radio.list ? (radio.stale ? `<p class="note">El directorio de radios no responde ahora mismo: te enseño la última lista que guardé. <button class="link" data-act="r-retry">Reintentar</button></p>` : '') + `<ul class="results${radio.loading ? ' dim' : ''}">${radio.list.map(t => stationRow(t, 'all')).join('')}</ul>` : '';
   out.innerHTML = favHTML + body;
   markPlaying();
 }

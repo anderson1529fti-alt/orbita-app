@@ -1,3 +1,8 @@
+Órbita 2.0.2: las radios aguantan mejor cuando su directorio falla.
+
+- Si el directorio de emisoras da error, Órbita reintenta con todos sus servidores y por dos vías.
+- Guarda las últimas listas de radios: si el directorio está caído, te enseña la última y puedes escucharlas igual.
+
 Órbita 2.0.1: animación de entrada arreglada y más fluida, y las radios conectan mejor.
 
 - Corregido: el logo de la animación de entrada no se veía.
