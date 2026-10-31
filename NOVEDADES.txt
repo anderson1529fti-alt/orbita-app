@@ -1,3 +1,24 @@
+Órbita 2.2: transiciones suaves de verdad y una entrada fluida.
+
+- Las mezclas automáticas ya no entran de golpe: fundidos de potencia constante de 6 a 14 segundos, mezclas DJ cuadradas al compás y el nuevo estilo «Filtro». El corte con eco solo se usa si lo eliges tú.
+- Las transiciones se hacen en el motor de sonido, así que suenan igual de suaves con la pantalla apagada.
+- Si una mezcla se preparó antes de conocer las canciones, se rehace en cuanto Órbita termina de analizarlas.
+- Cuando Nova habla, la música baja y vuelve poco a poco, en vez de golpe.
+- Saltar de canción a mano hace un fundido corto en lugar de un corte.
+- Animación de entrada más fluida: espera a que el móvil esté listo y la app no empieza a cargar hasta que la animación ha terminado de moverse.
+- Al actualizar, una ventana te dice qué versión tienes y qué hay de nuevo. La versión también aparece arriba en Ajustes.
+
+Órbita 2.1: Nova aprende de ti, visualizador que baila con la música y mezclas cuadradas al compás.
+
+- El cerebro de Nova, dentro del móvil y sin internet: aprende qué canciones saltas y cuáles terminas, a qué hora y después de cuáles, y elige mejor la siguiente.
+- La radio se adapta: si saltas las movidas baja el ritmo, y al revés.
+- «Más como esta» y «No me la pongas más» en Ahora suena.
+- Nova entiende peticiones sin IA: «algo tranquilo para dormir», «solo Bad Bunny», «nada de reguetón de X», «mis favoritas», «10 canciones para el gym».
+- Órbita analiza poco a poco toda tu biblioteca (más rápido mientras carga).
+- Visualizador dinámico (Órbita, Ondas y Galaxia) que reacciona a graves, agudos, volumen y golpes: en Ahora, en Ahora suena y a pantalla completa.
+- Mezclas DJ cuadradas al compás, nuevo estilo «Filtro», tempo más flexible y aviso de la mezcla en curso.
+- Nova habla con más variedad y comenta lo que pasa.
+
 Órbita 2.0.3: YouTube explica exactamente qué le pasa a la clave.
 
 - Si la clave de YouTube falla, Órbita dice el motivo exacto que da Google (mal copiada, API sin activar, cuota gastada o restricciones) y cómo arreglarlo.
