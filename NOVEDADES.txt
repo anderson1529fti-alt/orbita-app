@@ -1,3 +1,8 @@
+Órbita 2.0.3: YouTube explica exactamente qué le pasa a la clave.
+
+- Si la clave de YouTube falla, Órbita dice el motivo exacto que da Google (mal copiada, API sin activar, cuota gastada o restricciones) y cómo arreglarlo.
+- Al guardar la clave se quitan los espacios y se comprueba que tenga la forma correcta.
+
 Órbita 2.0.2: las radios aguantan mejor cuando su directorio falla.
 
 - Si el directorio de emisoras da error, Órbita reintenta con todos sus servidores y por dos vías.

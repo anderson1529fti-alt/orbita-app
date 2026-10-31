@@ -2426,7 +2426,7 @@ async function netJSON(url, { headers = {}, timeout = 15000 } = {}) {
     catch (e) { if (e && e.status && e.status < 500) throw e; /* no connection or a server hiccup: try again through the WebView */ }
   }
   const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), timeout);
-  try { const r = await fetch(url, { signal: ctl.signal, headers }); if (!r.ok) { const e = new Error('http ' + r.status); e.status = r.status; throw e; } return await r.json(); }
+  try { const r = await fetch(url, { signal: ctl.signal, headers }); if (!r.ok) { const e = new Error('http ' + r.status); e.status = r.status; try { e.data = await r.json(); } catch {} throw e; } return await r.json(); }
   finally { clearTimeout(to); }
 }
 async function nativeJSON(http, url, headers, timeout) {
@@ -2435,7 +2435,7 @@ async function nativeJSON(http, url, headers, timeout) {
       http.request({ url, method: 'GET', headers: { Accept: 'application/json', 'User-Agent': NET_UA, ...headers }, responseType: 'json', connectTimeout: timeout, readTimeout: timeout }),
       sleep(timeout + 2000).then(() => { throw new Error('timeout'); })
     ]);
-    if (!r || r.status < 200 || r.status >= 300) { const e = new Error('http ' + (r && r.status)); e.status = r && r.status; throw e; }
+    if (!r || r.status < 200 || r.status >= 300) { const e = new Error('http ' + (r && r.status)); e.status = r && r.status; e.data = r && r.data; throw e; }
     return typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
   }
 }
@@ -2585,8 +2585,20 @@ async function ytSearch(q) {
   try {
     const j = await netJSON(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=15&q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`);
     yt.results = (j.items || []).filter(x => x.id && x.id.videoId).map(x => ({ id: x.id.videoId, title: decodeEntities(x.snippet?.title || ''), author: decodeEntities(x.snippet?.channelTitle || ''), thumb: x.snippet?.thumbnails?.medium?.url || '' }));
-  } catch (e) { yt.results = []; yt.err = e && (e.status === 400 || e.status === 403) ? 'La clave de YouTube no vale o se ha gastado la cuota de hoy.' : 'No he podido buscar en YouTube. ¿Tienes internet?'; }
+  } catch (e) { yt.results = []; yt.err = ytErrorText(e); }
   yt.loading = false; renderYT();
+}
+/* Google says exactly what is wrong with the key: turn it into something you can act on */
+function ytErrorText(e) {
+  if (!e || !e.status) return 'No he podido buscar en YouTube. ¿Tienes internet?';
+  let d = e.data; if (typeof d === 'string') { try { d = JSON.parse(d); } catch {} }
+  const er = d && d.error || {}, msg = String(er.message || ''), reasons = [...(er.errors || []).map(x => x && x.reason), ...(er.details || []).map(x => x && x.reason)].filter(Boolean).join(' ');
+  const all = reasons + ' ' + msg;
+  if (/keyInvalid|API_KEY_INVALID|API key not valid/i.test(all)) return 'Google dice que la clave no es válida: seguramente se copió con alguna letra cambiada. Cópiala otra vez desde la consola de Google con el botón de copiar (no a mano ni con Google Lens) y pégala aquí.';
+  if (/accessNotConfigured|SERVICE_DISABLED|has not been used|is disabled/i.test(all)) return 'La clave está bien, pero falta activar «YouTube Data API v3» en ese proyecto de Google (Biblioteca › YouTube Data API v3 › Habilitar). Si acabas de activarla, espera 5 minutos.';
+  if (/quotaExceeded|dailyLimitExceeded|rateLimitExceeded/i.test(all)) return 'Se han gastado las búsquedas gratuitas de hoy. Mañana vuelven. Mientras, puedes pegar enlaces o compartir vídeos desde YouTube.';
+  if (/API_KEY_SERVICE_BLOCKED|ipRefererBlocked|API_KEY_ANDROID_APP_BLOCKED|API_KEY_HTTP_REFERRER_BLOCKED|blocked|forbidden/i.test(all)) return 'La clave tiene restricciones que bloquean a Órbita. En la consola de Google, edita la clave: en «Restricciones de aplicaciones» pon «Ninguna» y en «Restricciones de API» deja solo YouTube Data API v3.';
+  return `YouTube ha rechazado la búsqueda (error ${e.status}${msg ? ': ' + msg.slice(0, 120) : ''}).`;
 }
 function decodeEntities(s) { const d = document.createElement('textarea'); d.innerHTML = s; return d.value; }
 function ytRow(v) { return `<li class="result yt-row">${v.thumb ? `<img class="yt-thumb" src="${esc(v.thumb)}" alt="" loading="lazy">` : `<span class="yt-thumb ph" aria-hidden="true">▶</span>`}<div class="d-text"><b>${esc(v.title || 'Vídeo de YouTube')}</b><span>${esc(v.author || '')}</span></div><button class="btn small primary" data-act="yt-open" data-id="${esc(v.id)}">Ver aquí</button></li>`; }
@@ -2605,7 +2617,7 @@ function renderYT() {
   out.innerHTML = html;
 }
 $('#ytForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#ytQ').value.trim(); if (!v) return; const id = ytIdFrom(v); if (id) { openYT(id); $('#ytQ').value = ''; } else ytSearch(v); });
-$('#ytKeyForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#ytKeyIn').value.trim(); if (!v) return; LS.set('ytKey', v); $('#ytKeyIn').value = ''; renderYT(); toast('Clave de YouTube guardada en este móvil'); const q = $('#ytQ').value.trim(); if (q && !ytIdFrom(q)) ytSearch(q); });
+$('#ytKeyForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#ytKeyIn').value.replace(/\s+/g, ''); if (!v) return; if (!/^AIza[0-9A-Za-z_-]{35}$/.test(v)) { toast(`Esa clave no tiene la forma de una clave de Google (empieza por AIza y tiene 39 caracteres; esta tiene ${v.length}). Cópiala con el botón de copiar de la consola.`, 6000); return; } LS.set('ytKey', v); $('#ytKeyIn').value = ''; renderYT(); toast('Clave de YouTube guardada en este móvil'); const q = $('#ytQ').value.trim(); if (q && !ytIdFrom(q)) ytSearch(q); });
 $('#ytKeyDel').onclick = () => { LS.set('ytKey', ''); renderYT(); toast('Clave de YouTube quitada'); };
 $('#ytOverlay').addEventListener('click', e => { if (e.target.id === 'ytOverlay') closeYT(); });
 
