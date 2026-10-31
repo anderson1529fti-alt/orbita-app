@@ -1,0 +1,107 @@
+name: Construir app Android
+
+# Se ejecuta solo cada vez que subes cambios a la rama main,
+# y también a mano desde la pestaña Actions (botón "Run workflow").
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-build
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Comprobar la clave de firma
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Faltan los secretos KEYSTORE_BASE64 y KEYSTORE_PASSWORD. Sigue la PARTE 2 de LEEME.txt."
+            exit 1
+          fi
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar dependencias
+        run: npm install --no-audit --no-fund
+
+      - name: Crear el proyecto Android
+        run: npx cap add android
+
+      - name: Icono, permisos, versión y firma
+        id: prep
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: node scripts/prepare-android.mjs
+
+      - name: Copiar la app al proyecto
+        run: npx cap sync android
+
+      - name: Compilar el APK
+        id: build
+        continue-on-error: true
+        working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      # Plan B: si algo nuevo del lado de Android no compila, se vuelve a compilar sin el widget
+      # ni «Compartir con Órbita». La app y todo lo demás de la versión se publican igual.
+      - name: Compilar sin el widget (plan B)
+        if: steps.build.outcome == 'failure'
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          EXTRAS: '0'
+        run: |
+          echo "::warning::La compilación completa falló; se publica la versión sin widget ni «Compartir con Órbita»."
+          rm -rf android
+          npx cap add android
+          node scripts/prepare-android.mjs
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Nombrar el APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk "Orbita-${{ steps.prep.outputs.version }}.apk"
+
+      - name: Publicar la versión (Releases)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.prep.outputs.version }}
+          name: "Órbita ${{ steps.prep.outputs.version }}${{ steps.prep.outputs.prerelease == 'true' && ' (beta)' || '' }}"
+          body_path: NOVEDADES.txt
+          files: Orbita-${{ steps.prep.outputs.version }}.apk
+          # Las betas quedan en Releases para instalarlas a mano, pero no avisan a los usuarios
+          prerelease: ${{ steps.prep.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.prep.outputs.prerelease != 'true' }}

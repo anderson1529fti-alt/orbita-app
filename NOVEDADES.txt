@@ -1,3 +1,12 @@
+Órbita 3.0 · beta 1 (versión de prueba): Nova recuerda.
+
+- Nova recuerda lo que le dices: «no me pongas reguetón por la mañana», «me encanta el rap», «por la noche, cosas tranquilas». Lo cumple en la radio y en sus mezclas (tus listas no se tocan).
+- Conoce el estilo de tus canciones: por la etiqueta del archivo, por Wikipedia o porque se lo enseñas («tal artista es trap»). Puedes pedir «solo rap» o «nada de reguetón».
+- Rutinas: «cada mañana ponme algo suave» y lo pondrá cuando abras Órbita a esa hora.
+- Recuerdos y el resumen de tu semana.
+- Conversación con historial: toca el bocadillo de Nova o «Conversación». Pregúntale «¿qué recuerdas de mí?».
+- En «Tú» ves y borras todo lo que le has pedido.
+
 Órbita 2.3: Nova te escucha.
 
 - Háblale a Nova: toca el micrófono y dile «más movida», «más tranquila», «sáltate esta», «¿por qué esta?», «¿quién canta?», «apágate en 30 minutos», «pon Despacito después», «nada de [artista]» o pídele una mezcla.
