@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.speech.RecognizerIntent;
 import android.util.Base64;
 import android.util.Size;
 import com.getcapacitor.JSArray;
@@ -22,6 +23,7 @@ import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -32,11 +34,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import androidx.activity.result.ActivityResult;
 
 /**
  * Lee la música guardada en el móvil (MediaStore) sin copiarla: permisos, lista de canciones y portadas.
  * También: widget de la pantalla de inicio, copias de seguridad en Descargas y lo que otras apps
- * comparten con Órbita (enlaces de YouTube, canciones).
+ * comparten con Órbita (enlaces de YouTube, canciones). Y el reconocimiento de voz de Android para hablar con Nova.
  */
 @CapacitorPlugin(
     name = "MusicLibrary",
@@ -70,6 +73,37 @@ public class MusicLibraryPlugin extends Plugin {
         if (s == PermissionState.GRANTED) return "granted";
         if (s == PermissionState.DENIED) return "denied";
         return "prompt";
+    }
+
+    /** Abre el reconocedor de voz del sistema (el de Google) y devuelve lo que ha entendido. */
+    @PluginMethod
+    public void recognizeSpeech(PluginCall call) {
+        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        String lang = call.getString("lang", "es-ES");
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang);
+        i.putExtra(RecognizerIntent.EXTRA_PROMPT, call.getString("prompt", "Dile algo a Nova"));
+        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+        try {
+            startActivityForResult(call, i, "onSpeechResult");
+        } catch (Exception e) {
+            call.reject("No hay reconocimiento de voz en este móvil", "NO_RECOGNIZER");
+        }
+    }
+
+    @ActivityCallback
+    private void onSpeechResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        JSArray list = new JSArray();
+        Intent data = result.getData();
+        if (result.getResultCode() == android.app.Activity.RESULT_OK && data != null) {
+            ArrayList<String> found = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+            if (found != null) for (String s : found) list.put(s);
+        }
+        JSObject ret = new JSObject();
+        ret.put("matches", list);
+        call.resolve(ret);
     }
 
     @PluginMethod

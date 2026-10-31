@@ -1,3 +1,13 @@
+Órbita 2.3: Nova te escucha.
+
+- Háblale a Nova: toca el micrófono y dile «más movida», «más tranquila», «sáltate esta», «¿por qué esta?», «¿quién canta?», «apágate en 30 minutos», «pon Despacito después», «nada de [artista]» o pídele una mezcla.
+- Nova te explica por qué ha elegido cada canción.
+- Nova conoce a tus artistas: te cuenta datos de ellos (de Wikipedia) al presentar canciones y en Ahora suena.
+- El tiempo que hace: dile tu ciudad en Ajustes y lo tendrá en cuenta para saludarte y elegir la música. No usa tu ubicación.
+- Listas hechas por Nova (tus mañanas, tus noches, para entrenar…) que se actualizan solas.
+- Edita la cola en Ahora suena: sube o quita canciones de «A continuación».
+- Arreglado: el título de la animación de entrada ya no cambia de tamaño, y el visualizador ya no tapa el día de la semana.
+
 Órbita 2.2: transiciones suaves de verdad y una entrada fluida.
 
 - Las mezclas automáticas ya no entran de golpe: fundidos de potencia constante de 6 a 14 segundos, mezclas DJ cuadradas al compás y el nuevo estilo «Filtro». El corte con eco solo se usa si lo eliges tú.

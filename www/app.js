@@ -987,7 +987,7 @@ function beginTrack(t, { talk = null, viaMix = false, silent = false } = {}) {
 }
 async function prefetchNext() {
   const id = state.queue[state.qi + 1]; const t = id && trackById(id);
-  if (t && !t.net) { try { await audioUrl(t); coverUrl(t, 'full'); setTimeout(() => scheduleAnalysis(t), 4000); } catch {} }
+  if (t && !t.net) { try { await audioUrl(t); coverUrl(t, 'full'); setTimeout(() => scheduleAnalysis(t), 4000); } catch {} if (ONLINE) setTimeout(() => artistFact(t.artist), 2500); }
 }
 async function fadePause() { stopTalk(); if (mixing) finishMix(true); const k = A; await tween('f' + k, 0, 160); els.forEach(e => { if (!e.paused) e.pause(); }); deckF[k] = 1; applyVol(); saveSession(true); }
 async function resume() { const d = act(); wakeCtx(); deckF[A] = 0; applyVol(); try { await d.play(); } catch { deckF[A] = 1; applyVol(); return; } tween('f' + A, 1, 240); }
@@ -1349,6 +1349,7 @@ function updateArt() {
   if (!$('#np').hidden) renderNP();
 }
 function updatePlayer() {
+  renderNovaChips();
   const t = current();
   $('#plCover').outerHTML = coverHTML(t, 'lg', 'plCover', ' data-act="np-open"');
   $('#plTitle').textContent = t ? t.title : 'Nada sonando';
@@ -1481,8 +1482,10 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-slee
 /* ---------- Now playing (full screen) ---------- */
 function renderQueue() {
   const box = $('#npQueue'); if (!box) return;
-  const up = state.queue.slice(state.qi + 1, state.qi + 6).map(trackById).filter(Boolean);
-  box.innerHTML = up.length ? `<div class="eyebrow">A continuación</div>` + up.map((t, i) => `<button data-act="q-jump" data-i="${state.qi + 1 + i}">${coverHTML(t)}<span class="row-text"><span class="t-title">${esc(t.title)}</span><span class="t-sub">${esc(t.artist)}</span></span></button>`).join('') : '';
+  const up = state.queue.slice(state.qi + 1, state.qi + 9).map((id, i) => [trackById(id), state.qi + 1 + i]).filter(x => x[0]);
+  const upIc = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  const xIc = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  box.innerHTML = up.length ? `<div class="eyebrow">A continuación</div>` + up.map(([t, i], k) => `<div class="q-item"><button data-act="q-jump" data-i="${i}">${coverHTML(t)}<span class="row-text"><span class="t-title">${esc(t.title)}</span><span class="t-sub">${esc(t.artist)}</span></span></button>${k ? `<button class="icon-btn" data-act="q-up" data-i="${i}" aria-label="Subir ${esc(t.title)}">${upIc}</button>` : ''}<button class="icon-btn" data-act="q-del" data-i="${i}" aria-label="Quitar ${esc(t.title)} de la cola">${xIc}</button></div>`).join('') : '';
 }
 (() => {
   const art = $('#npArt'); let x0 = null, y0 = 0;
@@ -1495,6 +1498,7 @@ function renderQueue() {
   art.addEventListener('pointerup', end); art.addEventListener('pointercancel', () => { x0 = null; art.style.transform = ''; });
 })();
 function renderNP() {
+  renderAbout(current());
   const t = current();
   $('#npArt').innerHTML = bigArtHTML(t);
   const u = coverUrl(t, 'full'); const bg = $('#npBg');
@@ -1813,6 +1817,7 @@ function djShouldTalk(t) {
 }
 function introFor(t) {
   if (state.intros[t.id]) return state.intros[t.id];
+  if (ONLINE && Math.random() < 0.3) { const fl = factLine(t); if (fl) return fl; }
   const ctxL = contextLine(t); if (ctxL) return ctxL;
   const mem = memoryLine(t); if (mem) return mem;
   const m = getMoment(); const art = t.artist && t.artist !== 'Artista desconocido' && !t.demo && !t.mine ? t.artist : null;
@@ -2494,6 +2499,8 @@ function intentMix(text, pool, n, m) {
   if (it.bright !== null) sel = sel.map(t => ({ t, b: (trackVec(t) || [0, 0.5])[1] })).sort((a, b) => Math.abs(a.b - it.bright) - Math.abs(b.b - it.bright)).slice(0, Math.max(n * 2, 12)).map(x => x.t);
   let want = it.count || n;
   if (target !== null) { const known = sel.filter(t => trackVec(t)); if (known.length >= Math.min(want, 4)) sel = known; }
+  /* Stay near what was asked: «para dormir» never brings in the loudest songs just to fill the list */
+  if (target !== null) { const near = sel.filter(t => { const v = trackVec(t); return !v || Math.abs(v[0] - target) <= 0.32; }); if (near.length >= 3) sel = near; }
   const ranked = brainRank(sel, current(), { target, explore: 0.5, strength: target !== null ? 4.5 : 1.6 }).map(x => x.t);
   let picked = [];
   if (it.minutes) { let tot = 0; for (const t of ranked) { if (tot >= it.minutes * 60) break; picked.push(t); tot += t.duration || 200; } }
@@ -2621,7 +2628,8 @@ function localMix(pool, m, mood, scenario, n) {
   const now = Date.now();
   let sel = pool;
   if (mood === 'nostalgia') { const f = pool.filter(t => plays(t) >= 2 && t.lastPlayed && now - t.lastPlayed > 14 * 864e5); if (f.length >= Math.min(4, n)) sel = f; }
-  const target = mood === 'auto' ? momentEnergy(m) : (MOOD_ENERGY[mood] ?? null);
+  const t0 = mood === 'auto' ? momentEnergy(m) : (MOOD_ENERGY[mood] ?? null);
+  const target = t0 === null ? null : Math.max(0.05, Math.min(0.95, t0 + (mood === 'auto' ? weatherBias() : 0)));
   const recent = new Set(state.history.slice(0, 5));
   const ranked = brainRank(sel, current(), { target, exclude: recent, explore: 0.6 }).map(x => x.t);
   const ids = arrangeArc((ranked.length >= n ? ranked : brainRank(sel, current(), { target, explore: 0.6 }).map(x => x.t)).slice(0, n), 'mix' + now).map(t => t.id);
@@ -3438,6 +3446,7 @@ function setView(v, push = true) {
   if (v === 'buscar') { setNetTab(netTab); if (netTab === 'canciones' && !state.net && !isMobile) setTimeout(() => $('#netQ').focus({ preventScroll: true }), 50); }
   if (v === 'tu') renderTu();
   if (v === 'inicio') { renderForYou(); setTimeout(vizKick, 30); }
+  if (v === 'listas') renderNovaLists();
   if (v === 'ajustes') { renderSound(); renderThemes(); renderLook(); renderDjPersona(); renderVoices(); renderVoiceStyle(); updateStorage(); renderPerms(); renderBackup(); }
 }
 $$('.tab').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
@@ -3466,7 +3475,7 @@ $('#btnMix').onclick = () => createMix();
 $('#btnSurprise').onclick = () => createMix({ surprise: true });
 $('#ideas').innerHTML = shuffleArr(IDEAS).slice(0, 4).map(s => `<button class="idea" data-idea="${esc(s)}">${esc(s)}</button>`).join('');
 $('#ideas').addEventListener('click', e => { const b = e.target.closest('[data-idea]'); if (!b) return; $('#djInput').value = b.dataset.idea; createMix({ request: b.dataset.idea, autoplay: true }); });
-$('#djAsk').addEventListener('submit', e => { e.preventDefault(); const v = $('#djInput').value.trim(); if (!v) { $('#djInput').focus(); return; } createMix({ request: v, autoplay: true }); });
+$('#djAsk').addEventListener('submit', e => { e.preventDefault(); const v = $('#djInput').value.trim(); if (!v) { $('#djInput').focus(); return; } novaCommand(v); });
 
 /* ---------- Library (rendered in batches) ---------- */
 function libFiltered() {
@@ -3525,6 +3534,7 @@ $('#dropText').innerHTML = dirSupported
   : '<b>Pulsa «Añadir canciones» y selecciona muchas a la vez</b>: en el selector del móvil, mantén pulsada una canción y ve tocando las demás (o usa «Seleccionar todo»). Se guardan tal cual, sin recomprimir, con su título, artista y portada.';
 
 function renderLists() {
+  renderNovaLists();
   const pls = state.playlists.slice().sort((a, b) => b.createdAt - a.createdAt);
   $('#cntLists').textContent = pls.length;
   $('#listsMeta').textContent = pls.length ? `${pls.length} ${pls.length === 1 ? 'lista' : 'listas'}` : '';
@@ -3577,6 +3587,8 @@ document.addEventListener('click', e => {
   else if (a === 'voice-test') { const v = dj.all.find(x => x.name === el.dataset.name); if (v) speakTTS(`Hola, soy ${dj.name}. Así sonaría presentando tus canciones en Órbita FM.`, v); }
   else if (a === 'voice-use') { const v = dj.all.find(x => x.name === el.dataset.name); if (v) { dj.voice = v; LS.set('voiceName', v.name); renderVoices(); speakTTS('Perfecto. A partir de ahora sonaré así.'); } }
   else if (a === 'np-open') openNP();
+  else if (a === 'q-del') { const i = +el.dataset.i; if (i > state.qi && state.queue[i]) { state.queue.splice(i, 1); disarmMix(); prefetchNext(); renderQueue(); haptic(6); } }
+  else if (a === 'q-up') { const i = +el.dataset.i, q = state.queue; if (i > state.qi + 1 && q[i]) { [q[i - 1], q[i]] = [q[i], q[i - 1]]; disarmMix(); prefetchNext(); renderQueue(); haptic(6); } }
   else if (a === 'q-jump') { const i = +el.dataset.i; if (state.queue[i]) { state.qi = i; loadCurrent(true, act().paused ? 0 : MANUAL_XF); } }
   else if (a === 'sleep-open') { renderSleep(); $('#sleepOverlay').hidden = false; }
   else if (a === 'sleep-close') $('#sleepOverlay').hidden = true;
@@ -3960,6 +3972,13 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '2.3': [
+    '<b>Háblale a Nova</b>: toca el micrófono y dile «más movida», «sáltate esta», «¿por qué esta?», «apágate en 30 minutos» o pídele una mezcla.',
+    '<b>Nova te explica</b> por qué ha elegido cada canción y conoce a tus artistas: te cuenta datos de ellos (de Wikipedia).',
+    '<b>El tiempo que hace</b>: dile tu ciudad en Ajustes y lo tendrá en cuenta para saludarte y elegir la música.',
+    '<b>Listas hechas por Nova</b> en Listas: tus mañanas, tus noches, para entrenar… se actualizan solas.',
+    '<b>Edita la cola</b> en Ahora suena: sube o quita canciones de «A continuación».'
+  ],
   '2.2': [
     '<b>Transiciones suaves</b>: fundidos largos de potencia constante y mezclas al compás, sin entradas de golpe. También con la pantalla apagada.',
     '<b>Visualizador</b> que baila con la música: toca «Visual» en Ahora suena, o elígelo en Ajustes › Portadas.',
@@ -3983,6 +4002,293 @@ $('#newsOverlay').addEventListener('click', e => {
   if (b && b.dataset.news === 'viz') { $('#newsOverlay').hidden = true; openVizFull(); }
 });
 $('#npBan').onclick = () => banTrack(current());
+/* ---------- 2.3 · Nova te escucha ----------
+   Voice and typed commands, refinements of what is playing, explanations of each pick,
+   facts about your artists (Wikipedia), the weather where you are (Open-Meteo) and playlists Nova keeps up to date. */
+const novaSay = text => djTalk(text, 'test', { forceTTS: true });
+const joinEs = a => a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' y ' + a[a.length - 1];
+/* Listening: Android's own speech recognizer (native plugin) or the browser's, where there is one */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const voiceAvailable = () => (NATIVE && !!nativeLib) || (!!SR && STANDALONE);
+async function listenOnce() {
+  if (NATIVE && nativeLib) {
+    const r = await nativeLib.recognizeSpeech({ lang: 'es-ES', prompt: `Dile algo a ${dj.name}` });
+    return (r && r.matches || [])[0] || '';
+  }
+  if (!SR) throw new Error('nosr');
+  return new Promise((res, rej) => {
+    const r = new SR(); let got = '';
+    r.lang = 'es-ES'; r.interimResults = false; r.maxAlternatives = 1;
+    r.onresult = e => { got = e.results[0][0].transcript; };
+    r.onerror = e => rej(new Error(e.error || 'sr'));
+    r.onend = () => res(got);
+    r.start();
+  });
+}
+let listening = false;
+async function voiceAsk() {
+  if (listening) return;
+  listening = true; $$('#djMic, #npMic').forEach(b => b.classList.add('on'));
+  stopTalk(); haptic(10);
+  const playing = current() && !act().paused; if (playing) tween('duck', 0.15, 250);
+  let text = '';
+  try { text = String(await listenOnce() || '').trim(); }
+  catch (e) {
+    const m = String(e && e.message || '');
+    toast(/not implemented|UNIMPLEMENTED|recognizeSpeech/i.test(m) ? 'Esta versión de la app aún no tiene voz: actualízala' : /NO_RECOGNIZER|No hay/i.test(m) ? 'Este móvil no tiene reconocimiento de voz (instala o activa «Google»)' : /not-allowed|denied/i.test(m) ? 'Necesito permiso para usar el micrófono' : 'No te he oído bien. Prueba otra vez', 4200);
+  }
+  finally {
+    listening = false; $$('#djMic, #npMic').forEach(b => b.classList.remove('on'));
+    if (playing) tween('duck', 1, 700);
+  }
+  if (!text) return;
+  $('#djInput').value = text;
+  setBubble(`«${text}»`, 'Tú');
+  await sleep(250);
+  novaCommand(text, { voice: true });
+}
+/* Commands: most phrases change something right away; anything else becomes a request for a mix */
+function novaCommand(raw, { voice = false } = {}) {
+  const t = current(), playing = !!t && !act().paused;
+  let q = norm(raw);
+  const me = norm(dj.name);
+  q = q.replace(new RegExp(`^(oye |hey |ey |hola |venga )?(${me ? me + '|' : ''}nova|dj)( |$)`), '').replace(/^(por favor |porfa )|( por favor| porfa)$/g, '').trim();
+  if (!q) { novaSay('Dime, te escucho.'); return; }
+  const is = re => re.test(q);
+  if (is(/^(ayuda|que puedes hacer|que sabes hacer|que te puedo pedir)$/)) { novaSay('Puedes pedirme cosas como: más movida, más tranquila, sáltate esta, ¿por qué esta?, más como esta, ¿quién canta?, háblame del artista, apágate en treinta minutos, o una mezcla: algo para entrenar.'); return; }
+  if (is(/^(que hora es|dime la hora)$/)) { const d = new Date(); novaSay(`Son las ${d.getHours()} y ${pad(d.getMinutes())}.`); return; }
+  if (is(/^(pausa|pausala|para(la)?|deten(la|te)?|stop|silencio|calla(te)?|pon pausa|quita la musica)$/)) { if (playing) fadePause(); setBubble('Pausa.', dj.name); return; }
+  if (is(/^(sigue|continua|reanuda|play|dale|reproduce|pon (la )?musica|vuelve a poner(la)?)$/)) { if (t) resume(); else createMix({ surprise: true, autoplay: true }); return; }
+  if (is(/^(siguiente|la siguiente|pasa(la)?|salta(la)?|saltate (esta|esa)|saltatela|otra|otra cancion|cambia(la)?|cambia de cancion|next|no me gusta( esta| nada)?)$/)) { if (t) { setBubble('Siguiente.', dj.name); next(false); } return; }
+  if (is(/^(anterior|la anterior|atras|vuelve atras|la de antes|pon la (de antes|anterior))$/)) { if (t) prev(); return; }
+  if (is(/^(sube( el)? volumen|subele|mas alto|mas volumen|sube)$/)) { setVolume(+1); return; }
+  if (is(/^(baja( el)? volumen|bajale|mas bajo|mas flojo|menos volumen|baja)$/)) { setVolume(-1); return; }
+  if (is(/^(me gusta( esta| mucho)?|me encanta( esta)?|guarda(la)?( en favoritas)?|a favoritas|favorita|like)$/)) { if (t && !t.net) { if (!liked(t)) toggleLike(t); novaSay(pickFresh(['Guardada en tus favoritas.', 'Apuntada: favorita.', 'Hecho, a favoritas.'])); } return; }
+  if (is(/(no me (la )?pongas mas|no (la )?quiero (volver a )?oir( mas)?|odio esta|quita(la)? para siempre|no la pongas mas)/)) { if (t) banTrack(t); return; }
+  if (is(/(mas (como|parecidas a|parecido a) esta|algo parecido|parecidas a esta|mas de este (estilo|rollo|tipo))/)) { moreLikeThis(); return; }
+  if (t && is(/^(un poco |algo )?mas (movida|movido|animada|animado|marcha|ritmo|energia|cana|canera|fuerte|rapida|rapido)$|^sube (el|ese) ritmo$|^venga arriba$/)) { refineEnergy(+1); return; }
+  if (t && is(/^(un poco |algo )?mas (tranquila|tranquilo|suave|calmada|lenta|lento|relajada|relajado|chill)$|^baja (el|ese) ritmo$|^relaja(nos|te)?$/)) { refineEnergy(-1); return; }
+  if (is(/(que (cancion )?(suena|es esta|esta sonando|estoy escuchando)|como se llama (esta|la cancion)|quien canta( esta)?)/)) {
+    if (!t) { novaSay('Ahora mismo no suena nada.'); return; }
+    const f = !t.net && cachedFact(t.artist); novaSay(`Suena ${nameOf(t)}.${f ? ' ' + shortFact(f) : ''}`); return;
+  }
+  if (is(/por ?que (has puesto|pusiste|me pones|suena|elegiste|esta)/) || is(/^por ?que$/)) { explainPick(t); return; }
+  const ab = q.match(/^(quien es|quienes son|hablame (de|del artista|sobre)|cuentame (algo )?(de|del artista|sobre)|que sabes de|dime algo (de|del artista|sobre))( (.+))?$/);
+  if (ab || is(/^(hablame del artista|quien es el artista|cuentame algo del artista)$/)) { aboutArtist(ab && ab[7] && !/^(este|esta|el artista|la artista|el|ella|el cantante)$/.test(ab[7]) ? ab[7] : (t && t.artist)); return; }
+  if (is(/^(pon |activa |quiero )?(el )?modo radio$|^(pon )?(la )?radio$/)) { if (!state.radio) $('#btnRadio').click(); return; }
+  if (is(/(^| )(que tiempo hace|que tal (hace|el tiempo)|va a llover|esta lloviendo|como esta el tiempo|que clima hace)/)) { tellWeather(); return; }
+  const sl = q.match(/(apaga(te)?|duerme(te)?|parate|temporizador|me voy a dormir|a dormir).*?(\d+|media|una|dos) ?(min|minutos|hora|horas)/);
+  if (sl) { const n = sl[4] === 'media' ? 30 : sl[4] === 'una' ? 1 : sl[4] === 'dos' ? 2 : +sl[4]; const mins = /hora/.test(sl[5]) ? (sl[4] === 'media' ? 30 : n * 60) : n; if (mins > 0 && mins <= 600) { setSleep(String(mins)); novaSay(`Vale, me apago en ${mins >= 60 ? (mins / 60 === 1 ? 'una hora' : (mins / 60) + ' horas') : mins + ' minutos'}.`); } return; }
+  if (is(/(al (acabar|terminar)|cuando (acabe|termine)) (esta|la cancion)/)) { setSleep('track'); return; }
+  if (is(/^(pon |ensename |muestrame |abre )?(la )?letra$|karaoke/)) { if (t) { openNP(); setLyricsOpen(true); } return; }
+  if (is(/visualizador|^(pon )?(el )?visual$/)) { openVizFull(); return; }
+  const qn = q.match(/^(despues|luego|a continuacion) pon (.+)$|^pon (.+) (despues|luego|a continuacion|la siguiente)$/);
+  if (qn && t) { queueNextByName(qn[2] || qn[3]); return; }
+  const less = q.match(/^(nada (mas )?de|sin|menos|quita(me)?) (.+)$/);
+  if (less && t && removeArtistFromQueue(less[4])) return;
+  const clean = String(raw).replace(new RegExp(`^\\s*((oye|hey|ey|hola|venga)[\\s,]+)?(${dj.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|nova|dj)[\\s,:]+`, 'i'), '').trim() || raw;
+  createMix({ request: clean, autoplay: true });
+}
+function setVolume(dir) {
+  const v = Math.max(0, Math.min(100, +vol.value + dir * 15));
+  vol.value = v; vol.dispatchEvent(new Event('input')); toast(`Volumen ${v} %`);
+}
+function refineEnergy(dir) {
+  const t = current(); const v = t && trackVec(t);
+  const base = BRAIN.target ?? (v ? v[0] : 0.5);
+  BRAIN.target = Math.max(0.05, Math.min(0.95, base + dir * 0.22));
+  const keep = state.queue.slice(0, state.qi + 1);
+  const exclude = new Set([...state.history.slice(0, 10), ...keep.slice(-30)]);
+  let ids = brainRank(poolTracks(), t, { target: BRAIN.target, exclude, explore: 0.3, strength: 4.5 }).map(x => x.t.id).slice(0, 10);
+  if (ids.length < 3) ids = brainRank(poolTracks(), t, { target: BRAIN.target, strength: 4.5 }).map(x => x.t.id).slice(0, 10);
+  if (!ids.length) { novaSay('No tengo más canciones para cambiar el ritmo.'); return; }
+  state.queue = keep.concat(ids); if (state.source !== 'radio') state.source = 'mix';
+  disarmMix(); prefetchNext(); renderQueue();
+  const nx = trackById(ids[0]);
+  novaSay(dir > 0 ? pickFresh([`Subimos el ritmo. Lo siguiente: ${nx.title}.`, `Marchando algo con más energía, empezando por ${nx.title}.`, 'Vale, vamos a por más marcha.'])
+    : pickFresh([`Bajamos revoluciones. Lo siguiente: ${nx.title}.`, `Algo más tranquilo, empezando por ${nx.title}.`, 'Vale, nos relajamos un poco.']));
+}
+function explainPick(t) {
+  if (!t) { novaSay('Ahora mismo no suena nada.'); return; }
+  if (t.net) { novaSay(t.kind === 'radio' ? `Es una radio que elegiste tú: ${t.title}.` : 'Es un avance que pusiste tú desde Buscar.'); return; }
+  const r = [], prevId = state.queue[state.qi - 1], prv = prevId && trackById(prevId);
+  if (state.mix && state.mix.request && state.source === 'mix') r.push(`me pediste «${state.mix.request}»`);
+  if (liked(t)) r.push('es una de tus favoritas');
+  if (prv && transScore(prv.id, t.id) > 0.3) r.push(`después de ${prv.title} sueles escucharla`);
+  if (t.hours && t.hours.length === 24) { const h = new Date().getHours(), tot = t.hours.reduce((a, b) => a + b, 0); if (tot >= 3 && t.hours[h] / tot > 0.2) r.push('a esta hora sueles ponerla'); }
+  if (plays(t) <= 1 && !t.demo) r.push('es nueva para ti y quería que la probaras');
+  const v = trackVec(t);
+  if (v && BRAIN.target !== null && Math.abs(v[0] - BRAIN.target) < 0.12) r.push('tiene justo la energía que llevamos');
+  const a = anaCache.get(t.id), pa = prv && anaCache.get(prv.id);
+  if (a && pa && a.bpm && pa.bpm && a.conf >= 2 && pa.conf >= 2 && Math.abs(a.bpm / pa.bpm - 1) < 0.06) r.push(`su ritmo, ${Math.round(a.bpm)} pulsaciones por minuto, encaja con la anterior para mezclarlas`);
+  if (plays(t) >= 3 && pSkip(t, brainCtx(prv)) < 0.25) r.push('casi nunca la saltas');
+  if (weatherNow() && v) { const k = wxDesc(weatherNow().code)[1]; if ((k === 'lluvia' || k === 'tormenta') && v[0] < 0.4) r.push('con este tiempo pega algo tranquilo'); }
+  if (!r.length) r.push(state.source === 'radio' ? 'en modo radio voy probando cosas para conocerte mejor' : 'va en la lista que estás escuchando');
+  novaSay(`La he puesto porque ${joinEs(r.slice(0, 3))}.`);
+}
+function queueNextByName(name) {
+  const k = norm(name).replace(/^(la |el |una |la cancion |cancion )/, '');
+  const tr = poolTracks().find(x => norm(x.title) === k) || poolTracks().find(x => norm(x.title).includes(k)) || poolTracks().find(x => k.includes(norm(x.title)) && norm(x.title).length > 3);
+  if (!tr) { novaSay(`No encuentro «${name}» en tu música.`); return; }
+  state.queue.splice(state.qi + 1, 0, tr.id); disarmMix(); prefetchNext(); renderQueue();
+  novaSay(`Hecho: después suena ${tr.title}.`);
+}
+function removeArtistFromQueue(name) {
+  const k = norm(name); if (k.length < 3) return false;
+  const up = state.queue.slice(state.qi + 1), hit = up.filter(id => { const x = trackById(id); return x && artistKey(x.artist) && (artistKey(x.artist) === k || artistKey(x.artist).includes(k)); });
+  if (!hit.length) return false;
+  const artist = trackById(hit[0]).artist;
+  state.queue = state.queue.slice(0, state.qi + 1).concat(up.filter(id => !hit.includes(id)));
+  if (state.source === 'radio' && state.queue.length - state.qi < 4) state.queue.push(...radioNext(current(), 6).filter(id => { const x = trackById(id); return x && artistKey(x.artist) !== artistKey(artist); }));
+  disarmMix(); prefetchNext(); renderQueue();
+  novaSay(`Quito ${hit.length === 1 ? 'la canción' : 'las ' + hit.length + ' canciones'} de ${artist} que venían.`);
+  return true;
+}
+/* What Nova knows about your artists: Wikipedia in Spanish, only for musicians, cached on the phone */
+const FACT_RE = /(cantante|banda|grupo|rapero|rapera|musico|musica|dj|productor|productora|compositor|compositora|duo|cantautor|cantautora|orquesta|trap|reggaeton|rock|pop|hip hop|discografica|album)/;
+const factPending = new Map();
+function cachedFact(name) { const k = artistKey(name); const c = k && LS.get('facts', {})[k]; return c ? c.f : null; }
+const shortFact = f => { const s = String(f.text || '').replace(/\s*\([^)]*\)/g, '').replace(/\s+,/g, ',').replace(/\s+/g, ' ').trim(); const first = s.split(/(?<=[.!?])\s+/)[0] || ''; return first.length <= 240 ? first : ''; };
+function artistFact(name) {
+  const key = artistKey(name);
+  if (!ONLINE || !key || key.length < 2 || /^(desconocid|unknown|varios|various|orbita|artista)/.test(key)) return Promise.resolve(null);
+  const all = LS.get('facts', {}), c = all[key];
+  if (c && Date.now() - c.ts < (c.f ? 60 : 10) * 864e5) return Promise.resolve(c.f);
+  if (factPending.has(key)) return factPending.get(key);
+  const H = { 'Api-User-Agent': 'Orbita/2.3 (app de musica personal)' };
+  const pr = (async () => {
+    let f = null;
+    try {
+      const s = await netJSON(`https://es.wikipedia.org/w/api.php?action=query&list=search&format=json&origin=*&srlimit=5&srsearch=${encodeURIComponent(name)}`, { headers: H, timeout: 9000 });
+      for (const h of (s && s.query && s.query.search) || []) {
+        const title = h.title, tn = norm(title.replace(/\s*\(.*\)\s*$/, ''));
+        if (!(tn === key || tn.replace(/ /g, '') === key.replace(/ /g, '') || tn.startsWith(key + ' ') || key.startsWith(tn + ' '))) continue;
+        const sm = await netJSON(`https://es.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, '_'))}`, { headers: H, timeout: 9000 });
+        const text = String(sm.extract || ''), desc = String(sm.description || '');
+        if (sm.type === 'disambiguation' || !FACT_RE.test(norm(desc + ' ' + text.slice(0, 400)))) continue;
+        const sent = text.split(/(?<=[.!?])\s+/); let ex = sent[0] || ''; if (ex.length < 140 && sent[1]) ex += ' ' + sent[1];
+        f = { title: sm.title || title, text: ex.slice(0, 360), url: (sm.content_urls && sm.content_urls.mobile && sm.content_urls.mobile.page) || `https://es.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}` };
+        break;
+      }
+    } catch { factPending.delete(key); return null; }
+    const cur = LS.get('facts', {}); cur[key] = { ts: Date.now(), f };
+    const ks = Object.keys(cur); if (ks.length > 400) ks.sort((a, b) => cur[a].ts - cur[b].ts).slice(0, ks.length - 400).forEach(x => delete cur[x]);
+    LS.set('facts', cur); factPending.delete(key); return f;
+  })();
+  factPending.set(key, pr); return pr;
+}
+const factSaid = new Set();
+function factLine(t) {
+  if (!t || t.net || t.demo || t.mine) return null;
+  const k = artistKey(t.artist); if (!k || factSaid.has(k)) return null;
+  const f = cachedFact(t.artist); const s = f && shortFact(f); if (!s) return null;
+  factSaid.add(k);
+  return pickFresh([`Un dato: ${s} Suena ${t.title}.`, `¿Sabías esto? ${s} Ahora, ${t.title}.`, `${s} Y esta es ${t.title}.`]);
+}
+async function aboutArtist(name) {
+  if (!name) { novaSay('¿De qué artista? Pon una canción suya o dime su nombre.'); return; }
+  if (!ONLINE) { novaSay('Para contarte cosas de los artistas necesito la app de Android con internet.'); return; }
+  setBubble(`Buscando a ${name}…`, dj.name);
+  const f = await artistFact(name);
+  novaSay(f ? `${f.text.replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ')}` : `No he encontrado nada fiable sobre ${name}.`);
+}
+function renderAbout(t) {
+  const box = $('#npAbout'); if (!box) return;
+  if (!t || t.net || t.demo || t.mine || !ONLINE) { box.hidden = true; return; }
+  const f = cachedFact(t.artist);
+  if (!f) { box.hidden = true; artistFact(t.artist).then(x => { if (x && current() === t && !$('#np').hidden) renderAbout(t); }); return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="eyebrow">Sobre ${esc(f.title)}</div><p>${esc(f.text)}</p><div class="row-wrap"><button class="link" data-about="wiki" data-url="${esc(f.url)}">Leer más en Wikipedia</button><button class="link" data-about="say">Que me lo cuente ${esc(dj.name)}</button></div>`;
+}
+$('#npAbout').addEventListener('click', e => {
+  const b = e.target.closest('[data-about]'); if (!b) return;
+  if (b.dataset.about === 'wiki') openExternal(b.dataset.url); else { const t = current(); if (t) aboutArtist(t.artist); }
+});
+/* The weather where you are: a city you type once (no location permission), Open-Meteo, refreshed every half hour */
+function wxDesc(c) {
+  return c === 0 ? ['despejado', 'sol'] : c <= 2 ? ['algo nublado', 'nubes'] : c === 3 ? ['nublado', 'nubes'] : c <= 48 ? ['con niebla', 'niebla'] : c <= 57 ? ['con llovizna', 'lluvia'] : c <= 67 ? ['lloviendo', 'lluvia'] : c <= 77 ? ['nevando', 'nieve'] : c <= 82 ? ['con chubascos', 'lluvia'] : ['con tormenta', 'tormenta'];
+}
+function weatherNow() { const w = LS.get('wx', null), c = LS.get('city', null); return w && c && w.city === c.name && Date.now() - w.ts < 3 * 3600e3 ? w : null; }
+async function loadWeather(force) {
+  const c = LS.get('city', null); if (!c || !ONLINE) return null;
+  const old = LS.get('wx', null); if (!force && old && old.city === c.name && Date.now() - old.ts < 30 * 60000) return old;
+  try {
+    const j = await netJSON(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&current=temperature_2m,weather_code,is_day&timezone=auto`, { timeout: 9000 });
+    const cur = j && j.current; if (!cur) return weatherNow();
+    const w = { ts: Date.now(), city: c.name, temp: Math.round(cur.temperature_2m), code: cur.weather_code, day: !!cur.is_day };
+    LS.set('wx', w); return w;
+  } catch { return weatherNow(); }
+}
+function weatherLine() {
+  const w = weatherNow(); if (!w) return '';
+  const [d, k] = wxDesc(w.code);
+  const tip = k === 'lluvia' || k === 'tormenta' ? ' Día de música tranquila.' : (k === 'sol' && w.day && w.temp >= 22 ? ' Buen día para subir el ritmo.' : '');
+  return ` En ${w.city} está ${d} y hace ${w.temp} grados.${tip}`;
+}
+function weatherBias() {
+  const w = weatherNow(); if (!w) return 0;
+  const k = wxDesc(w.code)[1];
+  return k === 'lluvia' || k === 'tormenta' || k === 'niebla' ? -0.08 : k === 'nieve' ? -0.05 : (k === 'sol' && w.day && w.temp >= 20) ? 0.06 : 0;
+}
+async function tellWeather() {
+  if (!LS.get('city', null)) { novaSay('Dime tu ciudad en Ajustes, en el apartado de tu DJ, y te digo qué tiempo hace.'); return; }
+  const w = await loadWeather(false); novaSay(w ? weatherLine().trim() : 'No he podido mirar el tiempo. ¿Tienes internet?');
+}
+async function setCity(name) {
+  if (!ONLINE) { toast('Esto funciona en la app de Android, con internet'); return; }
+  try {
+    const j = await netJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=es&format=json`, { timeout: 9000 });
+    const r = j && j.results && j.results[0]; if (!r) { toast('No encuentro esa ciudad'); return; }
+    LS.set('city', { name: r.name, lat: r.latitude, lon: r.longitude, country: r.country || '' }); LS.set('wx', null);
+    renderCity(); const w = await loadWeather(true);
+    novaSay(`Apuntado: ${r.name}.${w ? weatherLine() : ''}`);
+  } catch { toast('No he podido buscar la ciudad. ¿Tienes internet?'); }
+}
+function renderCity() {
+  const c = LS.get('city', null);
+  $('#cityIn').value = ''; $('#cityIn').placeholder = c ? `${c.name}${c.country ? ', ' + c.country : ''}` : 'Tu ciudad (opcional)';
+  $('#cityClear').hidden = !c;
+  $('#cityNote').textContent = !ONLINE ? 'Funciona en la app de Android, con internet.' : c ? `${dj.name} tiene en cuenta el tiempo que hace en ${c.name} para saludarte y elegir la música.` : `Si me dices tu ciudad, ${dj.name} tendrá en cuenta el tiempo que hace. No uso tu ubicación.`;
+}
+$('#cityForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#cityIn').value.trim(); if (v) setCity(v); });
+$('#cityClear').onclick = () => { LS.set('city', null); LS.set('wx', null); renderCity(); toast('Ciudad borrada'); };
+/* Playlists Nova keeps up to date from what you actually listen to */
+function novaLists() {
+  const now = Date.now(), ev = memEvents.filter(e => !e.net && now - e.ts < 120 * 864e5);
+  const count = pred => { const m = new Map(); for (const e of ev) if (!e.skip && (e.pct >= 0.5 || e.sec >= 60) && pred(e)) m.set(e.id, (m.get(e.id) || 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]).filter(id => trackById(id) && !BRAIN.ban.has(id)); };
+  const pool = poolTracks().filter(t => !t.demo), en = t => { const v = trackVec(t); return v ? v[0] : null; };
+  return [
+    { id: 'n-finde', name: 'Tus noches de fin de semana', desc: 'Lo que pones los viernes y sábados por la noche.', ids: count(e => (e.dow === 5 || e.dow === 6) && (e.hour >= 20 || e.hour < 4)) },
+    { id: 'n-mananas', name: 'Tus mañanas', desc: 'Lo que más escuchas antes de mediodía.', ids: count(e => e.hour >= 6 && e.hour < 12) },
+    { id: 'n-noches', name: 'Tus noches', desc: 'Lo que más escuchas cuando ya es tarde.', ids: count(e => e.hour >= 22 || e.hour < 5) },
+    { id: 'n-nunca', name: 'Las que nunca saltas', desc: 'Siempre las escuchas enteras.', ids: pool.filter(t => plays(t) >= 3 && !(t.skips > 0)).sort((a, b) => plays(b) - plays(a)).map(t => t.id) },
+    { id: 'n-energia', name: 'Para entrenar', desc: 'Tus canciones con más energía.', ids: pool.filter(t => en(t) !== null && en(t) >= 0.62).sort((a, b) => en(b) - en(a) + (liked(b) - liked(a)) * 0.2).map(t => t.id) },
+    { id: 'n-calma', name: 'Para bajar revoluciones', desc: 'Lo más tranquilo de tu música.', ids: pool.filter(t => en(t) !== null && en(t) <= 0.38).sort((a, b) => en(a) - en(b)).map(t => t.id) }
+  ].map(l => ({ ...l, ids: l.ids.slice(0, 30) })).filter(l => l.ids.length >= 5);
+}
+function renderNovaLists() {
+  const box = $('#novaLists'); if (!box) return;
+  const ls = novaLists();
+  box.hidden = !ls.length;
+  box.innerHTML = ls.length ? `<div class="eyebrow">Hechas por ${esc(dj.name)} · se actualizan solas</div><div class="lists">${ls.map(l => `<article class="panel pl-card"><div class="pl-covers">${l.ids.slice(0, 4).map(id => coverHTML(trackById(id))).join('')}</div><h3>${esc(l.name)}</h3><p>${esc(l.desc)}</p><div class="pl-meta">${l.ids.length} canciones</div><div class="pl-btns"><button class="btn small primary" data-nova-list="${l.id}">${ICON.playS} Escuchar</button></div></article>`).join('')}</div>` : '';
+}
+$('#novaLists').addEventListener('click', e => {
+  const b = e.target.closest('[data-nova-list]'); if (!b) return;
+  const l = novaLists().find(x => x.id === b.dataset.novaList); if (!l) return;
+  playQueue(l.ids, 0, { source: 'nova' }); novaSay(`${l.name}. Empezamos con ${trackById(l.ids[0]).title}.`);
+});
+/* Quick replies under the request box while something plays */
+function renderNovaChips() {
+  const box = $('#novaChips'); if (!box) return;
+  const t = current(), on = !!t && !t.net;
+  box.hidden = !on;
+  if (on && !box.childElementCount) box.innerHTML = ['Más movida', 'Más tranquila', '¿Por qué esta?', 'Más como esta', '¿Quién canta?'].map(s => `<button class="idea" data-cmd="${esc(s)}">${esc(s)}</button>`).join('');
+}
+$('#novaChips').addEventListener('click', e => { const b = e.target.closest('[data-cmd]'); if (b) novaCommand(b.dataset.cmd); });
+$('#djMic').onclick = () => voiceAsk();
+$('#npMic').onclick = () => voiceAsk();
+$('#djMic').hidden = $('#npMic').hidden = !voiceAvailable();
+renderCity();
 
 /* ---------- Boot ---------- */
 function renderAll() { renderLibrary(); renderLists(); renderMix(); renderVoice(); renderWishlist(); renderDevice(); updatePlayer(); renderForYou(); }
@@ -4004,7 +4310,7 @@ async function boot() {
   applyLook(); setAnim(state.anim); setHeroMode(state.heroMode);
   renderMoment(); renderChips(); addDemoEntries(); renderSearch(); renderAll(); updateTicker(); applyDjName(); renderVoiceStyle(); renderSound();
   const m = getMoment();
-  const hello = () => setBubble(`Hola, soy ${dj.name}. Es ${m.day} ${m.franja.phrase}. Pídeme algo, gira la ruleta o pon el modo radio y yo me encargo.`);
+  const hello = () => setBubble(`Hola, soy ${dj.name}. Es ${m.day} ${m.franja.phrase}.${weatherLine()} Pídeme algo, gira la ruleta o pon el modo radio y yo me encargo.`);
   hello();
   setView(location.hash.slice(1) || LOOK.start || 'inicio', false);
   requestAnimationFrame(draw);
@@ -4019,7 +4325,8 @@ async function boot() {
   if (state.view === 'tu') renderTu();
   /* First real render is on screen: the intro can leave now */
   requestAnimationFrame(() => { if (window.ORBITA_INTRO) window.ORBITA_INTRO.ready(); });
-  introDone.then(() => { vizKick(); setTimeout(showNews, 700); });
+  introDone.then(() => { vizKick(); setTimeout(showNews, 700); renderNovaChips(); });
+  if (ONLINE && LS.get('city', null)) { const had = !!weatherNow(); loadWeather(false).then(w => { if (w && !had && !current()) hello(); }); setInterval(() => loadWeather(false), 30 * 60000); }
   if (NATIVE && APP_CFG.version) $('#setMeta').textContent = `sonido, aspecto, DJ y copias · versión ${APP_CFG.version}`;
   idle(() => trainBrain()); bgAnalysis(12000);
   if (NATIVE) {
@@ -4038,7 +4345,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }
