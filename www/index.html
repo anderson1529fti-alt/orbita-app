@@ -624,6 +624,22 @@ body.live .seek{pointer-events:none;opacity:.35}
 .np-brain .btn{font-size:.8rem}
 .banned{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 #newsOverlay{z-index:75}
+.nv-card{padding:14px 16px;border-radius:calc(16px * var(--round,1));border:1px solid var(--accent);background:linear-gradient(100deg,var(--wash),rgba(0,0,0,.3));gap:10px}
+.nv-card .d-text{flex:none}
+.nv-card .d-text span{display:block;color:var(--muted);font-size:.86rem}
+.nv-bar{height:7px;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden}
+.nv-bar i{display:block;height:100%;width:0;background:var(--grad);transition:width .25s}
+.nv-list .voice{gap:10px}
+.nv-credits{font-size:.74rem}
+.chat{position:fixed;inset:0;z-index:57;background:var(--bg);display:flex;flex-direction:column;gap:12px;padding:max(14px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(14px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.chat>*{width:100%;max-width:760px;margin-inline:auto}
+.chat-head{display:flex;align-items:center;gap:8px}
+.chat-head b{font-family:var(--f-display);font-weight:900;font-size:1.3rem;letter-spacing:-.02em}
+.chat-log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0}
+.msg{max-width:86%;padding:10px 14px;border-radius:calc(18px * var(--round,1));line-height:1.4;white-space:pre-wrap}
+.msg.me{align-self:flex-end;background:var(--grad);color:var(--on-accent);font-weight:700;border-bottom-right-radius:calc(4px * var(--round,1))}
+.msg.nova{align-self:flex-start;background:rgba(255,255,255,.06);border:1px solid var(--line-2);border-bottom-left-radius:calc(4px * var(--round,1))}
+#djBubble{cursor:pointer}
 .ask-btns{display:flex;gap:10px}
 @media (max-width:760px){.ask-btns .btn.primary{flex:1}}
 #djMic.on,#npMic.on{border-color:var(--accent);color:var(--accent);box-shadow:0 0 22px -6px var(--glow);animation:blink 1s ease-in-out infinite}
@@ -735,6 +751,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
           <div class="dj-toggles">
             <button class="toggle" id="tVoice" aria-pressed="true"><span class="sw"></span>Voz</button>
             <button class="toggle" id="tIntros" aria-pressed="true"><span class="sw"></span>Presenta cada canción</button>
+            <button class="toggle" id="openChat" aria-label="Abrir la conversación con la DJ"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Conversación</button>
           </div>
         </div>
         <p class="bubble" id="djBubble" aria-live="polite"></p>
@@ -871,6 +888,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
           <div class="row-wrap"><h2>Lo que <span id="memName">Nova</span> sabe de ti</h2><span class="spacer"></span><button class="toggle" id="tMem" aria-pressed="true"><span class="sw"></span>Recordar lo que escucho</button></div>
           <ul class="facts" id="memFacts"></ul>
           <div id="brainOut" class="stack" style="gap:10px"></div>
+          <div id="prefsOut" class="stack" style="gap:10px"></div>
           <p class="note">Se guarda solo en este dispositivo: qué canciones escuchas, cuánto rato, a qué hora y cuáles te saltas. Con eso se hacen tu mezcla del día, la radio y las presentaciones.</p>
           <div class="row-wrap"><button class="btn small" id="memForget">Borrar mi historial</button></div>
         </div>
@@ -979,8 +997,10 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
           <div class="chips" id="personaChips" role="group" aria-label="Personalidad"></div>
           <p class="note" id="personaDesc"></p>
           <div class="row-wrap"><span class="lbl">Presenta</span><div class="seg" id="freqSeg" role="group" aria-label="Cada cuánto habla"><button data-freq="siempre">Todas las canciones</button><button data-freq="aveces">Una de cada tres</button><button data-freq="inicio">Solo al empezar</button></div></div>
-          <div class="row-wrap"><div class="eyebrow">Voz</div><span class="spacer"></span><button class="toggle" id="tAllVoices" aria-pressed="false"><span class="sw"></span>Más idiomas</button></div>
-          <p class="note">Estas son las voces que tiene tu dispositivo, ordenadas de la más natural a la más robótica. Pulsa «Probar» para escucharlas.</p>
+          <div class="eyebrow">Voz propia</div>
+          <div class="nv-card stack" id="nvBox"></div>
+          <div class="row-wrap"><div class="eyebrow">Voces del sistema</div><span class="spacer"></span><button class="toggle" id="tAllVoices" aria-pressed="false"><span class="sw"></span>Más idiomas</button></div>
+          <p class="note">Las que trae tu móvil, de la más natural a la más robótica. Se usan si no tienes la voz propia o si la desactivas.</p>
           <ul class="voices" id="voicesOut"></ul>
           <div class="eyebrow">Estilo</div>
           <div class="chips" id="styleChips"></div>
@@ -1101,6 +1121,12 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
   </div>
 </div>
 <div class="viz-full" id="vizFull" hidden role="dialog" aria-label="Visualizador a pantalla completa"><canvas id="vizFS" aria-hidden="true"></canvas><div class="vf-info"><div><b id="vfTitle"></b><span id="vfArtist"></span></div><button class="btn small" data-act="viz-scene"><span data-viz-scene-label>Órbita</span></button><button class="btn small" data-act="viz-close">Cerrar</button></div></div>
+<div class="chat" id="chat" hidden role="dialog" aria-labelledby="chatName">
+  <div class="chat-head"><div class="row-text"><b id="chatName">Nova</b><span class="t-sub" id="chatNow"></span></div><span class="spacer"></span><button class="btn small" data-chat="clear">Borrar</button><button class="btn small" data-chat="close">Cerrar</button></div>
+  <div class="chat-log" id="chatLog" aria-live="polite"></div>
+  <div class="ideas" id="chatChips"></div>
+  <form class="ask" id="chatForm" autocomplete="off"><input id="chatIn" maxlength="240" placeholder="Escribe a la DJ…" aria-label="Mensaje para la DJ"><span class="ask-btns"><button class="btn" type="button" id="chatMic" aria-label="Háblale"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></button><button class="btn primary" type="submit">Enviar</button></span></form>
+</div>
 <div class="overlay" id="newsOverlay" hidden role="dialog" aria-labelledby="newsHead">
   <div class="modal panel glow">
     <div class="eyebrow" id="newsVer"></div>

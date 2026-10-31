@@ -1,3 +1,10 @@
+Órbita 3.0 · beta 2 (versión de prueba): la voz propia de Nova.
+
+- Voz neuronal en español para Nova (Ajustes › Tu DJ › Voz propia): suena igual en todos los móviles y, una vez descargada, funciona sin internet.
+- Varias voces para elegir (España, México, Argentina…); la recomendada es «Sharvard · mujer».
+- Nova prepara la presentación de la siguiente canción mientras suena la anterior, para hablar justo al empezar.
+- Si la voz propia fallara, Nova sigue hablando con la voz del sistema.
+
 Órbita 3.0 · beta 1 (versión de prueba): Nova recuerda.
 
 - Nova recuerda lo que le dices: «no me pongas reguetón por la mañana», «me encanta el rap», «por la noche, cosas tranquilas». Lo cumple en la radio y en sus mezclas (tus listas no se tocan).

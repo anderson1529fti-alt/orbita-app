@@ -116,6 +116,8 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const build = parseInt(process.env.BUILD_NUMBER || '1', 10);
 const [maj, min] = String(pkg.version || '1.0.0').split('.');
 const version = `${maj || 1}.${min || 0}.${build}`;
+// "beta": true en package.json → se publica como versión de prueba: no les llega el aviso a los usuarios
+const beta = pkg.beta === true;
 const gradlePath = path.join(app, 'build.gradle');
 let gradle = fs.readFileSync(gradlePath, 'utf8');
 gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${build}`).replace(/versionName\s+"[^"]*"/, `versionName "${version}"`);
@@ -152,8 +154,8 @@ fs.writeFileSync(gradlePath, gradle);
 // 6) Datos para el aviso de actualizaciones dentro de la app
 const repo = process.env.REPO || '';
 fs.writeFileSync(path.join(root, 'www', 'app-config.js'),
-  `window.ORBITA_CONFIG = ${JSON.stringify({ repo, version, build })};\n`);
+  `window.ORBITA_CONFIG = ${JSON.stringify({ repo, version, build, beta })};\n`);
 
 // Salidas para los siguientes pasos del workflow
-if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
-console.log(`Órbita ${version} preparada (repo: ${repo || 'sin configurar'}${extras ? '' : ', modo seguro sin widget'})`);
+if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nprerelease=${beta}\n`);
+console.log(`Órbita ${version}${beta ? ' (beta)' : ''} preparada (repo: ${repo || 'sin configurar'}${extras ? '' : ', modo seguro sin widget'})`);

@@ -264,8 +264,8 @@ function quality(t) {
 const plays = t => t.demo ? (state.demoStats[t.id]?.plays || 0) : (t.plays || 0);
 const liked = t => t.demo ? !!state.demoStats[t.id]?.liked : !!t.liked;
 function trackRecord(t) {
-  const { id, title, artist, album, duration, addedAt, plays: pl, lastPlayed, cover, thumb, coverHue, coverSat, size, codec, mine, srcKey, dev, uri, mime, folder, artChecked, edited, skips, listenSec, hours } = t;
-  return { id, title, artist, album, duration, addedAt, liked: !!t.liked, plays: pl, lastPlayed, cover, thumb, coverHue, coverSat, size, codec, mine: !!mine, srcKey, dev: !!dev, uri, mime, folder, artChecked: !!artChecked, edited: !!edited, skips: skips || 0, listenSec: listenSec || 0, hours: hours || null };
+  const { id, title, artist, album, genre, duration, addedAt, plays: pl, lastPlayed, cover, thumb, coverHue, coverSat, size, codec, mine, srcKey, dev, uri, mime, folder, artChecked, edited, skips, listenSec, hours } = t;
+  return { id, title, artist, album, genre, duration, addedAt, liked: !!t.liked, plays: pl, lastPlayed, cover, thumb, coverHue, coverSat, size, codec, mine: !!mine, srcKey, dev: !!dev, uri, mime, folder, artChecked: !!artChecked, edited: !!edited, skips: skips || 0, listenSec: listenSec || 0, hours: hours || null };
 }
 async function saveTrack(t) {
   if (t.net) return;
@@ -301,6 +301,7 @@ async function syncDevice(manual) {
       if (devLib.hidden.has(id)) continue;
       const base = (f.name || '').replace(/\.[^.]+$/, '');
       const fields = { title: cleanTag(f.title, base || 'Sin título'), artist: cleanTag(f.artist, 'Artista desconocido'), album: cleanTag(f.album, '') };
+      if (f.genre) fields.genre = cleanTag(f.genre, '');
       const t = trackById(id);
       if (t) {
         let changed = false;
@@ -987,7 +988,7 @@ function beginTrack(t, { talk = null, viaMix = false, silent = false } = {}) {
 }
 async function prefetchNext() {
   const id = state.queue[state.qi + 1]; const t = id && trackById(id);
-  if (t && !t.net) { try { await audioUrl(t); coverUrl(t, 'full'); setTimeout(() => scheduleAnalysis(t), 4000); } catch {} if (ONLINE) setTimeout(() => artistFact(t.artist), 2500); }
+  if (t && !t.net) { try { await audioUrl(t); coverUrl(t, 'full'); setTimeout(() => scheduleAnalysis(t), 4000); } catch {} if (ONLINE) setTimeout(() => artistFact(t.artist), 2500); if (nvUsable()) setTimeout(() => { if (state.queue[state.qi + 1] === t.id) nvPrepareIntro(t); }, 7000); }
 }
 async function fadePause() { stopTalk(); if (mixing) finishMix(true); const k = A; await tween('f' + k, 0, 160); els.forEach(e => { if (!e.paused) e.pause(); }); deckF[k] = 1; applyVol(); saveSession(true); }
 async function resume() { const d = act(); wakeCtx(); deckF[A] = 0; applyVol(); try { await d.play(); } catch { deckF[A] = 1; applyVol(); return; } tween('f' + A, 1, 240); }
@@ -1677,8 +1678,10 @@ $('#tDirect').onclick = () => {
   renderSound(); updateQuality();
 };
 
+var NV_STOP;
 function stopTalk() {
   dj.talkGen++;
+  if (NV_STOP) NV_STOP();
   try { if (nativeTTS) nativeTTS.stop().catch(() => {}); else if (dj.supported) speechSynthesis.cancel(); } catch {}
   if (!clipEl.paused) clipEl.pause();
   $('#dj').classList.remove('speaking');
@@ -1698,7 +1701,7 @@ function djTalk(text, kind = 'siguiente', opts = {}) {
   if (!dj.voiceOn) { setBubble(text); return Promise.resolve(); }
   const clip = opts.forceTTS ? null : chooseClip(kind);
   if (clip) return playClip(clip, text);
-  if (!dj.supported) { setBubble(text); return Promise.resolve(); }
+  if (!dj.supported && !nvUsable()) { setBubble(text); return Promise.resolve(); }
   return speakTTS(text);
 }
 function sentences(text) {
@@ -1709,11 +1712,17 @@ function sentences(text) {
   return merged.length ? merged : [text];
 }
 function speakTTS(text, voice) {
-  if (!dj.supported) { setBubble(text); return Promise.resolve(); }
+  const own = !voice && !NV.skip && nvUsable(); NV.skip = false;
+  if (!dj.supported && !own) { setBubble(text); return Promise.resolve(); }
   stopTalk(); const my = dj.talkGen;
   const clean = String(text).replace(/[«»"“”]/g, '').replace(/\s·\s/g, ', ').replace(/\s+/g, ' ').trim();
   const parts = sentences(clean);
   const v = voice || dj.voice;
+  if (own) return speakNeural(clean, parts, my).catch(() => {
+    NV.fails++; if (my !== dj.talkGen) return;
+    if (!dj.supported) { setBubble(clean, dj.name); return; }
+    NV.skip = true; return speakTTS(text);
+  });
   if (nativeTTS) return speakNative(clean, parts, v, my);
   return new Promise(res => {
     let started = false, done = false;
@@ -2130,7 +2139,7 @@ function renderTu() {
   setToggle($('#tMem'), memOn());
   const facts = memFacts();
   $('#memFacts').innerHTML = facts.length ? facts.map(f => `<li>${esc(f)}</li>`).join('') : `<li class="note">Todavía no sé nada de ti. Escucha unas cuantas canciones y empezaré a conocer tus gustos.</li>`;
-  $('#memName').textContent = dj.name;
+  $('#memName').textContent = dj.name; renderPrefsSoon();
   const [an, tot] = analysedShare(), bans = [...BRAIN.ban].map(trackById).filter(Boolean);
   $('#brainOut').innerHTML = (tot ? `<p class="note">${an >= tot ? `Conozco cómo suenan tus ${tot} canciones (ritmo, energía y compases).` : `Conozco cómo suenan ${an} de tus ${tot} canciones. Las demás las analizo poco a poco mientras usas la app, y más rápido si el móvil está cargando.`}</p>` : '')
     + (bans.length ? `<div class="eyebrow">No me las pongas más</div><ul class="banned">${bans.map(t => `<li>${coverHTML(t)}<span class="row-text"><span class="t-title">${esc(t.title)}</span><span class="t-sub">${esc(t.artist)}</span></span><button class="btn small" data-act="unban" data-id="${t.id}">Volver a ponerla</button></li>`).join('')}</ul>` : '');
@@ -2335,7 +2344,12 @@ $('#lyForm').addEventListener('submit', async e => {
 const BRAIN = { ban: new Set(LS.get('banned', [])), w: LS.get('brainW', null), n: LS.get('brainN', 0), at: LS.get('brainAt', 0), target: null, said: [] };
 const sigmoid = z => 1 / (1 + Math.exp(-z));
 const dot = (w, x) => { let s = 0; for (let i = 0; i < x.length; i++) s += (w[i] || 0) * x[i]; return s; };
-const poolTracks = () => visibleTracks().filter(t => !t.net && !BRAIN.ban.has(t.id));
+const poolTracks = (opts) => {
+  const base = visibleTracks().filter(t => !t.net && !BRAIN.ban.has(t.id));
+  if (opts && opts.free) return base;
+  const now = new Date(), out = base.filter(t => !prefBlocked(t, now));
+  return out.length >= Math.min(3, base.length) ? out : base;
+};
 function trackVec(t) {
   const a = t && anaCache.get(t.id); if (!a || typeof a.energy !== 'number') return null;
   return [a.energy, a.bright ?? 0.5, Math.min(1, Math.max(0, ((a.bpm || 110) - 70) / 100)), Math.min(1, (a.rate || 3) / 8)];
@@ -2394,7 +2408,7 @@ function maybeTrain() { if (memEvents.length - (BRAIN.at || 0) >= 8) idle(() => 
 function brainRank(pool, prev, { target = null, exclude = new Set(), explore = 0.35, strength = 1.6 } = {}) {
   const ctx = brainCtx(prev), pa = prev && anaCache.get(prev.id);
   return pool.filter(t => !t.net && !BRAIN.ban.has(t.id) && !exclude.has(t.id) && (!prev || t.id !== prev.id)).map(t => {
-    let s = (1 - pSkip(t, ctx)) * 2;
+    let s = (1 - pSkip(t, ctx)) * 2 + prefBoost(t);
     const v = trackVec(t);
     if (target !== null && v) s -= Math.abs(v[0] - target) * strength; else if (target !== null) s -= 0.25 * strength;
     const a = anaCache.get(t.id);
@@ -2428,7 +2442,7 @@ function radioBatch(avoid = []) {
 }
 function brainOnBegin(t) {
   if (t.net) return;
-  const v = trackVec(t); if (BRAIN.target === null && v) BRAIN.target = v[0];
+  const v = trackVec(t), pe = prefEnergy(); if (BRAIN.target === null && (v || pe !== null)) BRAIN.target = pe ?? v[0];
   if (state.source === 'radio') { state.queue = state.queue.slice(0, state.qi + 1).concat(radioNext(t, 6)); }
 }
 function brainOnListen(ev) {
@@ -2483,13 +2497,20 @@ function parseRequest(text, pool) {
     const before = q.slice(Math.max(0, i - 14), i);
     if (/(sin|nada de|menos|excepto|no pongas|ni)\s*$/.test(before)) out.notArtists.push(k); else out.artists.push(k);
   }
+  out.genres = []; out.notGenres = [];
+  for (const [g, re] of GENRES) { const mm = q.match(re); if (!mm) continue; const before = q.slice(Math.max(0, mm.index - 14), mm.index); if (/(sin|nada de|menos|excepto|no pongas|ni)\s*$/.test(before)) out.notGenres.push(g); else out.genres.push(g); }
   return out;
 }
 function intentMix(text, pool, n, m) {
-  const it = parseRequest(text, pool);
+  /* Asking by name or style overrides your «no me pongas…» rules: you asked for it */
+  const free = poolTracks({ free: true }), it = parseRequest(text, free);
+  if (it.artists.length || it.genres.length) { const own = pool.every(t => !t.demo); pool = own ? free.filter(t => !t.demo) : free; }
   const now = Date.now();
   let sel = pool.filter(t => !it.notArtists.includes(artistKey(t.artist)));
   if (it.artists.length) sel = sel.filter(t => it.artists.includes(artistKey(t.artist)));
+  let gNote = '';
+  if (it.genres.length) { const g = sel.filter(t => it.genres.some(x => trackGenres(t).has(x))); if (g.length >= 2) sel = g; else gNote = `Aún no sé qué canciones tuyas son ${it.genres[0]}: lo voy aprendiendo, y puedes enseñarme diciendo «tal artista es ${it.genres[0]}».`; }
+  if (it.notGenres.length) sel = sel.filter(t => !it.notGenres.some(x => trackGenres(t).has(x)));
   if (it.liked) sel = sel.filter(liked);
   if (it.fresh) sel = sel.filter(t => plays(t) <= 1);
   if (it.forgotten) sel = sel.filter(t => plays(t) >= 2 && t.lastPlayed && now - t.lastPlayed > 14 * 864e5);
@@ -2501,14 +2522,15 @@ function intentMix(text, pool, n, m) {
   if (target !== null) { const known = sel.filter(t => trackVec(t)); if (known.length >= Math.min(want, 4)) sel = known; }
   /* Stay near what was asked: «para dormir» never brings in the loudest songs just to fill the list */
   if (target !== null) { const near = sel.filter(t => { const v = trackVec(t); return !v || Math.abs(v[0] - target) <= 0.32; }); if (near.length >= 3) sel = near; }
-  const ranked = brainRank(sel, current(), { target, explore: 0.5, strength: target !== null ? 4.5 : 1.6 }).map(x => x.t);
+  const ranked = brainRank(sel, sel.length <= 3 ? null : current(), { target, explore: 0.5, strength: target !== null ? 4.5 : 1.6 }).map(x => x.t);
   let picked = [];
   if (it.minutes) { let tot = 0; for (const t of ranked) { if (tot >= it.minutes * 60) break; picked.push(t); tot += t.duration || 200; } }
   else picked = ranked.slice(0, want);
   const en = t => (trackVec(t) || [0.5])[0];
   const ids = (target !== null && target <= 0.35 ? picked.slice().sort((x, y) => en(y) - en(x)) : target !== null && target >= 0.75 ? picked.slice().sort((x, y) => en(x) - en(y)) : arrangeArc(picked, 'req' + now)).map(t => t.id);
   const artistName = it.artists.length === 1 ? (pool.find(t => artistKey(t.artist) === it.artists[0]) || {}).artist : '';
-  const name = artistName ? `Solo ${artistName}` : it.liked ? 'Tus favoritas' : it.fresh ? 'Por descubrir' : it.forgotten ? 'Las que tenías olvidadas' : it.name || `Tu petición de ${m.day}`;
+  if (gNote) note = (note ? note + ' ' : '') + gNote;
+  const name = artistName ? `Solo ${artistName}` : it.genres.length && !gNote ? `Solo ${it.genres[0]}` : it.liked ? 'Tus favoritas' : it.fresh ? 'Por descubrir' : it.forgotten ? 'Las que tenías olvidadas' : it.name || `Tu petición de ${m.day}`;
   const first = trackById(ids[0]);
   return { source: 'local', name, desc: `Elegida por ${dj.name} con lo que ha aprendido de ti: «${text}».`, greeting: first ? `${pick(['Marchando', 'Hecho', 'Vamos allá', 'Aquí lo tienes'])}: ${name.toLowerCase()}. Empezamos con ${nameOf(first)}.` : '', ids, why: {}, intros: {}, discover: [], moment: m.label, mood: 'auto', scenario: null, note };
 }
@@ -2628,7 +2650,7 @@ function localMix(pool, m, mood, scenario, n) {
   const now = Date.now();
   let sel = pool;
   if (mood === 'nostalgia') { const f = pool.filter(t => plays(t) >= 2 && t.lastPlayed && now - t.lastPlayed > 14 * 864e5); if (f.length >= Math.min(4, n)) sel = f; }
-  const t0 = mood === 'auto' ? momentEnergy(m) : (MOOD_ENERGY[mood] ?? null);
+  const t0 = mood === 'auto' ? (prefEnergy() ?? momentEnergy(m)) : (MOOD_ENERGY[mood] ?? null);
   const target = t0 === null ? null : Math.max(0.05, Math.min(0.95, t0 + (mood === 'auto' ? weatherBias() : 0)));
   const recent = new Set(state.history.slice(0, 5));
   const ranked = brainRank(sel, current(), { target, exclude: recent, explore: 0.6 }).map(x => x.t);
@@ -3456,6 +3478,7 @@ window.addEventListener('hashchange', () => setView(location.hash.slice(1), fals
 let popSkip = false;
 window.addEventListener('popstate', () => {
   if (popSkip) { popSkip = false; return; }
+  if (!$('#chat').hidden) { closeChat(true); return; }
   if (!$('#vizFull').hidden) { closeVizFull(true); return; }
   if (!$('#ytOverlay').hidden) { closeYT(true); return; }
   if (!$('#lyOverlay').hidden) { closeLyEdit(); return; }
@@ -3688,7 +3711,7 @@ document.addEventListener('dragleave', e => { if (!hasFiles(e)) return; dragDept
 document.addEventListener('drop', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth = 0; $('#dropOverlay').hidden = true; const p = filesFromDrop(e.dataTransfer); setView('biblioteca'); p.then(list => importFiles(list)); });
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { if (!$('#newsOverlay').hidden) { $('#newsOverlay').hidden = true; return; } if (!$('#vizFull').hidden) { closeVizFull(); return; } if (!$('#ytOverlay').hidden) { closeYT(); return; } if (!$('#lyOverlay').hidden) { closeLyEdit(); return; } if (!$('#sleepOverlay').hidden) { $('#sleepOverlay').hidden = true; return; } if (!$('#editOverlay').hidden) { closeEdit(); return; } if (!$('#np').hidden) { closeNP(); return; } }
+  if (e.key === 'Escape') { if (!$('#newsOverlay').hidden) { $('#newsOverlay').hidden = true; return; } if (!$('#chat').hidden) { closeChat(); return; } if (!$('#vizFull').hidden) { closeVizFull(); return; } if (!$('#ytOverlay').hidden) { closeYT(); return; } if (!$('#lyOverlay').hidden) { closeLyEdit(); return; } if (!$('#sleepOverlay').hidden) { $('#sleepOverlay').hidden = true; return; } if (!$('#editOverlay').hidden) { closeEdit(); return; } if (!$('#np').hidden) { closeNP(); return; } }
   if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
   if (e.code === 'Space' && !(e.target.matches && e.target.matches('button, [role="button"]'))) { e.preventDefault(); togglePlay(); }
   else if (e.key === 'ArrowRight' && e.shiftKey) next(false);
@@ -3972,6 +3995,14 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '3.0': [
+    '<b>Nova recuerda lo que le dices</b>: «no me pongas reguetón por la mañana», «me encanta el rap», «por la noche, cosas tranquilas». Lo cumple siempre en la radio y en sus mezclas.',
+    '<b>Conoce los estilos</b> de tus artistas (por la etiqueta de la canción, por Wikipedia o porque se lo enseñas: «tal artista es trap»).',
+    '<b>Rutinas</b>: «cada mañana ponme algo suave» y lo pondrá al abrir Órbita.',
+    '<b>Recuerdos</b> y el resumen de tu semana: «hace un año no parabas de escuchar…».',
+    '<b>Voz propia</b>: en Ajustes › Tu DJ, descarga una voz neuronal para Nova. Suena igual en todos los móviles y funciona sin internet.',
+    '<b>Conversación</b>: toca el bocadillo de Nova o «Conversación» para hablar con ella con historial. Pregúntale «¿qué recuerdas de mí?».'
+  ],
   '2.3': [
     '<b>Háblale a Nova</b>: toca el micrófono y dile «más movida», «sáltate esta», «¿por qué esta?», «apágate en 30 minutos» o pídele una mezcla.',
     '<b>Nova te explica</b> por qué ha elegido cada canción y conoce a tus artistas: te cuenta datos de ellos (de Wikipedia).',
@@ -4005,7 +4036,7 @@ $('#npBan').onclick = () => banTrack(current());
 /* ---------- 2.3 · Nova te escucha ----------
    Voice and typed commands, refinements of what is playing, explanations of each pick,
    facts about your artists (Wikipedia), the weather where you are (Open-Meteo) and playlists Nova keeps up to date. */
-const novaSay = text => djTalk(text, 'test', { forceTTS: true });
+const novaSay = text => { chatAdd('nova', text); return djTalk(text, 'test', { forceTTS: true }); };
 const joinEs = a => a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' y ' + a[a.length - 1];
 /* Listening: Android's own speech recognizer (native plugin) or the browser's, where there is one */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -4048,14 +4079,16 @@ async function voiceAsk() {
   novaCommand(text, { voice: true });
 }
 /* Commands: most phrases change something right away; anything else becomes a request for a mix */
-function novaCommand(raw, { voice = false } = {}) {
+function novaCommand(raw) {
+  chatAdd('me', raw);
   const t = current(), playing = !!t && !act().paused;
   let q = norm(raw);
   const me = norm(dj.name);
   q = q.replace(new RegExp(`^(oye |hey |ey |hola |venga )?(${me ? me + '|' : ''}nova|dj)( |$)`), '').replace(/^(por favor |porfa )|( por favor| porfa)$/g, '').trim();
   if (!q) { novaSay('Dime, te escucho.'); return; }
   const is = re => re.test(q);
-  if (is(/^(ayuda|que puedes hacer|que sabes hacer|que te puedo pedir)$/)) { novaSay('Puedes pedirme cosas como: más movida, más tranquila, sáltate esta, ¿por qué esta?, más como esta, ¿quién canta?, háblame del artista, apágate en treinta minutos, o una mezcla: algo para entrenar.'); return; }
+  if (is(/^(ayuda|que puedes hacer|que sabes hacer|que te puedo pedir)$/)) { novaSay('Puedes pedirme cosas como: más movida, más tranquila, sáltate esta, ¿por qué esta?, más como esta, ¿quién canta?, háblame del artista, apágate en treinta minutos, o una mezcla: algo para entrenar. Y enseñarme lo que te gusta: no me pongas reguetón por la mañana, me encanta el rap, cada noche ponme algo tranquilo, ¿qué recuerdas de mí?'); return; }
+  if (is(/(resumen|como ha ido|que tal ha ido) (de )?(mi|la|esta) semana/)) { novaSay(weekSummary() || 'Esta semana aún has escuchado poco para hacer un resumen.'); return; }
   if (is(/^(que hora es|dime la hora)$/)) { const d = new Date(); novaSay(`Son las ${d.getHours()} y ${pad(d.getMinutes())}.`); return; }
   if (is(/^(pausa|pausala|para(la)?|deten(la|te)?|stop|silencio|calla(te)?|pon pausa|quita la musica)$/)) { if (playing) fadePause(); setBubble('Pausa.', dj.name); return; }
   if (is(/^(sigue|continua|reanuda|play|dale|reproduce|pon (la )?musica|vuelve a poner(la)?)$/)) { if (t) resume(); else createMix({ surprise: true, autoplay: true }); return; }
@@ -4082,12 +4115,13 @@ function novaCommand(raw, { voice = false } = {}) {
   if (is(/(al (acabar|terminar)|cuando (acabe|termine)) (esta|la cancion)/)) { setSleep('track'); return; }
   if (is(/^(pon |ensename |muestrame |abre )?(la )?letra$|karaoke/)) { if (t) { openNP(); setLyricsOpen(true); } return; }
   if (is(/visualizador|^(pon )?(el )?visual$/)) { openVizFull(); return; }
+  if (memoryCommand(q, raw)) return;
   const qn = q.match(/^(despues|luego|a continuacion) pon (.+)$|^pon (.+) (despues|luego|a continuacion|la siguiente)$/);
   if (qn && t) { queueNextByName(qn[2] || qn[3]); return; }
   const less = q.match(/^(nada (mas )?de|sin|menos|quita(me)?) (.+)$/);
   if (less && t && removeArtistFromQueue(less[4])) return;
   const clean = String(raw).replace(new RegExp(`^\\s*((oye|hey|ey|hola|venga)[\\s,]+)?(${dj.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|nova|dj)[\\s,:]+`, 'i'), '').trim() || raw;
-  createMix({ request: clean, autoplay: true });
+  createMix({ request: clean, autoplay: true }).then(() => { const mx = state.mix; if (mx && mx.request === clean && mx.ids && mx.ids.length) chatAdd('nova', `He preparado «${mx.name}»: ${mx.ids.length} canciones, empezando por ${(trackById(mx.ids[0]) || {}).title || 'la primera'}.${mx.note ? ' ' + mx.note : ''}`); });
 }
 function setVolume(dir) {
   const v = Math.max(0, Math.min(100, +vol.value + dir * 15));
@@ -4147,12 +4181,14 @@ function removeArtistFromQueue(name) {
 /* What Nova knows about your artists: Wikipedia in Spanish, only for musicians, cached on the phone */
 const FACT_RE = /(cantante|banda|grupo|rapero|rapera|musico|musica|dj|productor|productora|compositor|compositora|duo|cantautor|cantautora|orquesta|trap|reggaeton|rock|pop|hip hop|discografica|album)/;
 const factPending = new Map();
-function cachedFact(name) { const k = artistKey(name); const c = k && LS.get('facts', {})[k]; return c ? c.f : null; }
+var FACTS_MEMO;
+const factsAll = () => FACTS_MEMO || (FACTS_MEMO = LS.get('facts', {}));
+function cachedFact(name) { const k = artistKey(name); const c = k && factsAll()[k]; return c ? c.f : null; }
 const shortFact = f => { const s = String(f.text || '').replace(/\s*\([^)]*\)/g, '').replace(/\s+,/g, ',').replace(/\s+/g, ' ').trim(); const first = s.split(/(?<=[.!?])\s+/)[0] || ''; return first.length <= 240 ? first : ''; };
 function artistFact(name) {
   const key = artistKey(name);
   if (!ONLINE || !key || key.length < 2 || /^(desconocid|unknown|varios|various|orbita|artista)/.test(key)) return Promise.resolve(null);
-  const all = LS.get('facts', {}), c = all[key];
+  const all = factsAll(), c = all[key];
   if (c && Date.now() - c.ts < (c.f ? 60 : 10) * 864e5) return Promise.resolve(c.f);
   if (factPending.has(key)) return factPending.get(key);
   const H = { 'Api-User-Agent': 'Orbita/2.3 (app de musica personal)' };
@@ -4167,11 +4203,11 @@ function artistFact(name) {
         const text = String(sm.extract || ''), desc = String(sm.description || '');
         if (sm.type === 'disambiguation' || !FACT_RE.test(norm(desc + ' ' + text.slice(0, 400)))) continue;
         const sent = text.split(/(?<=[.!?])\s+/); let ex = sent[0] || ''; if (ex.length < 140 && sent[1]) ex += ' ' + sent[1];
-        f = { title: sm.title || title, text: ex.slice(0, 360), url: (sm.content_urls && sm.content_urls.mobile && sm.content_urls.mobile.page) || `https://es.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}` };
+        f = { title: sm.title || title, desc: desc.slice(0, 120), text: ex.slice(0, 360), url: (sm.content_urls && sm.content_urls.mobile && sm.content_urls.mobile.page) || `https://es.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}` };
         break;
       }
     } catch { factPending.delete(key); return null; }
-    const cur = LS.get('facts', {}); cur[key] = { ts: Date.now(), f };
+    const cur = factsAll(); cur[key] = { ts: Date.now(), f }; genresChanged();
     const ks = Object.keys(cur); if (ks.length > 400) ks.sort((a, b) => cur[a].ts - cur[b].ts).slice(0, ks.length - 400).forEach(x => delete cur[x]);
     LS.set('facts', cur); factPending.delete(key); return f;
   })();
@@ -4289,6 +4325,481 @@ $('#djMic').onclick = () => voiceAsk();
 $('#npMic').onclick = () => voiceAsk();
 $('#djMic').hidden = $('#npMic').hidden = !voiceAvailable();
 renderCity();
+const NV_WORKER_SRC = "/* Nova's own voice, running on the phone in a worker so the app never stutters:\n   espeak-ng turns text into phonemes (piper-phonemize), ONNX Runtime turns phonemes into sound (a Piper/VITS voice). */\nlet session = null, cfg = null, speaker = 0, phon = null, phonOut = null, files = null;\nfunction phonemizer() {\n  if (phon) return phon;\n  phon = createPiperPhonemize({\n    noInitialRun: true,\n    print: d => { if (phonOut) { const f = phonOut; phonOut = null; try { f(JSON.parse(d).phoneme_ids); } catch (e) { f(null); } } },\n    printErr: () => {},\n    locateFile: u => u.endsWith('.wasm') ? files.phonWasm : u.endsWith('.data') ? files.phonData : u\n  });\n  return phon;\n}\nasync function phonemize(text) {\n  const m = await phonemizer();\n  return new Promise((res, rej) => {\n    phonOut = ids => ids ? res(ids) : rej(new Error('phonemize'));\n    try { m.callMain(['-l', cfg.espeak.voice, '--input', JSON.stringify([{ text }]), '--espeak_data', '/espeak-ng-data']); }\n    catch (e) { phonOut = null; rej(e); }\n  });\n}\nonmessage = async e => {\n  const m = e.data;\n  try {\n    if (m.type === 'init') {\n      files = m.files;\n      importScripts(files.ortJs, files.phonJs);\n      ort.env.wasm.numThreads = 1;\n      ort.env.wasm.wasmPaths = { 'ort-wasm-simd.wasm': files.ortWasm, 'ort-wasm.wasm': files.ortWasm };\n      cfg = m.config; speaker = m.speaker || 0;\n      session = await ort.InferenceSession.create(m.model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });\n      await phonemizer();\n      postMessage({ id: m.id, ok: true });\n    } else if (m.type === 'speak') {\n      const t0 = performance.now();\n      const ids = await phonemize(m.text);\n      const inf = cfg.inference || {};\n      const feeds = {\n        input: new ort.Tensor('int64', BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),\n        input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),\n        scales: new ort.Tensor('float32', Float32Array.from([inf.noise_scale ?? 0.667, (inf.length_scale ?? 1) * (m.lengthScale || 1), inf.noise_w ?? 0.8]), [3])\n      };\n      if (cfg.num_speakers > 1) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([BigInt(speaker)]), [1]);\n      const out = await session.run(feeds);\n      const pcm = Float32Array.from(out.output.data);\n      postMessage({ id: m.id, ok: true, pcm, sr: cfg.audio.sample_rate, ms: Math.round(performance.now() - t0) }, [pcm.buffer]);\n    }\n  } catch (err) { postMessage({ id: m.id, ok: false, error: String(err && err.message || err) }); }\n};\n";
+/* ---------- 3.0 beta 2 · Nova's own voice ----------
+   A neural voice (Piper) that runs on the phone, without internet, after a one-time download:
+   the voice from the Piper catalogue (Hugging Face) and the engine (ONNX Runtime + espeak-ng) from npm's CDNs.
+   Everything is kept in the app's storage; the system voice stays as the fallback. */
+const NV = { st: LS.get('nv', null), on: LS.get('nvOn', true), worker: null, ready: null, n: 0, wait: new Map(), cache: new Map(), dl: null, cat: null, fails: 0 };
+const NV_CACHE = 'orbita-voz-1', NV_KEY = n => 'https://orbita.voz/' + n;
+const NV_HF = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/';
+const NV_ORT = ['https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/', 'https://unpkg.com/onnxruntime-web@1.18.0/dist/'];
+const NV_PHON = ['https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/', 'https://unpkg.com/@diffusionstudio/piper-wasm@1.0.0/build/'];
+const NV_ENGINE = [
+  ['ortJs', 'ort.wasm.min.js', NV_ORT, 'text/javascript', 0.15], ['ortWasm', 'ort-wasm-simd.wasm', NV_ORT, 'application/wasm', 10.6],
+  ['phonJs', 'piper_phonemize.js', NV_PHON, 'text/javascript', 0.12], ['phonWasm', 'piper_phonemize.wasm', NV_PHON, 'application/wasm', 0.64],
+  ['phonData', 'piper_phonemize.data', NV_PHON, 'application/octet-stream', 18.1]
+];
+const NV_ACCENT = { es_ES: 'España', es_MX: 'México', es_AR: 'Argentina', es_US: 'Estados Unidos', es_CO: 'Colombia', es_CL: 'Chile' };
+const NV_QUALITY = { x_low: 'básica', low: 'normal', medium: 'buena', high: 'muy buena' };
+/* Used when the catalogue can't be read: the Spanish voices Piper publishes */
+const NV_KNOWN = [['es_ES-sharvard-medium', 77, { F: 1, M: 0 }], ['es_ES-davefx-medium', 63], ['es_MX-ald-medium', 63], ['es_AR-daniela-high', 114], ['es_MX-claude-high', 63], ['es_ES-carlfm-x_low', 28]];
+const nvPathOf = key => { const [code, name, q] = key.split('-'); return `${code.split('_')[0]}/${code}/${name}/${q}/${key}.onnx`; };
+function nvOptions(list) {
+  const out = [];
+  for (const v of list) {
+    const [code, name, q] = v.key.split('-');
+    const base = { key: v.key, path: v.path || nvPathOf(v.key), mb: Math.round(v.mb), accent: NV_ACCENT[code] || code, quality: NV_QUALITY[q] || q, name: cap(name.replace(/_/g, ' ')) };
+    const sp = v.speakers && Object.keys(v.speakers).length > 1 ? v.speakers : null;
+    if (sp) for (const [s, id] of Object.entries(sp).slice(0, 4)) out.push({ ...base, speaker: id, label: `${base.name} · ${s === 'F' ? 'mujer' : s === 'M' ? 'hombre' : 'voz ' + s}` });
+    else out.push({ ...base, speaker: 0, label: base.name });
+  }
+  const rank = o => (o.key === 'es_ES-sharvard-medium' && o.speaker === 1 ? -10 : 0) + (o.accent === 'España' ? -2 : 0) - ({ 'muy buena': 3, buena: 2, normal: 1 }[o.quality] || 0);
+  return out.sort((a, b) => rank(a) - rank(b));
+}
+async function nvCatalogue() {
+  if (NV.cat) return NV.cat;
+  try {
+    const r = await fetch(NV_HF + 'voices.json'); if (!r.ok) throw 0;
+    const all = await r.json(), list = [];
+    for (const v of Object.values(all)) {
+      if (!v || !v.language || v.language.family !== 'es') continue;
+      const f = Object.entries(v.files || {}).find(([p]) => p.endsWith('.onnx'));
+      if (!f) continue;
+      list.push({ key: v.key, path: f[0], mb: (f[1].size_bytes || 6e7) / 1048576, speakers: v.speaker_id_map });
+    }
+    if (!list.length) throw 0;
+    return (NV.cat = nvOptions(list));
+  } catch { return (NV.cat = nvOptions(NV_KNOWN.map(([key, mb, speakers]) => ({ key, mb, speakers })))); }
+}
+const nvUsable = () => !!(NV.st && NV.on && NV.fails < 3 && window.Worker && window.caches);
+/* Download, with progress, trying a second address if the first fails */
+async function nvFetch(urls, onBytes, signal) {
+  let last;
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, { signal }); if (!r.ok) throw new Error('http ' + r.status);
+      if (!r.body || !r.body.getReader) { const b = await r.arrayBuffer(); onBytes(b.byteLength); return b; }
+      const rd = r.body.getReader(), parts = []; let n = 0;
+      for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); n += value.length; onBytes(value.length); }
+      const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+      return out.buffer;
+    } catch (e) { if (signal && signal.aborted) throw e; last = e; }
+  }
+  throw last || new Error('download');
+}
+async function nvInstall(opt) {
+  if (NV.dl) return;
+  if (!ONLINE && !STANDALONE) { toast('La voz propia se instala en la app de Android, con internet'); return; }
+  const ctl = new AbortController(), cache = await caches.open(NV_CACHE);
+  NV.dl = { opt, done: 0, total: 0, ctl }; renderNV();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch {}
+  try {
+    const jobs = [];
+    for (const [, name, bases, type, mb] of NV_ENGINE) if (!(await cache.match(NV_KEY(name)))) jobs.push({ name, urls: bases.map(b => b + name), type, mb });
+    jobs.push({ name: 'voz.onnx.json', urls: [NV_HF + opt.path + '.json'], type: 'application/json', mb: 0.01 }, { name: 'voz.onnx', urls: [NV_HF + opt.path], type: 'application/octet-stream', mb: opt.mb });
+    NV.dl.total = jobs.reduce((a, j) => a + j.mb * 1048576, 0);
+    let t = 0;
+    const tick = n => { NV.dl.done += n; if (Date.now() - t > 250) { t = Date.now(); renderNVProgress(); } };
+    const got = [];
+    for (const j of jobs) got.push([j, await nvFetch(j.urls, tick, ctl.signal)]);
+    const cfg = JSON.parse(new TextDecoder().decode(got.find(([j]) => j.name === 'voz.onnx.json')[1]));
+    if (!cfg.audio || !cfg.espeak) throw new Error('config');
+    for (const [j, buf] of got) await cache.put(NV_KEY(j.name), new Response(buf, { headers: { 'Content-Type': j.type } }));
+    NV.st = { key: opt.key, speaker: opt.speaker, label: opt.label, accent: opt.accent, mb: opt.mb, ts: Date.now() };
+    LS.set('nv', NV.st); NV.on = true; LS.set('nvOn', true); NV.fails = 0;
+    nvReset(); NV.dl = null; renderNV();
+    toast('Voz propia instalada'); haptic(12);
+    speakTTS(`Hola, soy ${dj.name}. Esta es mi voz nueva, y funciona sin internet.`);
+  } catch (e) {
+    const aborted = ctl.signal.aborted; NV.dl = null; renderNV();
+    if (!aborted) toast('No he podido descargar la voz. Comprueba tu conexión y vuelve a intentarlo.', 4200);
+  }
+}
+async function nvRemove() {
+  try { await caches.delete(NV_CACHE); } catch {}
+  nvReset(); NV.st = null; LS.set('nv', null); NV.cache.clear(); renderNV(); toast('Voz propia borrada: vuelvo a la voz del sistema');
+}
+function nvReset() { if (NV.worker) { try { NV.worker.terminate(); } catch {} } NV.worker = null; NV.ready = null; for (const r of NV.wait.values()) r({ ok: false, error: 'reset' }); NV.wait.clear(); NV.cache.clear(); }
+function nvCall(msg, tr) { return new Promise(res => { const id = ++NV.n; NV.wait.set(id, res); NV.worker.postMessage({ ...msg, id }, tr || []); }); }
+function nvInit() {
+  if (NV.ready) return NV.ready;
+  NV.ready = (async () => {
+    const cache = await caches.open(NV_CACHE), files = {};
+    for (const [k, name] of NV_ENGINE) { const r = await cache.match(NV_KEY(name)); if (!r) throw new Error('falta ' + name); files[k] = URL.createObjectURL(await r.blob()); }
+    const mr = await cache.match(NV_KEY('voz.onnx')), cr = await cache.match(NV_KEY('voz.onnx.json'));
+    if (!mr || !cr) throw new Error('falta la voz');
+    const model = await mr.arrayBuffer(), config = await cr.json();
+    NV.cfg = config;
+    NV.worker = new Worker(URL.createObjectURL(new Blob([NV_WORKER_SRC], { type: 'text/javascript' })));
+    NV.worker.onmessage = e => { const r = NV.wait.get(e.data.id); if (r) { NV.wait.delete(e.data.id); r(e.data); } };
+    NV.worker.onerror = () => { NV.fails++; };
+    const r = await nvCall({ type: 'init', files, config, speaker: NV.st.speaker || 0, model }, [model]);
+    if (!r.ok) throw new Error(r.error);
+    return true;
+  })();
+  NV.ready.catch(() => { NV.fails++; NV.ready = null; });
+  return NV.ready;
+}
+function nvWav(pcm, sr) {
+  const n = pcm.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 32767, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+/* Synthesis of one sentence (cached: song intros are prepared while the previous song plays) */
+function nvSynth(text) {
+  const k = text + '|' + (dj.rate || 1);
+  if (NV.cache.has(k)) { const p = NV.cache.get(k); NV.cache.delete(k); NV.cache.set(k, p); return p; }
+  const p = nvInit().then(() => nvCall({ type: 'speak', text, lengthScale: 1 / Math.max(0.6, Math.min(1.6, dj.rate || 1)) })).then(r => { if (!r.ok) throw new Error(r.error); return nvWav(r.pcm, r.sr); });
+  p.catch(() => NV.cache.delete(k));
+  NV.cache.set(k, p); while (NV.cache.size > 24) NV.cache.delete(NV.cache.keys().next().value);
+  return p;
+}
+const nvAudio = new Audio();
+NV_STOP = () => { if (nvAudio._stop) nvAudio._stop(); };
+function nvPlay(blob, my) {
+  return new Promise(res => {
+    if (my !== dj.talkGen) return res();
+    const u = URL.createObjectURL(blob); let done = false;
+    const fin = () => { if (done) return; done = true; clearTimeout(to); nvAudio.onended = nvAudio.onerror = null; URL.revokeObjectURL(u); res(); };
+    nvAudio.onended = nvAudio.onerror = fin;
+    nvAudio.src = u; nvAudio.volume = Math.min(1, baseVol * 1.3);
+    const to = setTimeout(fin, 30000);
+    nvAudio.play().catch(fin);
+    nvAudio._stop = () => { try { nvAudio.pause(); } catch {} fin(); };
+  });
+}
+async function speakNeural(clean, parts, my) {
+  if (!parts.length) return;
+  let next = nvSynth(parts[0]);
+  const first = await next;   // if the voice can't start, the caller falls back to the system voice
+  if (my !== dj.talkGen) return;
+  $('#dj').classList.add('speaking'); if (!act().paused) tween('duck', 0.3, 380);
+  setBubble(clean, dj.name, 15 * (dj.rate || 1));
+  let wav = first;
+  for (let i = 0; i < parts.length; i++) {
+    next = i + 1 < parts.length ? nvSynth(parts[i + 1]) : null;
+    if (my !== dj.talkGen) break;
+    await nvPlay(wav, my);
+    if (!next) break;
+    try { wav = await next; } catch { break; }
+  }
+  if (my === dj.talkGen) { $('#dj').classList.remove('speaking'); tween('duck', 1, 1100); }
+  bubbleFinish();
+}
+const ttsClean = text => String(text).replace(/[«»"“”]/g, '').replace(/\s·\s/g, ', ').replace(/\s+/g, ' ').trim();
+/* Prepare the next song's introduction in advance, so Nova speaks the moment the song starts */
+function nvPrepareIntro(t) {
+  if (!nvUsable() || !t || t.net || !dj.voiceOn || dj.freq === 'inicio') return;
+  if (!state.intros[t.id]) state.intros[t.id] = introFor(t);
+  for (const p of sentences(ttsClean(state.intros[t.id]))) nvSynth(p).catch(() => {});
+}
+/* Settings card */
+function renderNVProgress() {
+  const d = NV.dl, el = $('#nvBar'); if (!d || !el) return;
+  const pct = d.total ? Math.min(100, Math.round(d.done / d.total * 100)) : 0;
+  el.style.width = pct + '%'; $('#nvPct').textContent = `${pct} % · ${Math.round(d.done / 1048576)} de ${Math.round(d.total / 1048576)} MB`;
+}
+async function renderNV(showList) {
+  const box = $('#nvBox'); if (!box) return;
+  const credits = '<p class="note nv-credits">Motor: Piper (MIT) con espeak-ng (GPL-3.0) y ONNX Runtime (MIT). Las voces son de los conjuntos de datos que indica su ficha en el catálogo de Piper.</p>';
+  if (NV.dl) {
+    box.innerHTML = `<div class="d-text"><b>Descargando la voz «${esc(NV.dl.opt.label)}»</b><span id="nvPct">0 %</span></div><div class="bar nv-bar"><i id="nvBar"></i></div><div class="row-wrap"><button class="btn small" data-nv="cancel">Cancelar</button></div><p class="note">Se descarga una sola vez. Después funciona sin internet.</p>`;
+    renderNVProgress(); return;
+  }
+  const list = showList ? await nvCatalogue() : null;
+  const head = NV.st
+    ? `<div class="d-text"><b>Voz propia: ${esc(NV.st.label)}</b><span>${esc(NV.st.accent || '')} · ${NV.st.mb} MB · funciona sin internet${NV.fails >= 3 ? ' · <b>no ha podido arrancar en este móvil</b>' : ''}</span></div>
+       <div class="row-wrap"><button class="toggle" id="tNV" aria-pressed="${NV.on}"><span class="sw"></span>Usar mi voz propia</button><button class="btn small" data-nv="test">Probar</button><button class="btn small" data-nv="list">Cambiar de voz</button><button class="btn small" data-nv="remove">Borrar</button></div>`
+    : `<div class="d-text"><b>Voz propia para ${esc(dj.name)}</b><span>Una voz neuronal en español que suena igual en todos los móviles y no necesita internet. Se descarga una vez (unos 100 MB con el motor).</span></div>${list ? '' : '<div class="row-wrap"><button class="btn small primary" data-nv="list">Elegir voz</button></div>'}`;
+  const opts = list ? `<ul class="voices nv-list">${list.map((o, i) => `<li class="voice${NV.st && NV.st.key === o.key && (NV.st.speaker || 0) === o.speaker ? ' on' : ''}"><div class="v-text"><b>${esc(o.label)}${i === 0 ? ' · recomendada' : ''}</b><span>${esc(o.accent)} · calidad ${esc(o.quality)} · ${o.mb} MB</span></div><button class="btn small" data-nv-get="${i}">Descargar</button></li>`).join('')}</ul><p class="note">Si cambias de voz, se borra la anterior. Para oír una antes de descargarla no hay muestras: elige, prueba y cambia si no te convence.</p>` : '';
+  box.innerHTML = head + opts + credits;
+}
+$('#nvBox').addEventListener('click', async e => {
+  const b = e.target.closest('[data-nv],[data-nv-get],#tNV'); if (!b) return;
+  if (b.id === 'tNV') { NV.on = !NV.on; LS.set('nvOn', NV.on); setToggle(b, NV.on); toast(NV.on ? 'Nova usará su voz propia' : 'Nova usará la voz del sistema'); return; }
+  if (b.dataset.nvGet !== undefined) { const o = (await nvCatalogue())[+b.dataset.nvGet]; if (o) nvInstall(o); return; }
+  const a = b.dataset.nv;
+  if (a === 'list') renderNV(true);
+  else if (a === 'cancel' && NV.dl) NV.dl.ctl.abort();
+  else if (a === 'remove') { if (b.dataset.sure) nvRemove(); else { b.dataset.sure = '1'; b.textContent = '¿Seguro? Toca otra vez'; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Borrar'; }, 3000); } }
+  else if (a === 'test') { NV.fails = 0; speakTTS(`Hola, soy ${dj.name}. Así sueno con mi voz propia. ¿Te gusta?`); }
+});
+renderNV();
+/* ---------- 3.0 · Nova remembers ----------
+   Preferences you tell her ("no me pongas reguetón por la mañana"), the styles of your artists, memories,
+   routines that start when you open the app, and a conversation screen with history. */
+/* Styles: from the file's own tag, from what Wikipedia says about the artist, or from what you taught Nova */
+const GENRES = [
+  ['reguetón', /reguet|reggaet|dembow|perreo/], ['trap', /\btrap\b/], ['rap', /\brap\b|hip hop|rapero|rapera|\bmc\b/],
+  ['pop', /\bpop\b/], ['rock', /\brock\b/], ['indie', /\bindie\b/], ['electrónica', /electronic|techno|\bhouse\b|\bedm\b|\bdance\b/],
+  ['flamenco', /flamenc|rumba/], ['salsa', /\bsalsa\b/], ['bachata', /bachata/], ['cumbia', /cumbia/], ['corridos', /corrido|regional mexican/],
+  ['r&b', /\br b\b|rhythm and blues|\bsoul\b|\brnb\b/], ['metal', /\bmetal\b/], ['jazz', /\bjazz\b/], ['clásica', /clasica|classical|orquesta|sinfoni/],
+  ['k-pop', /\bk pop\b|\bkpop\b/], ['lo-fi', /\blo fi\b|\blofi\b/], ['punk', /\bpunk\b/], ['folk', /\bfolk\b|cantautor/]
+];
+const genreOf = q => { const n = ' ' + norm(q) + ' '; const f = GENRES.find(([, re]) => re.test(n)); return f ? f[0] : null; };
+let genreVer = 0; const genreMemo = new Map();
+const taughtGenres = () => LS.get('artistGenres', {});
+function trackGenres(t) {
+  if (!t) return new Set();
+  const key = t.id + '|' + genreVer, hit = genreMemo.get(key); if (hit) return hit;
+  const out = new Set(), ak = artistKey(t.artist);
+  for (const g of (ak && taughtGenres()[ak]) || []) out.add(g);
+  const f = !t.net && cachedFact(t.artist);
+  const txt = ' ' + norm((t.genre || '') + ' ' + (f ? (f.desc || '') + ' ' + String(f.text || '').slice(0, 240) : '')) + ' ';
+  for (const [g, re] of GENRES) if (re.test(txt)) out.add(g);
+  genreMemo.set(key, out); return out;
+}
+function genresChanged() { genreVer++; genreMemo.clear(); }
+/* When a rule applies */
+const WHEN_RE = [
+  [/(por|de|en|a) (la|las) mananas?|cada manana|todas las mananas|al despertar(me)?|de buena manana/, { franja: 'manana' }],
+  [/(al )?mediodia/, { franja: 'mediodia' }],
+  [/(por|de|en|a) (la|las) tardes?|cada tarde|todas las tardes/, { franja: 'tarde' }],
+  [/(por|de|en|a) (la|las) noches?|cada noche|todas las noches/, { franja: 'noche' }],
+  [/(de|por la|a la|en la) madrugada/, { franja: 'madrugada' }],
+  [/(el|los) fin(es)? de semana|el finde|los findes/, { dows: [6, 0] }],
+  [/entre semana|los dias de diario|de lunes a viernes/, { dows: [1, 2, 3, 4, 5] }],
+  ...['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'].map((d, i) => [new RegExp(`(el|los|cada|todos los) ${d}s?`), { dows: [i] }])
+];
+function parseWhen(q) {
+  const w = {}; let rest = q;
+  for (const [re, v] of WHEN_RE) { if (re.test(rest)) { if (v.franja) w.franja = v.franja; if (v.dows) w.dows = v.dows; rest = rest.replace(re, ' '); } }
+  return { when: (w.franja || w.dows) ? w : null, rest: rest.replace(/\s+/g, ' ').trim() };
+}
+function whenActive(w, d = new Date()) { if (!w) return true; if (w.franja && getMoment(d).franja.id !== w.franja) return false; if (w.dows && !w.dows.includes(d.getDay())) return false; return true; }
+const FRANJA_TXT = { manana: 'por las mañanas', mediodia: 'a mediodía', tarde: 'por las tardes', noche: 'por las noches', madrugada: 'de madrugada' };
+function whenText(w) {
+  if (!w) return '';
+  const d = w.dows ? (w.dows.length === 2 && w.dows.includes(0) && w.dows.includes(6) ? 'el fin de semana' : w.dows.length === 5 ? 'entre semana' : 'los ' + w.dows.map(i => DAYS[i] + (/s$/.test(DAYS[i]) ? '' : 's')).join(' y ')) : '';
+  return [d, w.franja ? (d ? FRANJA_TXT[w.franja].replace(/^por las /, 'por la ').replace(/s$/, '') : FRANJA_TXT[w.franja]) : ''].filter(Boolean).join(' ');
+}
+/* Preferences: { id, kind: 'avoid'|'boost'|'energy', target: { type: 'artist'|'genre'|'track', value, name }, energy, when, said } */
+var PREFS_MEMO;
+const prefList = () => PREFS_MEMO || (PREFS_MEMO = LS.get('prefs', []));
+function savePrefs(list) { PREFS_MEMO = list; LS.set('prefs', list); renderPrefsSoon(); }
+function prefMatches(p, t) {
+  const v = p.target && p.target.value; if (!v) return false;
+  if (p.target.type === 'artist') return artistKey(t.artist) === v;
+  if (p.target.type === 'track') return t.id === v;
+  if (p.target.type === 'genre') return trackGenres(t).has(v);
+  return false;
+}
+function prefBlocked(t, d) { for (const p of prefList()) if (p.kind === 'avoid' && whenActive(p.when, d) && prefMatches(p, t)) return true; return false; }
+function prefBoost(t, d) { let s = 0; for (const p of prefList()) if (p.kind === 'boost' && whenActive(p.when, d) && prefMatches(p, t)) s += 0.9; return s; }
+function prefEnergy(d) { const p = prefList().find(x => x.kind === 'energy' && whenActive(x.when, d)); return p ? p.energy : null; }
+function resolveTarget(x) {
+  const q = norm(x).replace(/^(a |al |el |la |los |las |de |del |canciones de |musica de |cosas de |temas de )+/, '').replace(/ (espanol|espanola|latino|latina|de ahora|antiguo|viejo|clasico)$/, '').trim();
+  if (!q) return null;
+  const g = genreOf(q); if (g) return { type: 'genre', value: g, name: g };
+  const pool = visibleTracks().filter(t => !t.net);
+  const a = pool.find(t => artistKey(t.artist) === q) || (q.length >= 4 && pool.find(t => artistKey(t.artist) && artistKey(t.artist).includes(q)));
+  if (a) return { type: 'artist', value: artistKey(a.artist), name: a.artist };
+  const tr = pool.find(t => norm(t.title) === q) || (q.length >= 5 && pool.find(t => norm(t.title).includes(q)));
+  if (tr) return { type: 'track', value: tr.id, name: '«' + tr.title + '»' };
+  return null;
+}
+const ENERGY_WORD = q => /(tranquil|suave|calm|relaj|lent|chill|dormir)/.test(q) ? 0.22 : /(movid|animad|marcha|energ|fiesta|ritmo|cana|potente|perreo)/.test(q) ? 0.82 : null;
+const lc1 = x => x.charAt(0).toLowerCase() + x.slice(1);
+function describePref(p) {
+  const w = p.when ? ' ' + whenText(p.when) : '';
+  if (p.kind === 'energy') return `${w ? cap(whenText(p.when)) + ', ' : ''}música ${p.energy < 0.5 ? 'tranquila' : 'con energía'}`;
+  const n = p.target.type === 'genre' ? p.target.name : p.target.name;
+  return p.kind === 'avoid' ? `No poner ${n}${w}` : `Más ${n}${w}`;
+}
+/* Statements that teach Nova something lasting. Returns true when it was one of them */
+function memoryCommand(q, raw) {
+  if (/^(que (recuerdas|sabes) de mi|que te he (dicho|pedido)|que recuerdas)$/.test(q)) { novaSay(recallText()); return true; }
+  if (/^(olvida(lo)? todo|borra todo lo que te (he )?dich[oa]|olvida todo lo que te (he )?dich[oa])$/.test(q)) { savePrefs([]); LS.set('routines', []); renderPrefsSoon(); novaSay('Hecho: he olvidado todas tus preferencias y rutinas. Lo que escuchas lo sigo aprendiendo.'); return true; }
+  const fg = q.match(/^(olvida|borra|elimina) (lo de |la regla de |la rutina de |que )?(.+)$/);
+  if (fg && (prefList().length || LS.get('routines', []).length)) {
+    const k = fg[3];
+    const p = prefList().find(x => norm(describePref(x)).includes(k) || (x.target && (norm(x.target.name).includes(k) || k.includes(norm(x.target.name)))) || norm(x.said || '').includes(k));
+    if (p) { savePrefs(prefList().filter(x => x !== p)); novaSay(`Olvidado: ${lc1(describePref(p))}.`); return true; }
+    const rs = LS.get('routines', []), r = rs.find(x => norm(x.said || '').includes(k) || norm(x.request).includes(k));
+    if (r) { LS.set('routines', rs.filter(x => x !== r)); renderPrefsSoon(); novaSay('Rutina borrada.'); return true; }
+  }
+  // "X es reguetón" / "X hace trap"
+  const tg = q.match(/^(.+?) (es|hace|canta|toca) (de )?(.+)$/);
+  if (tg && genreOf(tg[4]) && !/^(esta|esto|eso|esa)$/.test(tg[1])) {
+    const tr = resolveTarget(tg[1]);
+    if (tr && tr.type === 'artist') { const all = taughtGenres(), g = genreOf(tg[4]); all[tr.value] = [...new Set([...(all[tr.value] || []), g])]; LS.set('artistGenres', all); genresChanged(); novaSay(`Apuntado: ${tr.name} es ${g}.`); return true; }
+  }
+  // Routines: "cada mañana ponme algo suave", "los viernes por la noche, al abrir, pon modo fiesta"
+  const isRoutine = /(^| )(cada|todos los|todas las|siempre que abra|cuando abra|al abrir|nada mas abrir)( |$)/.test(q) && /(pon(me|nos)?|despiertame con|empieza con|arranca con|quiero (oir|escuchar)) /.test(q);
+  const { when, rest } = parseWhen(q);
+  if (isRoutine && when) {
+    const act = rest.replace(/^.*?(pon(me|nos)?|despiertame con|empieza con|arranca con|quiero (oir|escuchar)) /, '').replace(/(siempre que|cuando) abra (la app|orbita)|al abrir( la app| orbita)?|nada mas abrir/g, '').replace(/^(cada|todos los|todas las) /, '').trim();
+    if (act.length >= 3) {
+      const rs = LS.get('routines', []).filter(r => JSON.stringify(r.when) !== JSON.stringify(when));
+      rs.push({ id: 'r' + Date.now(), when, request: act, said: raw, last: '' }); LS.set('routines', rs); renderPrefsSoon();
+      novaSay(`Hecho: ${whenText(when)}, cuando abras Órbita, te pondré ${act}. Puedes borrarlo en «Tú».`); return true;
+    }
+  }
+  // Avoid / boost / energy, optionally with a time: "no me pongas reguetón por la mañana", "me encanta el rap", "por la noche pon cosas tranquilas"
+  const av = rest.match(/^(no me pongas|nunca (me )?pongas|no quiero (oir |escuchar )?|evita|odio|no soporto|no me gusta(n)?|no me apetece) (mas )?(.+)$/);
+  const bo = rest.match(/^(me (encanta|encantan|gusta mucho|gustan mucho|flipa|flipan)|prefiero|pon(me)? mas|quiero mas|mas|me apetece mas) (.+)$/);
+  const en = (when || /(siempre|a partir de ahora)/.test(q)) && rest.match(/^(pon(me)?|quiero|me gusta|prefiero|me apetece) (cosas |algo |musica |canciones )?(.+)$/);
+  const enX = en && en[en.length - 1];
+  if (en && ENERGY_WORD(enX) !== null && !resolveTarget(enX)) {
+    const p = { id: 'p' + Date.now(), kind: 'energy', energy: ENERGY_WORD(enX), when, said: raw };
+    savePrefs(prefList().filter(x => !(x.kind === 'energy' && JSON.stringify(x.when) === JSON.stringify(when))).concat(p));
+    novaSay(`Apuntado: ${lc1(describePref(p))}.`); return true;
+  }
+  const m = av || bo;
+  if (m) {
+    const x = av ? av[av.length - 1] : bo[bo.length - 1];
+    if (/^(esta|esto|eso|esa)( cancion)?$/.test(x)) return false;
+    const tr = resolveTarget(x);
+    if (!tr) { if (!when && !/(siempre|nunca|a partir de ahora)/.test(q)) return false; novaSay(`No sé qué es «${x}» en tu música. Prueba con el nombre de un artista o un estilo, como reguetón, rap o rock.`); return true; }
+    /* «pon más rap» is for now; «me encanta el rap» or anything with a time or «siempre» is for good */
+    const lasting = !!av || /^(me (encanta|gusta mucho|gustan mucho|flipa)|prefiero)/.test(rest) || !!when || /(siempre|a partir de ahora)/.test(q);
+    if (!lasting) {
+      if (!current()) return false;
+      const ids = brainRank(poolTracks({ free: true }).filter(t => prefMatches({ target: tr }, t)), current(), { explore: 0.3 }).map(y => y.t.id).filter(id => !state.queue.slice(state.qi).includes(id)).slice(0, 4);
+      if (!ids.length) {
+        const up = state.queue.slice(state.qi + 1), mine = up.filter(id => { const x = trackById(id); return x && prefMatches({ target: tr }, x); });
+        if (!mine.length) { novaSay(`No tengo más ${tr.name} para ponerte ahora.`); return true; }
+        state.queue = state.queue.slice(0, state.qi + 1).concat(mine, up.filter(id => !mine.includes(id))); disarmMix(); prefetchNext(); renderQueue();
+        novaSay(`Adelanto ${mine.length === 1 ? 'la canción' : 'las ' + mine.length + ' canciones'} de ${tr.name} que venían.`); return true;
+      }
+      state.queue.splice(state.qi + 1, 0, ...ids); disarmMix(); prefetchNext(); renderQueue();
+      novaSay(`Marchando más ${tr.name}: ${ids.length === 1 ? 'una canción' : ids.length + ' canciones'} a continuación.`); return true;
+    }
+    const p = { id: 'p' + Date.now(), kind: av ? 'avoid' : 'boost', target: tr, when, said: raw };
+    savePrefs(prefList().filter(y => !(y.target && y.target.type === tr.type && y.target.value === tr.value && JSON.stringify(y.when) === JSON.stringify(when))).concat(p));
+    if (av && current() && prefMatches(p, current()) && whenActive(when) && state.source !== 'playlist') { state.queue = state.queue.slice(0, state.qi + 1).concat(state.queue.slice(state.qi + 1).filter(id => { const t = trackById(id); return !t || !prefMatches(p, t); })); renderQueue(); }
+    else if (av) { state.queue = state.queue.slice(0, state.qi + 1).concat(state.queue.slice(state.qi + 1).filter(id => { const t = trackById(id); return !t || !(whenActive(when) && prefMatches(p, t)); })); renderQueue(); }
+    const unknownStyle = tr.type === 'genre' && !poolTracks({ free: true }).some(t => trackGenres(t).has(tr.value));
+    novaSay(`Apuntado: ${lc1(describePref(p))}.${unknownStyle ? ` Aún no sé qué canciones tuyas son ${tr.value}: lo voy aprendiendo con internet, y también puedes decirme «tal artista es ${tr.value}».` : ''}`);
+    return true;
+  }
+  return false;
+}
+function recallText() {
+  const ps = prefList(), rs = LS.get('routines', []), st = memStats(30), out = [];
+  if (ps.length) out.push('Me has pedido: ' + joinEs(ps.slice(0, 5).map(p => lc1(describePref(p)))) + '.');
+  if (rs.length) out.push('Rutinas: ' + joinEs(rs.slice(0, 3).map(r => `${whenText(r.when)}, ${r.request}`)) + '.');
+  if (st.artists[0]) out.push(`Este mes lo que más escuchas es ${st.artists[0].name}.`);
+  const mm = memories()[0]; if (mm) out.push(mm.text);
+  return out.length ? out.join(' ') : 'Aún sé poco de ti. Dime cosas como «no me pongas reguetón por la mañana» o «me encanta el rap», y lo recordaré.';
+}
+/* Memories */
+function memories() {
+  const out = [], now = Date.now(), day = 864e5;
+  const yr = memEvents.filter(e => !e.net && !e.skip && Math.abs((now - e.ts) / day - 365) <= 10);
+  if (yr.length >= 3) {
+    const m = new Map(); for (const e of yr) m.set(e.id, (m.get(e.id) || 0) + 1);
+    const [id, n] = [...m.entries()].sort((a, b) => b[1] - a[1])[0], t = trackById(id);
+    if (t && n >= 2 && (!t.lastPlayed || now - t.lastPlayed > 60 * day)) out.push({ kind: 'year', id, text: `Hace un año no parabas de escuchar «${t.title}»${artistKey(t.artist) ? ' de ' + t.artist : ''}.` });
+  }
+  const all = memStats(0), fav = all.artists[0];
+  if (fav && fav.plays >= 8) {
+    let last = 0; for (let i = memEvents.length - 1; i >= 0; i--) { const e = memEvents[i]; if (!e.net && artistKey(e.artist) === fav.key) { last = e.ts; break; } }
+    if (last && now - last > 30 * day) out.push({ kind: 'artist', text: `Hace ${Math.round((now - last) / day)} días que no pones a ${fav.name}, tu artista de siempre.` });
+  }
+  const forgot = state.tracks.filter(t => !t.demo && !t.net && liked(t) && t.lastPlayed && now - t.lastPlayed > 45 * day).sort((a, b) => a.lastPlayed - b.lastPlayed)[0];
+  if (forgot) out.push({ kind: 'fav', id: forgot.id, text: `Tienes olvidada una favorita: «${forgot.title}». Hace ${Math.round((now - forgot.lastPlayed) / day)} días que no suena.` });
+  const first = memEvents.find(e => !e.net);
+  if (first && now - first.ts > 30 * day) { const t = trackById(first.id); if (t) out.push({ kind: 'first', id: t.id, text: `La primera canción que escuchaste conmigo fue «${t.title}», el ${new Date(first.ts).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}.` }); }
+  return out;
+}
+function weekSummary() {
+  const st = memStats(7); if (!st.n || st.sec < 600) return null;
+  const now = Date.now(), seen = new Set(), news = new Set();
+  for (const e of memEvents) { if (e.net) continue; if (now - e.ts > 7 * 864e5) seen.add(e.id); else if (!seen.has(e.id)) news.add(e.id); }
+  return `Tu semana en música: ${fmtLong(st.sec)}.${st.artists[0] ? ` Tu artista fue ${st.artists[0].name}` : ''}${st.tracks[0] ? ` y la canción que más pusiste, «${st.tracks[0].title}»` : ''}.${news.size ? ` Descubriste ${news.size} ${news.size === 1 ? 'canción nueva' : 'canciones nuevas'}.` : ''}`;
+}
+/* When the app opens: a routine if there is one for now, otherwise a memory or the weekly summary (shown, not spoken) */
+function openRoutine() {
+  if (current() && !act().paused) return false;
+  const today = new Date().toISOString().slice(0, 10), rs = LS.get('routines', []);
+  const r = rs.find(x => x.last !== today && whenActive(x.when)); if (!r) return false;
+  r.last = today; LS.set('routines', rs);
+  chatAdd('nova', `Rutina: ${whenText(r.when)}, ${r.request}.`);
+  if (/^(la |el )?(modo )?radio$/.test(norm(r.request))) { if (!state.radio) $('#btnRadio').click(); }
+  else createMix({ request: r.request, autoplay: true });
+  toast(`Rutina ${whenText(r.when)}: ${r.request}. Puedes borrarla en «Tú».`, 4200);
+  return true;
+}
+function openGreeting() {
+  if (openRoutine()) return;
+  const today = new Date().toISOString().slice(0, 10); if (LS.get('memoSaid', '') === today) return;
+  let line = null;
+  if (new Date().getDay() === 1 && LS.get('weekSaid', '') !== today) { line = weekSummary(); if (line) LS.set('weekSaid', today); }
+  if (!line) { const m = memories(); line = m.length ? pick(m).text : null; }
+  if (!line) return;
+  LS.set('memoSaid', today);
+  setTimeout(() => { if (!current() || act().paused) setBubble(line, dj.name); chatAdd('nova', line); }, 2500);
+}
+/* Fill in the styles of the artists you listen to most (a few per session, only with internet) */
+let bgFactsN = 0;
+function bgFacts(delay = 20000) {
+  if (!ONLINE) return;
+  setTimeout(async () => {
+    if (document.hidden || bgFactsN >= 30) { if (bgFactsN < 30) bgFacts(30000); return; }
+    const facts = factsAll(), seen = new Set(), cand = [];
+    for (const t of state.tracks.filter(x => !x.net && !x.demo && !x.mine).sort((a, b) => plays(b) - plays(a))) { const k = artistKey(t.artist); if (!k || seen.has(k)) continue; seen.add(k); if (!facts[k]) cand.push(t.artist); if (cand.length) break; }
+    if (!cand.length) return;
+    bgFactsN++; await artistFact(cand[0]); genresChanged(); bgFacts(6000);
+  }, delay);
+}
+/* Conversation screen */
+const chatLog = () => LS.get('chat', []);
+function chatAdd(who, text) {
+  if (!text) return;
+  const log = chatLog(); log.push({ who, text: String(text).slice(0, 600), ts: Date.now() }); LS.set('chat', log.slice(-80));
+  if (!$('#chat').hidden) renderChat();
+}
+function renderChat() {
+  const log = chatLog(), box = $('#chatLog');
+  $('#chatName').textContent = dj.name;
+  const t = current(); $('#chatNow').textContent = t ? `Suena: ${t.title} · ${t.artist}` : 'No suena nada';
+  box.innerHTML = log.length ? log.map(m => `<div class="msg ${m.who === 'me' ? 'me' : 'nova'}">${esc(m.text)}</div>`).join('') : `<div class="msg nova">Hola, soy ${esc(dj.name)}. Puedes pedirme música, cambiar lo que suena o enseñarme lo que te gusta: «no me pongas reguetón por la mañana», «cada noche ponme algo tranquilo», «¿qué recuerdas de mí?».</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+function openChat() {
+  $('#chat').hidden = false; renderChat();
+  $('#chatChips').innerHTML = ['¿Qué recuerdas de mí?', 'Más movida', 'Más tranquila', '¿Por qué esta?', 'Resumen de mi semana', 'Ayuda'].map(s => `<button class="idea" data-cmd="${esc(s)}">${esc(s)}</button>`).join('');
+  $('#chatMic').hidden = !voiceAvailable();
+  if (STANDALONE) { try { history.pushState({ chat: 1 }, '', location.hash || '#' + state.view); } catch {} }
+}
+function closeChat(fromPop) {
+  if ($('#chat').hidden) return; $('#chat').hidden = true;
+  if (STANDALONE && !fromPop && history.state && history.state.chat) { try { popSkip = true; history.back(); } catch {} }
+}
+$('#chatForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#chatIn').value.trim(); if (!v) return; $('#chatIn').value = ''; novaCommand(v); });
+$('#chat').addEventListener('click', e => {
+  const b = e.target.closest('[data-chat]'), c = e.target.closest('[data-cmd]');
+  if (c) { novaCommand(c.dataset.cmd); return; }
+  if (!b) return;
+  if (b.dataset.chat === 'close') closeChat();
+  else if (b.dataset.chat === 'clear') { LS.set('chat', []); renderChat(); }
+});
+$('#chatMic').onclick = () => voiceAsk();
+$('#openChat').onclick = () => openChat();
+$('#djBubble').addEventListener('click', () => openChat());
+/* «Tú»: what you asked Nova to remember, your routines and memories */
+let prefsT = null;
+function renderPrefsSoon() { clearTimeout(prefsT); prefsT = setTimeout(renderPrefs, 60); }
+function renderPrefs() {
+  const box = $('#prefsOut'); if (!box) return;
+  const ps = prefList(), rs = LS.get('routines', []), mm = memories();
+  const x = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  box.innerHTML = (ps.length ? `<div class="eyebrow">Lo que me has pedido</div><ul class="banned">${ps.map(p => `<li><span class="row-text"><span class="t-title">${esc(describePref(p))}</span>${p.said ? `<span class="t-sub">«${esc(p.said)}»</span>` : ''}</span><button class="icon-btn" data-pref-del="${p.id}" aria-label="Olvidar">${x}</button></li>`).join('')}</ul>` : '')
+    + (rs.length ? `<div class="eyebrow">Tus rutinas al abrir Órbita</div><ul class="banned">${rs.map(r => `<li><span class="row-text"><span class="t-title">${esc(cap(whenText(r.when)))}: ${esc(r.request)}</span></span><button class="icon-btn" data-routine-del="${r.id}" aria-label="Borrar rutina">${x}</button></li>`).join('')}</ul>` : '')
+    + (mm.length ? `<div class="eyebrow">Recuerdos</div><ul class="facts">${mm.map(m => `<li>${esc(m.text)}</li>`).join('')}</ul>` : '')
+    + `<p class="note">Enséñale a ${esc(dj.name)}: «no me pongas reguetón por la mañana», «me encanta el rap», «cada noche ponme algo tranquilo», «tal artista es trap». <button class="link" data-open-chat>Abrir la conversación</button></p>`;
+}
+$('#prefsOut').addEventListener('click', e => {
+  const d = e.target.closest('[data-pref-del]'), r = e.target.closest('[data-routine-del]');
+  if (e.target.closest('[data-open-chat]')) { openChat(); return; }
+  if (d) { savePrefs(prefList().filter(p => p.id !== d.dataset.prefDel)); toast('Olvidado'); }
+  if (r) { LS.set('routines', LS.get('routines', []).filter(x => x.id !== r.dataset.routineDel)); renderPrefs(); toast('Rutina borrada'); }
+});
 
 /* ---------- Boot ---------- */
 function renderAll() { renderLibrary(); renderLists(); renderMix(); renderVoice(); renderWishlist(); renderDevice(); updatePlayer(); renderForYou(); }
@@ -4325,7 +4836,9 @@ async function boot() {
   if (state.view === 'tu') renderTu();
   /* First real render is on screen: the intro can leave now */
   requestAnimationFrame(() => { if (window.ORBITA_INTRO) window.ORBITA_INTRO.ready(); });
-  introDone.then(() => { vizKick(); setTimeout(showNews, 700); renderNovaChips(); });
+  introDone.then(() => { vizKick(); setTimeout(showNews, 700); renderNovaChips(); setTimeout(openGreeting, 1200); });
+  bgFacts();
+  introDone.then(() => setTimeout(() => { if (nvUsable()) nvInit().catch(() => {}); }, 3500));
   if (ONLINE && LS.get('city', null)) { const had = !!weatherNow(); loadWeather(false).then(w => { if (w && !had && !current()) hello(); }); setInterval(() => loadWeather(false), 30 * 60000); }
   if (NATIVE && APP_CFG.version) $('#setMeta').textContent = `sonido, aspecto, DJ y copias · versión ${APP_CFG.version}`;
   idle(() => trainBrain()); bgAnalysis(12000);
@@ -4345,7 +4858,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }

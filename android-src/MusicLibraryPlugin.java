@@ -151,6 +151,14 @@ public class MusicLibraryPlugin extends Plugin {
             MediaStore.Audio.Media.DATE_ADDED,
             folderCol
         };
+        // El estilo (columna "genre") solo existe desde Android 11
+        boolean withGenre = Build.VERSION.SDK_INT >= 30;
+        if (withGenre) {
+            String[] more = new String[proj.length + 1];
+            System.arraycopy(proj, 0, more, 0, proj.length);
+            more[proj.length] = "genre";
+            proj = more;
+        }
         String sel = MediaStore.Audio.Media.IS_MUSIC + " != 0";
         JSArray out = new JSArray();
         Cursor c = null;
@@ -167,6 +175,7 @@ public class MusicLibraryPlugin extends Plugin {
                 int iName = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME);
                 int iAdded = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED);
                 int iFolder = c.getColumnIndexOrThrow(folderCol);
+                int iGenre = withGenre ? c.getColumnIndex("genre") : -1;
                 while (c.moveToNext()) {
                     long dur = c.getLong(iDur);
                     if (dur > 0 && dur < minMs) continue;
@@ -183,6 +192,10 @@ public class MusicLibraryPlugin extends Plugin {
                     o.put("name", c.getString(iName));
                     o.put("added", c.getLong(iAdded) * 1000L);
                     o.put("folder", folderName(c.getString(iFolder), modern));
+                    if (iGenre >= 0) {
+                        String g = c.getString(iGenre);
+                        if (g != null && g.length() > 0) o.put("genre", g);
+                    }
                     out.put(o);
                 }
             }
