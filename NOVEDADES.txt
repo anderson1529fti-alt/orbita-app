@@ -1,3 +1,12 @@
+Órbita 3.0 · beta 3 (versión de prueba): el cerebro de Nova.
+
+- Cerebro de Nova (Ajustes › Tu DJ › Cerebro): un modelo de lenguaje que funciona en tu móvil, sin internet, y entiende lo que le dices con tus palabras: «esta es una pasada», «baja las revoluciones», «estoy reventado», «para que me llaman»… Lo convierte en acciones (favorita, más movida, pausa, una mezcla para concentrarte…) o en respuestas.
+- No escribe textos ni se inventa nada: compara el significado de lo que dices con lo que ya sabe hacer. Si no lo tiene claro, hace lo de siempre (una mezcla con tus palabras).
+- Charla con Nova: saluda, da las gracias, cuenta chistes y, si le dices que estás cansado o triste, te ofrece música; contesta «vale» o «sí» para aceptar.
+- Enséñale tus frases: en «Probar y enseñar» escribes una frase, ves qué entiende y la corriges. Las recuerda.
+- Con clave de Claude, además, conversación libre cuando la frase lo pide.
+- Sin descargar el cerebro, Nova ya entiende «gracias», «¿qué tal estás?», «buenas noches» o «cuéntame un chiste» (antes hacía una mezcla con esas palabras), y a una pregunta que no sabe responder ya no contesta con una mezcla.
+
 Órbita 3.0 · beta 2 (versión de prueba): la voz propia de Nova.
 
 - Voz neuronal en español para Nova (Ajustes › Tu DJ › Voz propia): suena igual en todos los móviles y, una vez descargada, funciona sin internet.
