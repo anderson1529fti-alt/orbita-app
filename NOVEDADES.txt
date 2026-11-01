@@ -1,27 +1,13 @@
-Órbita 3.0 · beta 3 (versión de prueba): el cerebro de Nova.
+Órbita 3.0: Nova, más lista que nunca.
 
-- Cerebro de Nova (Ajustes › Tu DJ › Cerebro): un modelo de lenguaje que funciona en tu móvil, sin internet, y entiende lo que le dices con tus palabras: «esta es una pasada», «baja las revoluciones», «estoy reventado», «para que me llaman»… Lo convierte en acciones (favorita, más movida, pausa, una mezcla para concentrarte…) o en respuestas.
-- No escribe textos ni se inventa nada: compara el significado de lo que dices con lo que ya sabe hacer. Si no lo tiene claro, hace lo de siempre (una mezcla con tus palabras).
-- Charla con Nova: saluda, da las gracias, cuenta chistes y, si le dices que estás cansado o triste, te ofrece música; contesta «vale» o «sí» para aceptar.
-- Enséñale tus frases: en «Probar y enseñar» escribes una frase, ves qué entiende y la corriges. Las recuerda.
-- Con clave de Claude, además, conversación libre cuando la frase lo pide.
-- Sin descargar el cerebro, Nova ya entiende «gracias», «¿qué tal estás?», «buenas noches» o «cuéntame un chiste» (antes hacía una mezcla con esas palabras), y a una pregunta que no sabe responder ya no contesta con una mezcla.
-
-Órbita 3.0 · beta 2 (versión de prueba): la voz propia de Nova.
-
-- Voz neuronal en español para Nova (Ajustes › Tu DJ › Voz propia): suena igual en todos los móviles y, una vez descargada, funciona sin internet.
-- Varias voces para elegir (España, México, Argentina…); la recomendada es «Sharvard · mujer».
-- Nova prepara la presentación de la siguiente canción mientras suena la anterior, para hablar justo al empezar.
-- Si la voz propia fallara, Nova sigue hablando con la voz del sistema.
-
-Órbita 3.0 · beta 1 (versión de prueba): Nova recuerda.
-
-- Nova recuerda lo que le dices: «no me pongas reguetón por la mañana», «me encanta el rap», «por la noche, cosas tranquilas». Lo cumple en la radio y en sus mezclas (tus listas no se tocan).
-- Conoce el estilo de tus canciones: por la etiqueta del archivo, por Wikipedia o porque se lo enseñas («tal artista es trap»). Puedes pedir «solo rap» o «nada de reguetón».
-- Rutinas: «cada mañana ponme algo suave» y lo pondrá cuando abras Órbita a esa hora.
+- Nova recuerda lo que le dices: «no me pongas reguetón por la mañana», «me encanta el rap», «por la noche, cosas tranquilas». Lo cumple en la radio y en sus mezclas.
+- Conoce el estilo de tus canciones (por la etiqueta, por Wikipedia o porque se lo enseñas) y puedes pedirle «solo rap» o «nada de reguetón».
+- Rutinas: «cada mañana ponme algo suave» y lo pondrá al abrir Órbita.
 - Recuerdos y el resumen de tu semana.
-- Conversación con historial: toca el bocadillo de Nova o «Conversación». Pregúntale «¿qué recuerdas de mí?».
-- En «Tú» ves y borras todo lo que le has pedido.
+- Voz propia: en Ajustes › Tu DJ, descarga una voz neuronal para Nova. Funciona sin internet y con un motor nativo de Android que la hace hablar al momento.
+- El cerebro de Nova (beta): un modelo de lenguaje que entiende lo que le dices con tus palabras («esta es una pasada», «estoy reventado», «baja las revoluciones»). Funciona sin internet, nunca se inventa datos y puedes enseñarle frases tuyas.
+- Conversación con historial: toca el bocadillo de Nova. Saluda, cuenta chistes y, si estás cansado o triste, te ofrece música.
+- Más fluida en sesiones largas: gasta menos memoria y batería.
 
 Órbita 2.3: Nova te escucha.
 
