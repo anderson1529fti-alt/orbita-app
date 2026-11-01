@@ -134,7 +134,22 @@ if (bigBrain) {
   fs.mkdirSync(novaDir, { recursive: true });
   fs.copyFileSync(path.join(root, 'android-brain', 'java', 'NovaLlm.java'), path.join(novaDir, 'NovaLlm.java'));
   fs.writeFileSync(path.join(javaDir, 'NovaBrainPlugin.java'), fs.readFileSync(path.join(root, 'android-brain', 'NovaBrainPlugin.java'), 'utf8').replace(/__PACKAGE__/g, appId));
-  const ndk = process.env.ANDROID_NDK_LATEST_HOME || process.env.ANDROID_NDK_HOME || process.env.ANDROID_NDK_ROOT || '';
+  // NDK: Gradle exige que ndkVersion y ndkPath coincidan. Se elige uno instalado (mejor un 27, el que espera
+  // Gradle; si no, el estable más reciente) y se le dice a Gradle su versión exacta.
+  const ndkRev = d => { try { const m = fs.readFileSync(path.join(d, 'source.properties'), 'utf8').match(/Pkg\.Revision\s*=\s*([^\s]+)/); return m ? m[1] : ''; } catch { return ''; } };
+  const ndkCands = new Map();
+  const addNdk = d => { if (d && fs.existsSync(d)) { const r = ndkRev(d); if (r) ndkCands.set(fs.realpathSync(d), r); } };
+  for (const sdk of [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT]) {
+    const nd = sdk && path.join(sdk, 'ndk');
+    if (nd && fs.existsSync(nd)) for (const v of fs.readdirSync(nd)) addNdk(path.join(nd, v));
+  }
+  for (const e of [process.env.ANDROID_NDK_LATEST_HOME, process.env.ANDROID_NDK_HOME, process.env.ANDROID_NDK_ROOT]) addNdk(e);
+  const major = r => parseInt(r, 10) || 0;
+  const cmpRev = (a, b) => { const x = a.split(/[.-]/).map(n => parseInt(n, 10) || 0), y = b.split(/[.-]/).map(n => parseInt(n, 10) || 0); for (let i = 0; i < 4; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
+  const stable = [...ndkCands].filter(([, r]) => /^\d+\.\d+\.\d+$/.test(r) && major(r) >= 26);
+  const pickFrom = list => list.sort((a, b) => cmpRev(b[1], a[1]))[0];
+  const chosen = pickFrom(stable.filter(([, r]) => major(r) === 27)) || pickFrom(stable.filter(([, r]) => major(r) <= 29)) || pickFrom(stable) || pickFrom([...ndkCands]);
+  const ndk = chosen ? chosen[0] : '', ndkVer = chosen ? chosen[1] : '';
   const q = v => JSON.stringify(v).replace(/\$/g, '\\$');
   gradle += `
 android {
@@ -150,11 +165,12 @@ android {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
         }
-    }${ndk && fs.existsSync(ndk) ? `
+    }${ndk ? `
+    ndkVersion ${q(ndkVer)}
     ndkPath ${q(ndk)}` : ''}
 }
 `;
-  console.log('Cerebro grande: incluido (llama.cpp de ' + llamaDir + (ndk ? ', NDK ' + path.basename(ndk) : '') + ')');
+  console.log('Cerebro grande: incluido (llama.cpp de ' + llamaDir + (ndk ? ', NDK ' + ndkVer + ' en ' + ndk + ' · instalados: ' + [...ndkCands.values()].join(', ') : ', sin NDK localizado') + ')');
 } else if (extras) console.log('Cerebro grande: no incluido' + (process.env.BIGBRAIN === '0' ? ' (compilación de respaldo)' : ' (falta LLAMA_DIR)'));
 
 // 4b) Motor nativo de la voz propia de Nova (ONNX Runtime para Android): habla antes y fuera del WebView.

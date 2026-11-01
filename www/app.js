@@ -3743,9 +3743,20 @@ function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.h
 function renderMoment() {
   const m = getMoment();
   $('#momentTitle').innerHTML = `<span class="d">${esc(m.day)}</span><span class="f">${esc(m.franja.phrase)}</span>`;
+  fitTitle();
   $('#clock').textContent = m.hh; $('#momentHint').textContent = m.hint; $('#mixerMoment').textContent = m.label;
   applyTheme();
 }
+/* Long day names («miércoles», «domingo») shrink so they never go under the vinyl or the visualizer */
+function fitTitle() {
+  const h = $('#momentTitle'), d = h && h.querySelector('.d'); if (!d) return;
+  d.style.fontSize = '';
+  const room = h.clientWidth; if (!room) return;
+  const need = d.scrollWidth;
+  if (need > room) d.style.fontSize = Math.max(0.55, (room / need) * 0.98).toFixed(3) + 'em';
+}
+window.addEventListener('resize', () => fitTitle());
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitTitle());
 function updateTicker() {
   const m = getMoment(), t = current();
   const parts = [t ? `Ahora suena: ${t.title} · ${t.artist}` : 'Órbita FM', `${m.day} ${m.franja.phrase}`, 'Pídele lo que quieras a la DJ', 'Elige la voz que más te guste', 'Importa carpetas enteras', t ? `Calidad: ${quality(t)?.label || 'directo'}` : 'Sonido directo del archivo'];
