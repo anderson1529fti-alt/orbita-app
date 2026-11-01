@@ -170,7 +170,7 @@ async function deviceUrl(t) {
     let b = await r.blob(); if (!b.size) throw new Error('vacío');
     if (!b.type && t.mime) b = new Blob([b], { type: t.mime });
     const u = URL.createObjectURL(b); devUrls.set(t.id, u); devBlobs.set(t.id, b);
-    while (devUrls.size > 4) { const [k, old] = devUrls.entries().next().value; if (k === current()?.id) break; devUrls.delete(k); devBlobs.delete(k); setTimeout(() => URL.revokeObjectURL(old), 15000); }
+    while (devUrls.size > 4) { const cur = current()?.id, k = [...devUrls.keys()].find(x => x !== cur && x !== t.id); if (k == null) break; const old = devUrls.get(k); devUrls.delete(k); devBlobs.delete(k); setTimeout(() => URL.revokeObjectURL(old), 15000); }
     return u;
   } catch { return null; }
 }
@@ -974,7 +974,7 @@ async function loadCurrent(autoplay, xf = 0, at = 0) {
     const nw = t.net ? 2 : (A === 2 ? 0 : A);
     if (nw !== A) els[A].pause();
     A = nw; const d = els[A]; d.src = u; if (!t.net) { ensureGraph(); applyNorm(A, t, 0); }
-    if (at > 0) d.addEventListener('loadedmetadata', () => { try { d.currentTime = Math.min(at, Math.max(0, (d.duration || at + 1) - 1)); } catch {} updateSeek(); }, { once: true });
+    if (at > 0) d.addEventListener('loadedmetadata', () => { if (d.getAttribute('src') !== u) return; try { d.currentTime = Math.min(at, Math.max(0, (d.duration || at + 1) - 1)); } catch {} updateSeek(); }, { once: true });
     deckF[A] = 1; applyVol();
     beginTrack(t, { silent: true }); return;
   }
@@ -1348,12 +1348,14 @@ function setRange(el) { const max = +el.max || 100, min = +el.min || 0; el.style
 function updatePlayBtn() { const p = !act().paused; $$('[data-ctl="play"]').forEach(b => { b.innerHTML = p ? ICON.pause : ICON.play; b.setAttribute('aria-label', p ? 'Pausar' : 'Reproducir'); }); }
 let seeking = false;
 function updateSeek() {
+  if (document.hidden) return;
   const d = act(), dur = d.duration, c = d.currentTime;
   const live = current()?.kind === 'radio';
   const ct = fmt(c), dt = live ? 'EN VIVO' : fmt(isFinite(dur) ? dur : (current()?.duration || 0));
-  $$('[data-t="cur"]').forEach(e => { if (!seeking) e.textContent = ct; }); $$('[data-t="dur"]').forEach(e => { e.textContent = dt; });
-  if (!seeking) { const v = isFinite(dur) && dur > 0 ? Math.round((c / dur) * 1000) : 0; $$('.seek').forEach(s => { s.value = v; setRange(s); }); }
+  $$('[data-t="cur"]').forEach(e => { if (!seeking && e.textContent !== ct) e.textContent = ct; }); $$('[data-t="dur"]').forEach(e => { if (e.textContent !== dt) e.textContent = dt; });
+  if (!seeking) { const v = String(isFinite(dur) && dur > 0 ? Math.round((c / dur) * 1000) : 0); $$('.seek').forEach(s => { if (s.value !== v || !s.style.getPropertyValue('--p')) { s.value = v; setRange(s); } }); }
 }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) updateSeek(); });
 function updateQuality() {
   const t = current(), q = quality(t), fx = t && t.net ? [] : soundLabel();
   if (mixing && MIX_STYLES[mixing.plan.style]) { const pl = mixing.plan, bpm = pl.style === 'dj' && pl.bpmA && pl.bpmB ? ` · ${Math.round(pl.bpmA)}→${Math.round(pl.bpmB)} BPM` : ''; ['#plQuality', '#npQ'].forEach(x => { $(x).textContent = `MEZCLA ${MIX_STYLES[pl.style].name.toUpperCase()}${bpm}`; $(x).title = MIX_STYLES[pl.style].desc; }); return; }
@@ -1772,20 +1774,20 @@ function speakTTS(text, voice) {
   });
 }
 /* Android's own text-to-speech engine: sentence by sentence, music ducked while it talks */
+function sysVoice(v) {
+  if (!v || navigator.onLine !== false || !/-network$/i.test(v.name || '')) return v;
+  return (dj.all || []).find(x => x.name === v.name.replace(/-network$/i, '-local')) || v;
+}
 async function speakNative(clean, parts, v, my) {
   $('#dj').classList.add('speaking');
   if (!act().paused) tween('duck', 0.3, 380);
   setBubble(clean, dj.name, 15 * dj.rate);
-  let off = 0;
+  const vv = sysVoice(v);
+  dj.nbase = 0;
   try {
-    for (const p of parts) {
-      if (my !== dj.talkGen) break;
-      dj.nbase = off;
-      const opts = { text: p, lang: (v && v.lang) || 'es-ES', rate: dj.rate, pitch: dj.pitch, volume: 1 };
-      if (v && typeof v._idx === 'number') opts.voice = v._idx;
-      await Promise.race([nativeTTS.speak(opts), sleep(4000 + p.length * 110 / dj.rate)]);
-      off += p.length + 1;
-    }
+    const opts = { text: clean, lang: (vv && vv.lang) || 'es-ES', rate: dj.rate, pitch: dj.pitch, volume: 1 };
+    if (vv && typeof vv._idx === 'number') opts.voice = vv._idx;
+    if (my === dj.talkGen) await Promise.race([nativeTTS.speak(opts), sleep(4000 + clean.length * 110 / dj.rate)]);
   } catch {}
   if (my === dj.talkGen) { $('#dj').classList.remove('speaking'); tween('duck', 1, 1100); }
   bubbleFinish();
@@ -3742,21 +3744,29 @@ function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.h
 /* ---------- Moment, ticker ---------- */
 function renderMoment() {
   const m = getMoment();
-  $('#momentTitle').innerHTML = `<span class="d">${esc(m.day)}</span><span class="f">${esc(m.franja.phrase)}</span>`;
-  fitTitle();
+  const th = `<span class="d">${esc(m.day)}</span><span class="f">${esc(m.franja.phrase)}</span>`, h = $('#momentTitle');
+  if (h._html !== th) { h._html = th; h.innerHTML = th; fitTitle(); }
   $('#clock').textContent = m.hh; $('#momentHint').textContent = m.hint; $('#mixerMoment').textContent = m.label;
   applyTheme();
 }
 /* Long day names («miércoles», «domingo») shrink so they never go under the vinyl or the visualizer */
+function renderAppVer() {
+  const el = $('#appVerTxt'); if (!el) return;
+  const v = APP_CFG.version ? 'Órbita ' + APP_CFG.version + (APP_CFG.beta ? ' (beta)' : '') : 'Órbita';
+  el.textContent = NATIVE ? v + ' · cerebro grande: ' + (typeof BB_NATIVE !== 'undefined' && BB_NATIVE ? 'incluido' : 'no incluido') : v;
+}
 function fitTitle() {
   const h = $('#momentTitle'), d = h && h.querySelector('.d'); if (!d) return;
   d.style.fontSize = '';
   const room = h.clientWidth; if (!room) return;
   const need = d.scrollWidth;
-  if (need > room) d.style.fontSize = Math.max(0.55, (room / need) * 0.98).toFixed(3) + 'em';
+  if (need > room) d.style.fontSize = Math.max(0.3, (room / need) * 0.97).toFixed(3) + 'em';
 }
 window.addEventListener('resize', () => fitTitle());
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitTitle());
+if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => fitTitle());
+try { let tw = -1; new ResizeObserver(es => { const w = Math.round(es[0].contentRect.width); if (w !== tw) { tw = w; requestAnimationFrame(fitTitle); } }).observe($('#momentTitle')); } catch {}
+[1500, 4000].forEach(ms => setTimeout(() => fitTitle(), ms));
 function updateTicker() {
   const m = getMoment(), t = current();
   const parts = [t ? `Ahora suena: ${t.title} · ${t.artist}` : 'Órbita FM', `${m.day} ${m.franja.phrase}`, 'Pídele lo que quieras a la DJ', 'Elige la voz que más te guste', 'Importa carpetas enteras', t ? `Calidad: ${quality(t)?.label || 'directo'}` : 'Sonido directo del archivo'];
@@ -4035,7 +4045,10 @@ const NEWS = {
   '3.1': [
     '<b>El cerebro grande de Nova</b> (beta): en Ajustes › Tu DJ, descarga un modelo de lenguaje de verdad (Qwen3 1.7B, 1,1 GB) que funciona dentro del móvil. Nova charla contigo con sus propias palabras, entiende peticiones raras y sabe de qué estabais hablando.',
     'No elige canciones ni da datos: eso lo siguen haciendo tu biblioteca, el gusto que Nova ha aprendido de ti y Wikipedia.',
-    'Prueba a contarle cómo te ha ido el día, o a preguntarle qué opina de lo que suena.'
+    'Prueba a contarle cómo te ha ido el día, o a preguntarle qué opina de lo que suena.',
+    '<b>La voz de Nova empieza antes</b>: el primer trozo es corto y el resto se prepara mientras habla. Las voces del sistema leen la frase entera de una vez.',
+    '<b>Más ligera en uso largo</b>: con la app en segundo plano el cerebro grande libera memoria, y la barra de progreso no trabaja si no la ves.',
+    'Al final de Ajustes verás la versión instalada.'
   ],
   '3.0': [
     '<b>Nova recuerda lo que le dices</b>: «no me pongas reguetón por la mañana», «me encanta el rap», «por la noche, cosas tranquilas». Lo cumple siempre en la radio y en sus mezclas.',
@@ -4654,19 +4667,41 @@ async function nvPump() {
     }
   } finally { NV.running = false; }
 }
-/* Pieces of speech: whole sentences, long ones cut at commas, and a short first piece so Nova starts sooner */
-function nvChunks(text) {
-  const out = [];
-  const cut = s => { while (s.length > 200) { let i = s.lastIndexOf(' ', 150); if (i < 60) i = s.indexOf(' ', 150); if (i < 0) break; out.push(s.slice(0, i)); s = s.slice(i + 1); } if (s) out.push(s); };
-  for (const s of sentences(text)) {
-    if (s.length <= 160) { out.push(s); continue; }
-    let buf = '';
-    for (const piece of s.split(/(?<=[,;:])\s+/)) {
-      if (buf && (buf + ' ' + piece).length > 140) { cut(buf); buf = piece; } else buf = buf ? buf + ' ' + piece : piece;
+/* Pieces of speech. The first one is short (2-3 seconds of voice) so Nova starts almost at once; each next piece
+   is bigger, as big as the voice can prepare while the previous one is playing, so there are no gaps.
+   Cuts go at commas or before words like «y», «que», «pero» so the voice doesn't sound chopped. */
+const NV_CONN = /^(y|e|o|u|ni|que|pero|porque|cuando|mientras|aunque|donde|pues|así)$/i, NV_CONN2 = /^(con|para|sin|hasta|desde|por|como|si|en)$/i;
+function nvCut(s, lim) {
+  if (s.length <= lim * 1.25) return [s, ''];
+  let punct = -1; const re = /[,;:—–]\s+/g; let m;
+  while ((m = re.exec(s))) { const i = m.index + 1; if (i > lim * 1.3) break; if (i >= Math.max(10, lim * 0.35)) punct = i; }
+  if (punct > 0 && s.length - punct > 10) return [s.slice(0, punct).trim(), s.slice(punct).trim()];
+  const w = s.split(' '), bare = x => (x || '').replace(/[^\wáéíóúñü]/gi, '');
+  let pos = 0, conn = -1, conn2 = -1, plain = -1;
+  for (let i = 0; i < w.length - 1; i++) {
+    pos += w[i].length;
+    if (pos > lim * 1.3) break;
+    const cur = bare(w[i]), nxt = bare(w[i + 1]);
+    if (pos >= lim * 0.45 && !NV_CONN.test(cur) && !NV_CONN2.test(cur)) {   // never leave «y», «que», «con»... at the end of a piece
+      if (NV_CONN.test(nxt)) conn = pos; else if (NV_CONN2.test(nxt)) conn2 = pos;
+      if (pos <= lim) plain = pos;
     }
-    if (buf) cut(buf);
+    pos += 1;
   }
-  if (out.length && out[0].length > 80) { const m = out[0].match(/^(.{18,70}?[,;:])\s+(.+)$/); if (m) out.splice(0, 1, m[1], m[2]); }
+  const at = conn > 0 ? conn : conn2 > 0 ? conn2 : plain;
+  return at > 0 && s.length - at > 10 ? [s.slice(0, at).trim(), s.slice(at).trim()] : [s, ''];
+}
+function nvChunks(text) {
+  const sp = NV.speed && NV.st && NV.speed.key === NV.st.key && NV.speed.eng === NV.eng ? NV.speed.rtf : 0;
+  const grow = Math.max(1.5, Math.min(3, 0.85 / (sp || 0.45)));   // how much bigger the next piece can be without a gap
+  const out = []; let lim = 40;
+  for (let s of sentences(text)) {
+    while (s) {
+      const [head, rest] = nvCut(s, lim);
+      out.push(head); s = rest;
+      lim = Math.min(160, Math.round(Math.max(lim, head.length) * grow));
+    }
+  }
   return out.filter(s => /[a-záéíóúñü0-9]/i.test(s));
 }
 const nvWithin = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('lenta')), ms))]);
@@ -4727,7 +4762,7 @@ const ttsClean = text => String(text).replace(/[«»"“”]/g, '').replace(/\s�
 function nvPrepareIntro(t) {
   if (!nvUsable() || !t || t.net || !dj.voiceOn || dj.freq === 'inicio') return;
   if (!state.intros[t.id]) state.intros[t.id] = introFor(t);
-  for (const p of nvChunks(ttsClean(state.intros[t.id]))) nvSynth(p, 2).catch(() => {});
+  for (const p of nvChunks(ttsClean(state.intros[t.id])).slice(0, 2)) nvSynth(p, 2).catch(() => {});   // just the start: the rest is prepared while she speaks, so nothing long blocks what you ask her
 }
 /* Settings card */
 function nvSpeedLabel() {
@@ -5263,7 +5298,7 @@ function bbOnDl(d) {
 }
 async function bbRemove() {
   try { await BB_NATIVE.remove({ name: BB_FILE }); } catch {}
-  BB.st = null; LS.set('bb', null); BB.ready = null; BB.speed = null; LS.set('bbSpeed', null); renderBB(); toast('Cerebro grande borrado');
+  BB.st = null; LS.set('bb', null); BB.ready = null; BB.loaded = false; BB.speed = null; LS.set('bbSpeed', null); renderBB(); toast('Cerebro grande borrado');
 }
 const bbClean = s => String(s || '').replace(/<\|/g, '<').replace(/\s+/g, ' ').trim();
 function bbPrompt(raw) {
@@ -5281,6 +5316,7 @@ function bbInit() {
     if (r && r.threads) BB.threads = r.threads;
     /* read Nova's instructions once now, so every answer only has to read what's new */
     try { await BB_NATIVE.complete({ prompt: bbPrompt('hola'), maxTokens: 1, temperature: 0 }); } catch {}
+    BB.loaded = true;
     renderBB();
     return true;
   })();
@@ -5296,6 +5332,10 @@ function bbSpeed(info) {
   } catch {}
 }
 async function bbComplete(prompt, { grammar, max = 110, temp = 0.5, timeout = 30000 } = {}) {
+  BB.busy = (BB.busy || 0) + 1;
+  try { return await bbCompleteNow(prompt, { grammar, max, temp, timeout }); } finally { BB.busy--; }
+}
+async function bbCompleteNow(prompt, { grammar, max, temp, timeout }) {
   await bbInit();
   let to;
   const timer = new Promise((_, rej) => { to = setTimeout(() => { BB_NATIVE.cancel().catch(() => {}); rej(new Error('tiempo')); }, timeout); });
@@ -5305,6 +5345,23 @@ async function bbComplete(prompt, { grammar, max = 110, temp = 0.5, timeout = 30
     return r.text;
   } finally { clearTimeout(to); }
 }
+/* With the app in the background for a while, the big brain leaves memory (about 1 GB less for Android, so it
+   doesn't close Órbita while the music plays). Back in the app, it gets ready again by itself in a few seconds. */
+let bbHideT = null, bbAway = false;
+document.addEventListener('visibilitychange', () => {
+  if (!BB_NATIVE) return;
+  clearTimeout(bbHideT);
+  if (document.hidden) {
+    bbHideT = setTimeout(() => {
+      if (!document.hidden || !BB.loaded || BB.busy) return;
+      bbAway = true; BB.loaded = false; BB.ready = null;
+      BB_NATIVE.unload().catch(() => {});
+    }, 90000);
+  } else if (bbAway) {
+    bbAway = false;
+    setTimeout(() => { if (!document.hidden && bbUsable() && !BB.ready) bbInit().catch(() => {}); }, 2500);
+  }
+});
 async function bbSpeedTest() { await bbComplete(bbPrompt('Di hola en una frase.'), { grammar: BB_PROMPT.grammar, max: 40 }); LS.set('bbSpeed', BB.speed); }
 function bbParse(txt) { const o = {}; for (const line of String(txt || '').split('\n')) { const m = line.match(/^(accion|respuesta|detalle|oferta):\s?(.*)$/); if (m) o[m[1]] = m[2].trim(); } return o; }
 /* What Nova says out loud: no emojis, at most two sentences, and no figures she could have made up */
@@ -5341,7 +5398,7 @@ async function renderBB() {
     renderBBProgress(); return;
   }
   const s = BB.stat || await bbStatus();
-  if (!s) { box.innerHTML = `<div class="d-text"><b>Cerebro grande <span class="beta-tag">beta</span></b><span>Un modelo de lenguaje de verdad dentro del móvil, para charlar con Nova. ${NATIVE ? 'Esta compilación de la app no trae su motor.' : 'Funciona en la app de Android.'}</span></div>${credits}`; return; }
+  if (!s) { box.innerHTML = `<div class="d-text"><b>Cerebro grande <span class="beta-tag">beta</span></b><span>Un modelo de lenguaje de verdad dentro del móvil, para charlar con Nova. ${NATIVE ? `Esta compilación de la app${APP_CFG.version ? ' (' + esc(String(APP_CFG.version)) + ')' : ''} no trae su motor.` : 'Funciona en la app de Android.'}</span></div>${credits}`; return; }
   const ram = s.ramMb ? Math.round(s.ramMb / 1024) : 0;
   if (!s.lib || !s.cpuOk) {
     box.innerHTML = `<div class="d-text"><b>Cerebro grande <span class="beta-tag">beta</span></b><span>${!s.lib ? 'Esta versión de la app no trae el motor del cerebro grande.' : 'El procesador de este móvil no es compatible con el cerebro grande (hace falta uno ARM de 64 bits de los últimos años).'}</span></div>${credits}`;
@@ -5376,7 +5433,7 @@ const bbWordsLabel = () => BB.speed && BB.speed.tps ? ` · piensa a unas ${Math.
 function renderBBSpeedOnly() { const sp = $('#bbSp'); if (sp) sp.textContent = bbWordsLabel(); }
 $('#bbBox').addEventListener('click', e => {
   const b = e.target.closest('[data-bb],#tBB'); if (!b) return;
-  if (b.id === 'tBB') { BB.on = !BB.on; LS.set('bbOn', BB.on); setToggle(b, BB.on); toast(BB.on ? 'Nova usa su cerebro grande' : 'Cerebro grande apagado'); if (!BB.on) { BB_NATIVE.unload().catch(() => {}); BB.ready = null; } return; }
+  if (b.id === 'tBB') { BB.on = !BB.on; LS.set('bbOn', BB.on); setToggle(b, BB.on); toast(BB.on ? 'Nova usa su cerebro grande' : 'Cerebro grande apagado'); if (!BB.on) { BB_NATIVE.unload().catch(() => {}); BB.ready = null; BB.loaded = false; } return; }
   const a = b.dataset.bb;
   if (a === 'get') { bbListen(); bbInstall(); }
   else if (a === 'cancel') { BB_NATIVE.cancelDownload().catch(() => {}); }
@@ -5676,7 +5733,7 @@ function runIntro() {
 async function boot() {
   const introDone = runIntro();
   applyLook(); setAnim(state.anim); setHeroMode(state.heroMode);
-  renderMoment(); renderChips(); addDemoEntries(); renderSearch(); renderAll(); updateTicker(); applyDjName(); renderVoiceStyle(); renderSound();
+  renderMoment(); renderAppVer(); renderChips(); addDemoEntries(); renderSearch(); renderAll(); updateTicker(); applyDjName(); renderVoiceStyle(); renderSound();
   const m = getMoment();
   const hello = () => setBubble(`Hola, soy ${dj.name}. Es ${m.day} ${m.franja.phrase}.${weatherLine()} Pídeme algo, gira la ruleta o pon el modo radio y yo me encargo.`);
   hello();
@@ -5717,7 +5774,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }
