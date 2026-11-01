@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04 fijo: «ubuntu-latest» está cambiando a Ubuntu 26 y trae otras herramientas de Android
+    runs-on: ubuntu-24.04
     steps:
       - name: Descargar el código
         uses: actions/checkout@v4
@@ -44,6 +45,9 @@ jobs:
 
       - name: Preparar Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Sin el paquete antiguo «tools», que Google ya no ofrece (por defecto lo pedía y fallaba)
+          packages: 'platform-tools'
 
       - name: Instalar dependencias
         run: npm install --no-audit --no-fund
