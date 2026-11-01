@@ -44,11 +44,20 @@ jobs:
 
       - name: Preparar Android SDK
         uses: android-actions/setup-android@v3
-        with:
-         packages: 'platform-tools'
 
       - name: Instalar dependencias
         run: npm install --no-audit --no-fund
+
+      # El cerebro grande de Nova usa llama.cpp. Se descarga siempre la misma versión (la probada con la app)
+      # y se comprueba que el archivo es exactamente ese. Si fallara, la app se compila sin el cerebro grande.
+      - name: Código del cerebro grande (llama.cpp)
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/llama/src"
+          curl -fsSL -o "$RUNNER_TEMP/llama/src.tar.gz" https://files.pythonhosted.org/packages/source/l/llama_cpp_python/llama_cpp_python-0.3.16.tar.gz
+          echo "34ed0f9bd9431af045bb63d9324ae620ad0536653740e9bb163a2e1fcb973be6  $RUNNER_TEMP/llama/src.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/llama/src.tar.gz" -C "$RUNNER_TEMP/llama/src" llama_cpp_python-0.3.16/vendor/llama.cpp
+          echo "LLAMA_DIR=$RUNNER_TEMP/llama/src/llama_cpp_python-0.3.16/vendor/llama.cpp" >> "$GITHUB_ENV"
 
       - name: Crear el proyecto Android
         run: npx cap add android
@@ -65,10 +74,53 @@ jobs:
         run: npx cap sync android
 
       - name: Compilar el APK
+        id: build
+        continue-on-error: true
         working-directory: android
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      # Plan B: si el cerebro grande no compila, se vuelve a compilar sin él (todo lo demás sigue igual).
+      - name: Compilar sin el cerebro grande (plan B)
+        id: build2
+        if: steps.build.outcome == 'failure'
+        continue-on-error: true
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BIGBRAIN: '0'
+        run: |
+          echo "::warning::La compilación completa falló; se publica la versión sin el cerebro grande."
+          rm -rf android
+          npx cap add android
+          node scripts/prepare-android.mjs
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      # Plan C: si aun así algo del lado de Android no compila, se vuelve a compilar sin el widget
+      # ni «Compartir con Órbita». La app y todo lo demás de la versión se publican igual.
+      - name: Compilar sin el widget (plan C)
+        if: steps.build.outcome == 'failure' && steps.build2.outcome == 'failure'
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          EXTRAS: '0'
+        run: |
+          echo "::warning::La compilación completa falló; se publica la versión sin widget ni «Compartir con Órbita»."
+          rm -rf android
+          npx cap add android
+          node scripts/prepare-android.mjs
+          npx cap sync android
+          cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
 
@@ -79,7 +131,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.prep.outputs.version }}
-          name: Órbita ${{ steps.prep.outputs.version }}
-          body: ${{ github.event.head_commit.message || 'Nueva versión de Órbita' }}
+          name: "Órbita ${{ steps.prep.outputs.version }}${{ steps.prep.outputs.prerelease == 'true' && ' (beta)' || '' }}"
+          body_path: NOVEDADES.txt
           files: Orbita-${{ steps.prep.outputs.version }}.apk
-          make_latest: true
+          # Las betas quedan en Releases para instalarlas a mano, pero no avisan a los usuarios
+          prerelease: ${{ steps.prep.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.prep.outputs.prerelease != 'true' }}
