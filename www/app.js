@@ -567,11 +567,211 @@ async function importOne(e, folderCover, opts) {
      limiter → speakers. Mixes are scheduled on the audio clock, so they also work with the screen off. */
 const decks = [new Audio(), new Audio()];
 const netEl = new Audio(); netEl.preload = 'none';
-const els = [decks[0], decks[1], netEl];
+/* ---------- 3.2 · YouTube inside Órbita, without a key ----------
+   A video (shared from the YouTube app, pasted, or a song's music video) joins the queue like any song: Nova introduces
+   it, the player's buttons control it and the next song follows when it ends. It plays in YouTube's official player,
+   always visible, as YouTube asks: big in «Ahora suena» and small above the player everywhere else. When Órbita goes
+   to the background or the screen turns off it pauses (YouTube doesn't allow playing in the background), and it goes
+   on when you come back. The player is driven with the messages YouTube's own player understands: no script from
+   YouTube runs inside Órbita. The key is only needed to search without leaving the app. */
+const YT_ORIGINS = ['https://www.youtube.com', 'https://www.youtube-nocookie.com'];
+const YT_LIST_RE = /[?&]list=([A-Za-z0-9_-]{10,64})/;
+function ytListFrom(text) { const m = String(text || '').match(YT_LIST_RE); return m ? m[1] : null; }
+const YT_ERR = {
+  2: 'el enlace del vídeo no es válido', 5: 'este móvil no puede reproducir ese vídeo',
+  100: 'ese vídeo ya no existe o es privado', 101: 'quien lo subió no deja verlo fuera de YouTube',
+  150: 'quien lo subió no deja verlo fuera de YouTube', 153: 'YouTube no deja reproducirlo aquí'
+};
+/* The video player, with the same buttons and signals as Órbita's audio players, so the whole app (queue, player,
+   notification, widget, sleep timer, Nova's voice) works with it as it is */
+class YTDeck extends EventTarget {
+  constructor() {
+    super();
+    this._src = ''; this.paused = true; this.preload = 'none'; this.playbackRate = 1;
+    this._gen = 0; this._frame = null; this._reset();
+    window.addEventListener('message', e => this._onMsg(e));
+  }
+  _reset() {
+    this._ready = false; this._heard = false; this._noCtl = false; this._pend = []; this._state = -2; this._info = null;
+    this._t = 0; this._tAt = performance.now(); this._dur = 0; this._sentVol = -1; this.errorCode = 0;
+    this._list = null; this._idx = -1; this._vid = ''; this.videoTitle = ''; this.videoAuthor = '';
+    clearInterval(this._listenIv); clearTimeout(this._watch); clearTimeout(this._endT); this._stopTick();
+  }
+  get src() { return this._src; }
+  set src(v) {
+    v = String(v || ''); this._src = v; const my = ++this._gen;
+    this._reset(); this.paused = true; this._settle(true);
+    if (this._frame) { this._frame.remove(); this._frame = null; }
+    if (!v) { ytLayout(); return; }
+    /* built a moment later: if play() comes right after, the video starts by itself */
+    queueMicrotask(() => { if (my === this._gen) this._build(my); });
+  }
+  getAttribute(n) { return n === 'src' ? (this._src || null) : null; }
+  removeAttribute(n) { if (n === 'src') this.src = ''; }
+  load() {}
+  get currentTime() {
+    const t = this._t + (!this.paused && this._state === 1 ? (performance.now() - this._tAt) / 1000 : 0);
+    return this._dur ? Math.min(t, this._dur) : t;
+  }
+  set currentTime(v) {
+    v = Math.max(0, +v || 0); this._t = v; this._tAt = performance.now();
+    this._cmd('seekTo', [v, true]); setTimeout(() => this._emit('seeked'), 0);
+  }
+  get duration() { return this._dur > 0 ? this._dur : NaN; }
+  get volume() { return this._vol == null ? 1 : this._vol; }
+  set volume(v) {
+    this._vol = Math.max(0, Math.min(1, +v || 0));
+    const p = Math.round(this._vol * 100); if (p === this._sentVol) return;
+    this._sentVol = p; this._cmd('setVolume', [p]);
+  }
+  play() {
+    if (!this._src) return Promise.reject(new Error('sin vídeo'));
+    /* never in the background: it waits until you're back in Órbita */
+    if (document.hidden) { this._auto = true; return Promise.resolve(); }
+    if (this.paused) { this.paused = false; this._emit('play'); }
+    this._cmd('playVideo');
+    if (this._state === 1 || this._noCtl) return Promise.resolve();
+    if (!this._wait) {
+      let res, rej; const p = new Promise((a, b) => { res = a; rej = b; });
+      this._wait = { p, res, rej, to: setTimeout(() => this._settle(true), 20000) };
+    }
+    return this._wait.p;
+  }
+  pause() {
+    this._cmd('pauseVideo'); this._settle(true);
+    if (!this.paused) { this._snap(); this._stopTick(); this.paused = true; this._emit('pause'); }
+  }
+  _settle(ok, err) { const w = this._wait; if (!w) return; this._wait = null; clearTimeout(w.to); if (ok) w.res(); else w.rej(err || new Error('youtube')); }
+  _snap() { this._t = this.currentTime; this._tAt = performance.now(); }
+  _emit(type) { try { this.dispatchEvent(new Event(type)); } catch {} }
+  _startTick() { this._stopTick(); this._tick = setInterval(() => { if (!this.paused) this._emit('timeupdate'); }, 250); }
+  _stopTick() { clearInterval(this._tick); this._tick = null; }
+  _parse() {
+    const m = this._src.match(/^yt:([A-Za-z0-9_-]{11})?(?:\?list=([A-Za-z0-9_-]+))?$/);
+    return m ? { v: m[1] || '', list: m[2] || '' } : { v: '', list: '' };
+  }
+  _build(my, forceAuto) {
+    const { v, list } = this._parse();
+    if (!v && !list) { this._fail(2); return; }
+    const box = $('#ytFrameBox'); if (!box) return;
+    const q = new URLSearchParams({ enablejsapi: '1', playsinline: '1', rel: '0', iv_load_policy: '3', hl: 'es', autoplay: (!this.paused || forceAuto) ? '1' : '0' });
+    if (/^https?:$/.test(location.protocol)) { q.set('origin', location.origin); q.set('widget_referrer', location.origin); }
+    if (list) q.set('list', list);
+    const f = document.createElement('iframe');
+    f.src = `https://www.youtube.com/embed/${v || 'videoseries'}?${q}`;
+    f.title = 'Vídeo de YouTube'; f.setAttribute('frameborder', '0'); f.allowFullscreen = true;
+    f.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+    f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    f.addEventListener('load', () => { if (my === this._gen && this._frame === f) this._hello(my); });
+    if (this._frame) this._frame.remove();
+    box.appendChild(f); this._frame = f;
+    ytLayout();
+    /* if the player never answers (no connection, or YouTube changes how it talks), it's still a normal YouTube
+       player: it starts by itself and you use its own buttons */
+    clearTimeout(this._watch);
+    this._watch = setTimeout(() => { if (my === this._gen && !this._heard && !forceAuto) this._noControl(my); }, 15000);
+  }
+  _noControl(my) {
+    this._noCtl = true; this._settle(true);
+    if (!this.paused) this._build(my, true);
+    ytLayout();
+  }
+  _hello(my) {
+    let n = 0; const say = () => this._post({ event: 'listening', id: 1, channel: 'widget' });
+    clearInterval(this._listenIv);
+    setTimeout(say, 100);
+    this._listenIv = setInterval(() => { if (my !== this._gen || this._heard || ++n > 40) { clearInterval(this._listenIv); return; } say(); }, 300);
+  }
+  _post(o) { try { if (this._frame && this._frame.contentWindow) this._frame.contentWindow.postMessage(JSON.stringify(o), '*'); } catch {} }
+  _cmd(func, args) {
+    const m = { event: 'command', func, args: args || [], id: 1, channel: 'widget' };
+    if (this._ready) { this._post(m); return; }
+    if (!this._src) return;
+    const grp = x => (x === 'playVideo' || x === 'pauseVideo') ? 'pp' : x;
+    this._pend = this._pend.filter(x => grp(x.func) !== grp(func)); this._pend.push(m);
+  }
+  _onMsg(e) {
+    if (!this._frame || e.source !== this._frame.contentWindow || !YT_ORIGINS.includes(e.origin)) return;
+    let m = e.data; if (typeof m === 'string') { try { m = JSON.parse(m); } catch { return; } }
+    if (!m || typeof m !== 'object') return;
+    this._heard = true; clearTimeout(this._watch);
+    if (!this._ready && (m.event === 'onReady' || m.event === 'initialDelivery' || m.event === 'infoDelivery')) this._onReady();
+    if (m.event === 'onError') { this._fail(+m.info || 0); return; }
+    if (m.event === 'onStateChange' && typeof m.info === 'number') this._onState(m.info);
+    if (m.info && typeof m.info === 'object') this._onInfo(m.info);
+  }
+  _onReady() {
+    this._ready = true; clearInterval(this._listenIv);
+    for (const ev of ['onStateChange', 'onError']) this._post({ event: 'command', func: 'addEventListener', args: [ev], id: 1, channel: 'widget' });
+    const pend = this._pend; this._pend = [];
+    this._sentVol = -1; this.volume = this.volume;
+    for (const m of pend) if (m.func !== 'setVolume') this._post(m);
+    if (!this.paused) this._post({ event: 'command', func: 'playVideo', args: [], id: 1, channel: 'widget' });
+  }
+  _onInfo(i) {
+    const ps = i.progressState && typeof i.progressState === 'object' ? i.progressState : null;
+    const cur = ps && isFinite(ps.current) ? +ps.current : (typeof i.currentTime === 'number' ? i.currentTime : null);
+    if (cur != null && isFinite(cur)) { this._t = cur; this._tAt = performance.now(); }
+    const d = +(i.duration || (ps && ps.duration) || 0);
+    if (d > 0 && Math.abs(d - this._dur) > 0.5) { const first = !this._dur; this._dur = d; this._emit(first ? 'loadedmetadata' : 'durationchange'); }
+    const vd = i.videoData;
+    if (vd && typeof vd === 'object') {
+      if (vd.errorCode) { this._fail(+vd.errorCode || 0); return; }
+      if (vd.video_id && (vd.video_id !== this._vid || (vd.title && vd.title !== this.videoTitle))) {
+        this._vid = vd.video_id; this.videoTitle = String(vd.title || ''); this.videoAuthor = String(vd.author || '');
+        if (this.videoTitle) this._emit('ytinfo');
+      }
+    }
+    if (Array.isArray(i.playlist)) this._list = i.playlist;
+    if (typeof i.playlistIndex === 'number') this._idx = i.playlistIndex;
+    if (typeof i.playerState === 'number') this._onState(i.playerState);
+  }
+  _onState(s) {
+    if (s === this._state) return;
+    this._state = s; clearTimeout(this._endT);
+    if (s === 1) {
+      this._tAt = performance.now();
+      if (document.hidden) { this._auto = true; this.pause(); return; }
+      if (this.paused) { this.paused = false; this._emit('play'); }
+      this._emit('playing'); this._settle(true); this._startTick();
+    } else if (s === 2) {
+      this._snap(); this._stopTick();
+      if (!this.paused) { this.paused = true; this._emit('pause'); }
+    } else if (s === 3) { this._snap(); }
+    else if (s === 0) {
+      this._stopTick();
+      /* a YouTube list goes on to its next video by itself: only the last one ends it */
+      if (this._list && this._idx >= 0 && this._idx < this._list.length - 1) {
+        this._endT = setTimeout(() => {
+          if (this._state !== 0) return;
+          this._post({ event: 'command', func: 'nextVideo', args: [], id: 1, channel: 'widget' });
+          this._endT = setTimeout(() => { if (this._state === 0) this._ended(); }, 5000);
+        }, 4000);
+        return;
+      }
+      this._ended();
+    }
+  }
+  _ended() {
+    if (this._dur) this._t = this._dur;
+    if (!this.paused) { this.paused = true; this._emit('pause'); }
+    this._emit('ended');
+  }
+  _fail(code) {
+    this.errorCode = code || 0; this._stopTick();
+    const err = new Error('youtube ' + code);
+    if (!this.paused) { this.paused = true; }
+    this._settle(false, err);
+    this._emit('error');
+  }
+  get errorText() { return YT_ERR[this.errorCode] || 'YouTube no ha podido reproducirlo ahora mismo'; }
+}
+const ytEl = new YTDeck();
+const els = [decks[0], decks[1], netEl, ytEl];
 decks.forEach(d => { d.preload = 'auto'; try { d.preservesPitch = true; } catch {} });
 const clipEl = new Audio(); clipEl.preload = 'auto';
 let A = 0; const act = () => els[A];
-let baseVol = LS.get('vol', 80) / 100, duckF = 1, sleepF = 1; const deckF = [1, 1, 1];
+let baseVol = LS.get('vol', 80) / 100, duckF = 1, sleepF = 1; const deckF = [1, 1, 1, 1];
 const AUD = {
   direct: LS.get('aDirect', false),
   eq: LS.get('eq', 'plano'), eqCustom: LS.get('eqCustom', [0, 0, 0, 0, 0]),
@@ -666,6 +866,7 @@ function applyVol() {
     for (const i of [0, 1]) { decks[i].volume = 1; G.dk[i].fade.gain.setTargetAtTime(clamp01(deckF[i]), now, 0.01); }
   } else for (const i of [0, 1]) decks[i].volume = clamp01(v * deckF[i]);
   netEl.volume = clamp01(v * deckF[2]);
+  ytEl.volume = clamp01(v * deckF[3]);
   clipEl.volume = clamp01(baseVol * 1.25);
 }
 applyVol();
@@ -732,7 +933,7 @@ function tween(key, to, ms) {
   });
 }
 function tapAnalyser(d) {
-  if (G || d === netEl) return;
+  if (G || d === netEl || d === ytEl) return;
   try {
     if (typeof d.captureStream !== 'function') return;
     const c = audioCtx(); if (!c) return;
@@ -913,7 +1114,7 @@ async function startOn(url, xf, isNet) {
   disarmMix();
   const old = A, cur = els[old];
   const busy = !cur.paused && !!cur.getAttribute('src');
-  const nw = isNet ? 2 : (old === 2 ? 0 : 1 - old);
+  const nw = isNet === 'yt' ? 3 : isNet ? 2 : (old >= 2 ? 0 : 1 - old);
   if (!isNet) ensureGraph();
   wakeCtx();
   if (nw === old) {
@@ -955,7 +1156,7 @@ function playQueue(ids, start = 0, opts = {}) {
   markManual();
   state.queue = q; state.qi = i; state.source = opts.source || 'library';
   state.intros = opts.intros || {};
-  state.pendingTalk = opts.talk ? { text: opts.talk, kind: opts.talkKind || 'saludo' } : null;
+  state.pendingTalk = opts.talk ? (typeof opts.talk === 'object' ? opts.talk : { text: opts.talk, kind: opts.talkKind || 'saludo' }) : null;
   if (state.source !== 'radio' && state.radio) setRadio(false, true);
   loadCurrent(true, act().paused ? 0 : MANUAL_XF);
 }
@@ -971,7 +1172,7 @@ async function loadCurrent(autoplay, xf = 0, at = 0) {
   stopTalk();
   if (!autoplay) {
     if (mixing) finishMix(true); disarmMix();
-    const nw = t.net ? 2 : (A === 2 ? 0 : A);
+    const nw = t.kind === 'yt' ? 3 : t.net ? 2 : (A >= 2 ? 0 : A);
     if (nw !== A) els[A].pause();
     A = nw; const d = els[A]; d.src = u; if (!t.net) { ensureGraph(); applyNorm(A, t, 0); }
     if (at > 0) d.addEventListener('loadedmetadata', () => { if (d.getAttribute('src') !== u) return; try { d.currentTime = Math.min(at, Math.max(0, (d.duration || at + 1) - 1)); } catch {} updateSeek(); }, { once: true });
@@ -979,9 +1180,9 @@ async function loadCurrent(autoplay, xf = 0, at = 0) {
     beginTrack(t, { silent: true }); return;
   }
   const talk = state.pendingTalk; state.pendingTalk = null;
-  const ok = await startOn(u, xf, !!t.net);
+  const ok = await startOn(u, xf, t.kind === 'yt' ? 'yt' : !!t.net);
   if (t !== current()) return;
-  if (!ok) { if (t.net) toast('No se puede reproducir ahora mismo. Prueba con otra.'); updatePlayer(); return; }
+  if (!ok) { if (t.net && t.kind !== 'yt') toast('No se puede reproducir ahora mismo. Prueba con otra.'); updatePlayer(); return; }
   beginTrack(t, { talk });
 }
 /* Everything that happens when a song becomes the current one, however it started */
@@ -991,11 +1192,12 @@ function beginTrack(t, { talk = null, viaMix = false, silent = false } = {}) {
     listen = { id: t.id, acc: 0, last: null, manual: false, title: t.title, artist: t.artist, dur: t.duration || 0, net: !!t.net, src: state.source };
     t.prevPlayed = t.lastPlayed || 0; t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); saveTrack(t);
     if (!t.net) { state.history = [t.id, ...state.history.filter(x => x !== t.id)].slice(0, 30); LS.set('history', state.history); }
-    if (!talk && djShouldTalk(t)) talk = t.net ? { text: radioIntro(t), kind: 'siguiente' } : { text: introFor(t), kind: liked(t) ? 'favorita' : 'siguiente' };
+    if (!talk && djShouldTalk(t)) talk = t.net ? { text: t.kind === 'yt' ? ytIntro(t) : radioIntro(t), kind: 'siguiente' } : { text: introFor(t), kind: liked(t) ? 'favorita' : 'siguiente' };
   }
   updatePlayer(); markPlaying(); mediaSession(t); updateTicker(); applyTheme(); updateBgCover(); pushWidget();
   if (!silent && !state.playedOnce) { state.playedOnce = true; if ($('.fy-cont')) renderForYou(); }
   if (t.dev && !t.artChecked) fetchArt(t);
+  if (talk && talk.yt) talk.text = ytIntro(talk.yt);
   if (talk && !silent) { if (viaMix && mixing) mixing.talk = talk; else djTalk(talk.text, talk.kind); }
   if (!t.net) getAnalysis(t).then(a => { if (current() !== t) return; if (a) { if (A < 2 && !silent) applyNorm(A, t); } else setTimeout(() => scheduleAnalysis(t), 1500); });
   if (!silent) brainOnBegin(t);
@@ -1329,7 +1531,7 @@ els.forEach((d, idx) => {
   d.addEventListener('error', () => {
     if (d !== act() || !d.getAttribute('src')) return;
     const t = current();
-    toast(t ? (t.net ? `No se puede reproducir «${t.title}» ahora mismo.` : `No puedo reproducir «${t.title}» (formato no compatible). Paso a la siguiente.`) : 'No puedo reproducir ese archivo.');
+    toast(t ? (t.kind === 'yt' && d === ytEl ? `No puedo poner «${t.title}»: ${ytEl.errorText}.${state.queue.length > 1 ? ' Sigo con lo siguiente.' : ''}` : t.net ? `No se puede reproducir «${t.title}» ahora mismo.` : `No puedo reproducir «${t.title}» (formato no compatible). Paso a la siguiente.`) : 'No puedo reproducir ese archivo.');
     if (t && state.queue.length > 1 && !d._skipped) { d._skipped = true; setTimeout(() => { d._skipped = false; next(false); }, 600); }
   });
 });
@@ -1359,8 +1561,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) upda
 function updateQuality() {
   const t = current(), q = quality(t), fx = t && t.net ? [] : soundLabel();
   if (mixing && MIX_STYLES[mixing.plan.style]) { const pl = mixing.plan, bpm = pl.style === 'dj' && pl.bpmA && pl.bpmB ? ` · ${Math.round(pl.bpmA)}→${Math.round(pl.bpmB)} BPM` : ''; ['#plQuality', '#npQ'].forEach(x => { $(x).textContent = `MEZCLA ${MIX_STYLES[pl.style].name.toUpperCase()}${bpm}`; $(x).title = MIX_STYLES[pl.style].desc; }); return; }
-  const txt = t && t.net ? (t.kind === 'radio' ? 'RADIO EN DIRECTO' : 'AVANCE 30 S') : (q ? q.short : 'DIRECTO') + (G && eqActive() ? ' · EQ' : '');
-  const title = t && t.net ? (t.kind === 'radio' ? `Radio por internet${t.codec ? ' · ' + t.codec : ''}${t.bitrate ? ' ' + t.bitrate + ' kbps' : ''}` : 'Avance de 30 segundos por internet') : (q ? q.label : 'Archivo original') + (fx.length ? ' · con ' + listES(fx) : ' · sale directo del archivo, sin procesar');
+  const txt = t && t.net ? (t.kind === 'radio' ? 'RADIO EN DIRECTO' : t.kind === 'yt' ? 'YOUTUBE' : 'AVANCE 30 S') : (q ? q.short : 'DIRECTO') + (G && eqActive() ? ' · EQ' : '');
+  const title = t && t.net ? (t.kind === 'radio' ? `Radio por internet${t.codec ? ' · ' + t.codec : ''}${t.bitrate ? ' ' + t.bitrate + ' kbps' : ''}` : t.kind === 'yt' ? 'Vídeo de YouTube, con su reproductor oficial' : 'Avance de 30 segundos por internet') : (q ? q.label : 'Archivo original') + (fx.length ? ' · con ' + listES(fx) : ' · sale directo del archivo, sin procesar');
   ['#plQuality', '#npQ'].forEach(s => { $(s).textContent = txt; $(s).title = title; });
 }
 function updateArt() {
@@ -1380,6 +1582,7 @@ function updatePlayer() {
   $('#btnRepeat').classList.toggle('on', state.repeat !== 'off'); $('#repBadge').textContent = state.repeat === 'one' ? '1' : '';
   $('#btnRepeat').setAttribute('aria-label', state.repeat === 'off' ? 'Repetir: no' : state.repeat === 'all' ? 'Repetir: toda la lista' : 'Repetir: esta canción');
   updatePlayBtn(); updateSeek(); updateQuality(); updateArt();
+  ytLayout(); renderClipBtn();
 }
 function markPlaying() { const id = current()?.id; $$('[data-track]').forEach(el => el.classList.toggle('is-playing', !!id && el.dataset.track === id)); }
 const artCache = new Map();
@@ -1524,7 +1727,7 @@ function renderNP() {
   if (u) { bg.classList.remove('ph'); bg.style.backgroundImage = `url("${u}")`; } else { bg.classList.add('ph'); bg.style.backgroundImage = ''; }
   $('#npTitle').textContent = t ? t.title : 'Nada sonando';
   $('#npArtist').textContent = t ? t.artist : 'Gira la ruleta o pídele algo a la DJ';
-  $('#npSrc').textContent = !t ? 'Ahora suena' : t.kind === 'radio' ? 'Radio por internet · en directo' : t.net ? 'Avance de 30 s por internet' : state.source === 'radio' ? 'Órbita FM · modo radio' : state.source === 'daily' ? 'Tu mezcla del día' : state.source === 'mix' ? `Mezcla · ${state.mix?.name || ''}` : 'Desde tu biblioteca';
+  $('#npSrc').textContent = !t ? 'Ahora suena' : t.kind === 'radio' ? 'Radio por internet · en directo' : t.kind === 'yt' ? (t.clipOf ? 'Videoclip · YouTube' : 'Vídeo de YouTube') : t.net ? 'Avance de 30 s por internet' : state.source === 'radio' ? 'Órbita FM · modo radio' : state.source === 'daily' ? 'Tu mezcla del día' : state.source === 'mix' ? `Mezcla · ${state.mix?.name || ''}` : 'Desde tu biblioteca';
   const al = $('#npAlbum'); al.hidden = !(t && t.album); if (t && t.album) al.textContent = t.album;
   renderQueue();
 }
@@ -1534,10 +1737,11 @@ function openNP() {
   $('#np').classList.toggle('viz-open', VZ.np && !LY.on); $('#npVizBtn').setAttribute('aria-pressed', VZ.np && !LY.on); setTimeout(vizKick, 30);
   if (LY.on) { const t = current(); if (!t || LY.id !== t.id || !LY.rec) showLyrics(t); else lyricsTick(act().currentTime || 0, true); }
   if (STANDALONE) { try { history.pushState({ np: 1 }, '', location.hash || '#' + state.view); } catch {} }
+  ytLayout();
 }
 function closeNP(fromPop) {
   if ($('#np').hidden) return;
-  $('#np').hidden = true; setTimeout(vizKick, 30);
+  $('#np').hidden = true; setTimeout(vizKick, 30); ytLayout();
   if (STANDALONE && !fromPop && history.state && history.state.np) { try { history.back(); } catch {} }
 }
 
@@ -1839,7 +2043,7 @@ let talkCount = 0;
 function djShouldTalk(t) {
   if (!dj.intros || dj.freq === 'inicio') return false;
   if (!['mix', 'radio', 'daily', 'online'].includes(state.source)) return false;
-  if (t.net && t.kind !== 'radio') return false;
+  if (t.net && t.kind !== 'radio' && t.kind !== 'yt') return false;
   talkCount++;
   return dj.freq !== 'aveces' || talkCount % 3 === 1;
 }
@@ -2956,7 +3160,15 @@ const YT_RE = /(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|embed\/|shorts\/|live\
 function ytIdFrom(text) { const s = String(text || '').trim(); const m = s.match(YT_RE); return m ? m[1] : (/^[A-Za-z0-9_-]{11}$/.test(s) ? s : null); }
 const yt = { recent: LS.get('ytRecent', []), results: null, loading: false, err: '', key: () => LS.get('ytKey', '') };
 async function ytInfo(id) { try { const j = await netJSON(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + id)}&format=json`, { timeout: 8000 }); return { title: String(j.title || '').slice(0, 140), author: String(j.author_name || '').slice(0, 80) }; } catch { return null; } }
-async function openYT(id, title, author) {
+/* A YouTube link → { id, list } (radio mixes and private lists can't be played outside YouTube: just the video) */
+function ytLinkFrom(text) {
+  const id = ytIdFrom(text); let list = ytListFrom(text);
+  if (list && /^(RD|LL|WL|UL)/.test(list)) list = null;
+  return id || list ? { id: id || '', list: list || '' } : null;
+}
+/* 3.2: videos play in the queue (this is kept for older callers) */
+async function openYT(id, title, author) { if (id) { ytPlay({ id, title, author }, 'now'); openNP(); } }
+async function openYTOld(id, title, author) {
   if (!id) return;
   if (!ONLINE) { window.open('https://www.youtube.com/watch?v=' + id, '_blank', 'noopener'); return; }
   if (!act().paused) fadePause();
@@ -3000,7 +3212,7 @@ function ytErrorText(e) {
   return `YouTube ha rechazado la búsqueda (error ${e.status}${msg ? ': ' + msg.slice(0, 120) : ''}).`;
 }
 function decodeEntities(s) { const d = document.createElement('textarea'); d.innerHTML = s; return d.value; }
-function ytRow(v) { return `<li class="result yt-row">${v.thumb ? `<img class="yt-thumb" src="${esc(v.thumb)}" alt="" loading="lazy">` : `<span class="yt-thumb ph" aria-hidden="true">▶</span>`}<div class="d-text"><b>${esc(v.title || 'Vídeo de YouTube')}</b><span>${esc(v.author || '')}</span></div><button class="btn small primary" data-act="yt-open" data-id="${esc(v.id)}">Ver aquí</button></li>`; }
+function ytRow(v) { const da = `data-id="${esc(v.id || '')}" data-list="${esc(v.list || '')}"`; return `<li class="result yt-row">${v.thumb ? `<img class="yt-thumb" src="${esc(v.thumb)}" alt="" loading="lazy">` : `<span class="yt-thumb ph" aria-hidden="true">▶</span>`}<div class="d-text"><b>${esc(v.title || (v.list && !v.id ? 'Lista de YouTube' : 'Vídeo de YouTube'))}</b><span>${esc(v.author || '')}</span></div><div class="row-wrap" style="gap:6px;flex-wrap:nowrap"><button class="btn small" data-act="yt-next" ${da}>Después</button><button class="btn small primary" data-act="yt-open" ${da}>Ver</button></div></li>`; }
 function renderYT() {
   const out = $('#ytOut'); if (!out) return;
   $('#ytKeyBox').hidden = !ONLINE;
@@ -3012,13 +3224,201 @@ function renderYT() {
   else if (yt.err === 'nokey') html += `<div class="infobox">Para buscar vídeos sin salir de Órbita hace falta una clave gratuita de YouTube (mira abajo). Sin clave puedes pegar un enlace o compartir el vídeo desde la app de YouTube con <b>Compartir › Órbita</b>. <a class="link" href="https://www.youtube.com/results?search_query=${encodeURIComponent($('#ytQ').value || '')}" target="_blank" rel="noopener">Buscar en YouTube</a></div>`;
   else if (yt.err) html += `<p class="note">${esc(yt.err)}</p>`;
   if (yt.results && yt.results.length) html += `<ul class="results">${yt.results.map(ytRow).join('')}</ul>`;
-  if (yt.recent.length) html += `<section class="panel"><div class="stack" style="gap:10px"><div class="eyebrow">Vistos hace poco</div><ul class="results">${yt.recent.map(v => ytRow({ ...v, thumb: `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg` })).join('')}</ul></div></section>`;
+  if (yt.recent.length) html += `<section class="panel"><div class="stack" style="gap:10px"><div class="eyebrow">Vistos hace poco</div><ul class="results">${yt.recent.map(v => ytRow({ ...v, thumb: v.id ? `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg` : '' })).join('')}</ul></div></section>`;
   out.innerHTML = html;
 }
-$('#ytForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#ytQ').value.trim(); if (!v) return; const id = ytIdFrom(v); if (id) { openYT(id); $('#ytQ').value = ''; } else ytSearch(v); });
+$('#ytForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#ytQ').value.trim(); if (!v) return; const lk = ytLinkFrom(v); if (lk) { ytPlay(lk, 'now'); openNP(); $('#ytQ').value = ''; } else if (/https?:\/\//i.test(v)) toast('Ese enlace no es de un vídeo ni de una lista de YouTube.'); else ytSearch(v); });
 $('#ytKeyForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#ytKeyIn').value.replace(/\s+/g, ''); if (!v) return; if (!/^AIza[0-9A-Za-z_-]{35}$/.test(v)) { toast(`Esa clave no tiene la forma de una clave de Google (empieza por AIza y tiene 39 caracteres; esta tiene ${v.length}). Cópiala con el botón de copiar de la consola.`, 6000); return; } LS.set('ytKey', v); $('#ytKeyIn').value = ''; renderYT(); toast('Clave de YouTube guardada en este móvil'); const q = $('#ytQ').value.trim(); if (q && !ytIdFrom(q)) ytSearch(q); });
 $('#ytKeyDel').onclick = () => { LS.set('ytKey', ''); renderYT(); toast('Clave de YouTube quitada'); };
 $('#ytOverlay').addEventListener('click', e => { if (e.target.id === 'ytOverlay') closeYT(); });
+
+/* ---- Where the video is shown ---- */
+const ytOn = () => { const t = current(); return A === 3 && !!ytEl.src && !!t && t.kind === 'yt'; };
+let ytPlaceRaf = 0, ytClearT = null;
+function ytLayout() {
+  const dock = $('#ytDock'); if (!dock) return;
+  const on = ytOn(), npOpen = !$('#np').hidden;
+  dock.hidden = !on;
+  root.classList.toggle('yt-docked', on && !npOpen);
+  $('#np').classList.toggle('yt-on', on);
+  clearTimeout(ytClearT);
+  /* once the music has taken over (after its short fade), YouTube's player leaves the page */
+  if (!on && ytEl.src && A !== 3) ytClearT = setTimeout(() => { if (A !== 3 && ytEl.src) ytEl.src = ''; }, 3000);
+  if (!on) return;
+  const t = current();
+  dock.classList.toggle('big', npOpen); dock.classList.toggle('mini', !npOpen);
+  $('#ytDockTitle').textContent = t ? t.title : 'YouTube';
+  $('#ytDockNote').hidden = !ytEl._noCtl;
+  ytPlace();
+}
+function ytPlace() {
+  cancelAnimationFrame(ytPlaceRaf);
+  ytPlaceRaf = requestAnimationFrame(() => {
+    const dock = $('#ytDock'); if (!dock || dock.hidden) return;
+    if (dock.classList.contains('big')) {
+      const r = $('#npVideo').getBoundingClientRect();
+      Object.assign(dock.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', bottom: 'auto' });
+    } else {
+      const pl = $('.player').getBoundingClientRect(), w = Math.min(window.innerWidth - 16, 520);
+      Object.assign(dock.style, { left: Math.max(8, window.innerWidth - w - 8) + 'px', width: w + 'px', top: 'auto', height: 'auto', bottom: Math.max(8, window.innerHeight - pl.top + 8) + 'px' });
+    }
+  });
+}
+window.addEventListener('resize', () => ytPlace());
+$('#np .np-inner').addEventListener('scroll', () => { if (ytOn()) ytPlace(); }, { passive: true });
+/* Out of Órbita (another app, screen off): the video waits; back in Órbita, it goes on */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { if (A === 3 && !ytEl.paused) { ytEl._auto = true; ytEl.pause(); } }
+  else if (ytEl._auto) { ytEl._auto = false; if (ytOn()) resume(); }
+});
+ytEl.addEventListener('ytinfo', () => {
+  const t = current(); if (!t || t.kind !== 'yt' || A !== 3) return;
+  /* inside a YouTube list, each video brings its own title */
+  if (t.ytList || !t.titled) { t.title = ytEl.videoTitle || t.title; t.artist = ytEl.videoAuthor || t.artist; t.titled = true; if (ytEl._vid) t.art = `https://i.ytimg.com/vi/${ytEl._vid}/hqdefault.jpg`; updatePlayer(); mediaSession(t); pushWidget(); ytLayout(); }
+});
+
+/* ---- Videos in the queue ---- */
+function ytTrack(v) {
+  const key = v.id ? v.id + (v.list ? '-' + v.list : '') : 'lista-' + v.list;
+  const t = netTrack({
+    id: 'yt:' + key, kind: 'yt', ytId: v.id || '', ytList: v.list || '', clipOf: v.clipOf || null,
+    url: 'yt:' + (v.id || '') + (v.list ? '?list=' + v.list : ''),
+    title: v.title || (v.list && !v.id ? 'Lista de YouTube' : 'Vídeo de YouTube'), artist: v.author || 'YouTube', titled: !!v.title,
+    art: v.id ? `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg` : ''
+  });
+  if (!v.title && v.id) ytInfo(v.id).then(info => {
+    if (!info || t.titled) return;
+    t.title = info.title || t.title; t.artist = info.author || t.artist; t.titled = true;
+    const r = yt.recent.find(x => x.id === v.id && (x.list || '') === (v.list || '')); if (r) { r.title = t.title; r.author = t.artist; LS.set('ytRecent', yt.recent); renderYT(); }
+    if (current() === t) { updatePlayer(); mediaSession(t); ytLayout(); }
+    renderQueue();
+  });
+  return t;
+}
+function ytRemember(v) {
+  const rec = { id: v.id || '', list: v.list || '', title: v.title || '', author: v.author || '', ts: Date.now() };
+  yt.recent = [rec, ...yt.recent.filter(x => !(x.id === rec.id && (x.list || '') === rec.list))].slice(0, 12); LS.set('ytRecent', yt.recent);
+}
+function ytIntro(t) {
+  if (t.clipOf) { const s = trackById(t.clipOf); return pick([`El videoclip de «${s ? s.title : t.title}». Disfrútalo.`, `Vamos con el videoclip${s ? ' de ' + s.title : ''}.`]); }
+  if (t.ytList && !t.ytId) return pick(['Ponemos tu lista de YouTube.', 'Vamos con esa lista de YouTube.']);
+  if (!t.titled) return pick(['Te pongo el vídeo que me has pasado.', 'Vamos con ese vídeo de YouTube.']);
+  return pick([`Del YouTube: «${t.title}».`, `Vamos con un vídeo: «${t.title}».`, `Te pongo el vídeo: «${t.title}».`]);
+}
+/* how: 'now' (plays it, the rest of the queue stays after it) or 'next' (after the current song) */
+function ytPlay(v, how = 'now') {
+  if (!v || (!v.id && !v.list)) return;
+  if (!ONLINE) { window.open(v.id ? 'https://www.youtube.com/watch?v=' + v.id : 'https://www.youtube.com/playlist?list=' + v.list, '_blank', 'noopener'); return; }
+  const t = ytTrack(v); ytRemember(v); renderYT();
+  if (how === 'next' && current()) {
+    state.queue = state.queue.filter((id, i) => id !== t.id || i === state.qi);
+    state.queue.splice(state.qi + 1, 0, t.id); renderQueue();
+    toast(`Después de esta: ${t.titled ? '«' + t.title + '»' : 'el vídeo de YouTube'}`); haptic(8);
+    return;
+  }
+  /* the words are chosen when she speaks (by then YouTube has said the video's title) */
+  const talk = dj.intros && dj.voiceOn ? { text: ytIntro(t), kind: 'saludo', yt: t } : null;
+  if (!current() || !state.queue.length) { playQueue([t.id], 0, { source: 'youtube', talk }); return; }
+  state.queue.splice(state.qi + 1, 0, t.id); state.qi++;
+  state.pendingTalk = talk;
+  markManual();
+  loadCurrent(true, act().paused ? 0 : MANUAL_XF);
+}
+/* ✕ on the small video: on with your music (or, if nothing comes after, the video leaves the queue) */
+function ytClose() {
+  const t = current(); if (!t || t.kind !== 'yt') return;
+  if (state.qi + 1 < state.queue.length) { next(false); return; }
+  ytEl.pause(); ytEl.src = '';
+  state.queue.splice(state.qi, 1); state.qi = Math.max(0, Math.min(state.qi, state.queue.length - 1));
+  A = 0;
+  if (current()) loadCurrent(false); else { updatePlayer(); renderQueue(); }
+  ytLayout(); syncNativeState(); pushWidget();
+}
+
+/* ---- The song's music video ----
+   With a YouTube key it searches YouTube. Without one, it asks Wikidata (the free database behind Wikipedia), which
+   knows the official video of many songs. If neither finds it, you search it on YouTube and share it with Órbita:
+   it stays linked to that song. */
+const ytClipKey = t => norm(t.artist || '') + '|' + norm(ytCleanTitle(t.title || ''));
+function ytCleanTitle(s) { return String(s || '').replace(/\s*[([][^)\]]*(feat|ft\.|with|remaster|live|en vivo|version|versión|video|vídeo|audio|lyric|letra|official|oficial)[^)\]]*[)\]]/gi, '').replace(/\s+-\s+(remaster|live|en vivo|radio edit|single version).*$/i, '').trim(); }
+function ytClipGet(t) { const m = LS.get('ytClips', {}); return Object.prototype.hasOwnProperty.call(m, ytClipKey(t)) ? m[ytClipKey(t)] : undefined; }
+function ytClipSet(t, id) {
+  const m = LS.get('ytClips', {}); m[ytClipKey(t)] = id || '';
+  const keys = Object.keys(m); if (keys.length > 400) for (const k of keys.slice(0, keys.length - 400)) delete m[k];
+  LS.set('ytClips', m);
+}
+const ytArtistMatch = (a, names) => { const A2 = norm(a); return names.some(n => { const N = norm(n); return N.length >= 3 && (A2.includes(N) || (A2.length >= 3 && N.includes(A2))); }); };
+async function ytClipWikidata(t) {
+  const W = 'https://www.wikidata.org/w/api.php?format=json&origin=*&', H = { 'Api-User-Agent': NET_UA }, title = ytCleanTitle(t.title);
+  if (!title || !t.artist) return null;
+  const s = await netJSON(W + 'action=query&list=search&srlimit=10&srsearch=' + encodeURIComponent(`${title} haswbstatement:P1651`), { headers: H, timeout: 9000 });
+  const ids = ((s && s.query && s.query.search) || []).map(x => x && x.title).filter(x => /^Q\d+$/.test(x || ''));
+  if (!ids.length) return null;
+  const e = await netJSON(W + 'action=wbgetentities&props=claims|labels&languages=es|en&ids=' + ids.join('|'), { headers: H, timeout: 9000 });
+  const ents = ids.map(id => e && e.entities && e.entities[id]).filter(Boolean);
+  const claim = (en, p) => ((en.claims && en.claims[p]) || []).map(c => c && c.mainsnak && c.mainsnak.datavalue && c.mainsnak.datavalue.value).filter(Boolean);
+  const labels = en => Object.values(en.labels || {}).map(l => l && l.value).filter(Boolean);
+  const T = norm(title);
+  const cands = ents.filter(en => claim(en, 'P1651').some(v => /^[A-Za-z0-9_-]{11}$/.test(v)) && labels(en).some(l => { const L = norm(ytCleanTitle(l)); return L === T || (T.length >= 4 && (L.startsWith(T) || T.startsWith(L)) && Math.min(L.length, T.length) / Math.max(L.length, T.length) > 0.6); }));
+  if (!cands.length) return null;
+  const perf = [...new Set(cands.flatMap(en => claim(en, 'P175').map(v => v && v.id).filter(x => /^Q\d+$/.test(x || ''))))].slice(0, 45);
+  let names = {};
+  if (perf.length) {
+    const p = await netJSON(W + 'action=wbgetentities&props=labels&languages=es|en&ids=' + perf.join('|'), { headers: H, timeout: 9000 });
+    for (const id of perf) names[id] = labels((p && p.entities && p.entities[id]) || {});
+  }
+  const hit = cands.find(en => ytArtistMatch(t.artist, claim(en, 'P175').map(v => v && v.id).flatMap(id => names[id] || [])));
+  return hit ? claim(hit, 'P1651').find(v => /^[A-Za-z0-9_-]{11}$/.test(v)) : null;
+}
+async function ytClipSearch(t) {
+  const key = yt.key(); if (!key) return null;
+  const q = `${t.artist} ${ytCleanTitle(t.title)} official video`;
+  const j = await netJSON(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=5&q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`, { timeout: 9000 });
+  const items = (j && j.items || []).filter(x => x && x.id && /^[A-Za-z0-9_-]{11}$/.test(x.id.videoId || ''));
+  const T = norm(ytCleanTitle(t.title));
+  const good = items.find(x => norm(decodeEntities(x.snippet && x.snippet.title || '')).includes(T)) || items[0];
+  return good ? good.id.videoId : null;
+}
+async function ytClipFind(t) {
+  try { const id = await ytClipSearch(t); if (id) return id; } catch {}
+  try { return await ytClipWikidata(t); } catch { return null; }
+}
+let ytClipBusy = false;
+async function ytClip(t) {
+  if (!t || t.net || ytClipBusy) return;
+  if (!ONLINE) { openExternal('https://www.youtube.com/results?search_query=' + encodeURIComponent(`${t.artist} ${t.title}`)); return; }
+  let id = ytClipGet(t);
+  if (!id) {
+    ytClipBusy = true; renderClipBtn();
+    toast('Buscando el videoclip…', 4000);
+    try { id = await ytClipFind(t); } finally { ytClipBusy = false; renderClipBtn(); }
+    if (current() !== t) return;
+    if (id) ytClipSet(t, id);
+  }
+  if (!id) {
+    yt.clipWait = { id: t.id, ts: Date.now() };
+    toast('No he encontrado su videoclip. Búscalo en YouTube y compártelo con Órbita: lo dejaré guardado para esta canción.', 6500);
+    setTimeout(() => openExternal('https://www.youtube.com/results?search_query=' + encodeURIComponent(`${t.artist} ${ytCleanTitle(t.title)}`)), 1800);
+    return;
+  }
+  ytPlay({ id, title: `${ytCleanTitle(t.title)} (videoclip)`, author: t.artist, clipOf: t.id }, 'now');
+}
+/* A video shared right after asking for a song's music video becomes that song's video */
+function ytClipFromShare(id) {
+  const w = yt.clipWait; yt.clipWait = null;
+  if (!w || Date.now() - w.ts > 20 * 60000) return null;
+  const t = trackById(w.id); if (!t || t.net) return null;
+  ytClipSet(t, id);
+  return t;
+}
+function renderClipBtn() {
+  const b = $('#npClipBtn'); if (!b) return;
+  const t = current();
+  b.hidden = !t || !!t.net;
+  b.textContent = ytClipBusy ? 'Buscando…' : 'Videoclip';
+  b.disabled = ytClipBusy;
+}
+$('#npClipBtn').onclick = () => ytClip(current());
 
 /* Tabs inside Buscar */
 let netTab = 'canciones';
@@ -3373,11 +3773,16 @@ async function handleShare(s) {
   if (!s) return;
   if (s.type === 'text') {
     const text = String(s.text || '');
-    const id = ytIdFrom(text);
-    if (id) { closeNP(); setView('buscar'); setNetTab('youtube'); openYT(id); return; }
+    const lk = ytLinkFrom(text);
+    if (lk) {
+      const song = lk.id ? ytClipFromShare(lk.id) : null;
+      if (song) { ytPlay({ id: lk.id, title: `${ytCleanTitle(song.title)} (videoclip)`, author: song.artist, clipOf: song.id }, 'now'); toast(`Guardado como el videoclip de «${song.title}»`); }
+      else ytPlay(lk, 'now');
+      openNP(); return;
+    }
     const q = (s.subject || text).replace(/https?:\/\/\S+/g, '').trim().slice(0, 160);
     if (q) { closeNP(); setView('buscar'); setNetTab('canciones'); $('#netQ').value = q; runSearch(q); }
-    else toast('Ese enlace no es de YouTube. Comparte un vídeo de YouTube o una canción.');
+    else toast('Ese enlace no es de un vídeo de YouTube. Comparte un vídeo, una lista o una canción.');
   } else if (s.type === 'files') {
     const files = [];
     for (const f of (s.files || [])) {
@@ -3646,7 +4051,9 @@ document.addEventListener('click', e => {
   else if (a === 'r-play') playStation(id, el.dataset.list);
   else if (a === 'r-fav') toggleFav(el.dataset.uuid);
   else if (a === 'r-retry') loadRadios();
-  else if (a === 'yt-open') { const v = [...(yt.results || []), ...yt.recent].find(x => x.id === id); openYT(id, v && v.title, v && v.author); }
+  else if (a === 'yt-open' || a === 'yt-next') { const list = el.dataset.list || ''; const v = [...(yt.results || []), ...yt.recent].find(x => (x.id || '') === (id || '') && (x.list || '') === list) || {}; ytPlay({ id: id || '', list, title: v.title, author: v.author }, a === 'yt-open' ? 'now' : 'next'); if (a === 'yt-open') openNP(); }
+  else if (a === 'yt-expand') openNP();
+  else if (a === 'yt-x') ytClose();
   else if (a === 'yt-close') closeYT();
   else if (a === 'yt-find') ytFind(el.dataset.q || '');
   else if (a === 'on-play' || a === 'on-playall') { const list = state.net?.online || []; if (list.length) playQueue(list.map(t => t.id), a === 'on-play' ? +el.dataset.i : 0, { source: 'online' }); }
@@ -3662,7 +4069,7 @@ async function aiPreview(btn, i) {
 }
 function openExternal(url) { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
 async function ytFind(q) {
-  if (ONLINE && yt.key()) { setView('buscar'); setNetTab('youtube'); $('#ytQ').value = q; await ytSearch(q); const v = yt.results && yt.results[0]; if (v) openYT(v.id, v.title, v.author); }
+  if (ONLINE && yt.key()) { setView('buscar'); setNetTab('youtube'); $('#ytQ').value = q; await ytSearch(q); const v = yt.results && yt.results[0]; if (v) { ytPlay({ id: v.id, title: v.title, author: v.author }, 'now'); openNP(); } }
   else openExternal('https://www.youtube.com/results?search_query=' + encodeURIComponent(q));
 }
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[role="button"][data-act]')) { e.preventDefault(); e.target.click(); } });
@@ -4042,6 +4449,12 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '3.2': [
+    '<b>YouTube sin clave</b>: comparte un vídeo o una lista desde la app de YouTube (Compartir › Órbita) o pega el enlace en Buscar › YouTube. Entra en tu cola, Nova lo presenta y después sigue tu música.',
+    'El vídeo se ve en grande en «Ahora suena» y en pequeño encima del reproductor mientras usas la app. Los botones de Órbita lo manejan como a una canción.',
+    '<b>Videoclips</b>: en «Ahora suena», toca «Videoclip» y Órbita busca el vídeo oficial de la canción. Si no lo encuentra, compártelo tú desde YouTube y quedará guardado para esa canción.',
+    'El cerebro de Nova se guarda ahora dentro de la app: Android ya no puede borrarlo para hacer sitio.'
+  ],
   '3.1': [
     '<b>El cerebro grande de Nova</b> (beta): en Ajustes › Tu DJ, descarga un modelo de lenguaje de verdad (Qwen3 1.7B, 1,1 GB) que funciona dentro del móvil. Nova charla contigo con sus propias palabras, entiende peticiones raras y sabe de qué estabais hablando.',
     'No elige canciones ni da datos: eso lo siguen haciendo tu biblioteca, el gusto que Nova ha aprendido de ti y Wikipedia.',
@@ -4843,6 +5256,47 @@ function nbCall(msg, tr) { return new Promise(res => { const id = ++NB.n; NB.wai
 function nbReset() { if (NB.worker) { try { NB.worker.terminate(); } catch {} } NB.worker = null; NB.ready = null; NB.base = null; NB.cal = null; for (const r of NB.wait.values()) r({ ok: false, error: 'reset' }); NB.wait.clear(); }
 const nbWithin = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('tiempo')), ms))]);
 
+/* ---- Where the files live ----
+   In the Android app (3.2+), in the app's own folder: Android never deletes it to make room, unlike the browser's
+   storage, where the brain could disappear on its own. Elsewhere (and in older builds), in the browser's storage. */
+const NB_REQ = ['ort.wasm.min.js', 'ort-wasm-simd.wasm', 'tokenizer.json', 'modelo.onnx'];
+let nbNatP = null;
+function nbNative() {
+  if (!NV_NATIVE) return Promise.resolve(false);
+  if (!nbNatP) nbNatP = NV_NATIVE.status().then(s => !!(s && s.dirs), () => false);
+  return nbNatP;
+}
+async function nbPutNative(name, data, onBytes) {
+  const blob = data instanceof Blob ? data : new Blob([data]);
+  if (!blob.size) throw new Error('vacío ' + name);
+  let r = null;
+  for (let o = 0, first = true; o < blob.size; o += NV_CHUNK, first = false) {
+    const end = Math.min(blob.size, o + NV_CHUNK);
+    r = await NV_NATIVE.writeChunk({ dir: 'cerebro', name, data: await nvB64(blob.slice(o, end)), append: !first, done: end >= blob.size });
+    if (onBytes) onBytes(end - o);
+  }
+  if (!r || r.size !== blob.size) throw new Error('guardado incompleto ' + name);
+}
+async function nbGetNative(name) {
+  const i = await NV_NATIVE.fileInfo({ dir: 'cerebro', name });
+  if (!i || !i.exists || !i.size) return null;
+  const r = await fetch(window.Capacitor.convertFileSrc(i.path));
+  return r.ok ? r : null;
+}
+/* A brain installed in the browser's storage: moved once to the app's folder, without downloading it again */
+async function nbMigrate() {
+  if (!NB.st || NB.st.where === 'nativo' || NB.mig || !(await nbNative())) return false;
+  NB.mig = true;
+  try {
+    const cache = await caches.open(NB_CACHE), blobs = [];
+    for (const n of NB_REQ) { const r = await cache.match(NB_KEY(n)); if (!r) return false; blobs.push([n, await r.blob()]); }
+    for (const [n, b] of blobs) await nbPutNative(n, b);
+    NB.st = { ...NB.st, where: 'nativo' }; LS.set('nb', NB.st);
+    for (const n of NB_REQ) { try { await cache.delete(NB_KEY(n)); } catch {} }
+    return true;
+  } catch { return false; } finally { NB.mig = false; }
+}
+
 /* ---- Download (once) ---- */
 async function nbFind() {
   const out = [];
@@ -4892,9 +5346,14 @@ async function nbInstall() {
       } catch (e) { if (ctl.signal.aborted) throw e; }
     }
     if (!got) throw new Error('descarga');
-    for (const [j, buf] of got.files) await cache.put(NB_KEY(j.name), new Response(buf, { headers: { 'Content-Type': j.type } }));
+    const native = await nbNative();
+    if (native) {
+      NB.dl.label = 'Guardando el cerebro en el móvil'; NB.dl.done = 0; NB.dl.total = got.files.reduce((a, [, b]) => a + b.byteLength, 0); renderNB();
+      try { await NV_NATIVE.removeFiles({ dir: 'cerebro' }); } catch {}
+      for (const [j, buf] of got.files) await nbPutNative(j.name, buf, tick);
+    } else for (const [j, buf] of got.files) await cache.put(NB_KEY(j.name), new Response(buf, { headers: { 'Content-Type': j.type } }));
     const c = got.c;
-    NB.st = { repo: c.repo, file: c.file, label: c.label, by: c.by, lic: c.lic, prefix: c.prefix, mb: Math.round(c.mb + 17 + 10.7), ts: Date.now() };
+    NB.st = { repo: c.repo, file: c.file, label: c.label, by: c.by, lic: c.lic, prefix: c.prefix, mb: Math.round(c.mb + 17 + 10.7), ts: Date.now(), where: native ? 'nativo' : 'web' };
     LS.set('nb', NB.st); NB.on = true; LS.set('nbOn', true); NB.fails = 0;
     nbReset(); NB.dl = null; renderNB();
     await nbInit();
@@ -4907,6 +5366,7 @@ async function nbInstall() {
 }
 async function nbRemove() {
   try { await caches.delete(NB_CACHE); } catch {}
+  if (await nbNative()) { try { await NV_NATIVE.removeFiles({ dir: 'cerebro' }); } catch {} }
   nbReset(); NB.st = null; LS.set('nb', null); NB.offer = null; renderNB(); toast('Cerebro borrado: Nova vuelve a entender solo las frases de siempre');
 }
 
@@ -4914,9 +5374,10 @@ async function nbRemove() {
 function nbInit() {
   if (NB.ready) return NB.ready;
   NB.ready = (async () => {
-    const cache = await caches.open(NB_CACHE);
-    const get = async n => { const r = await cache.match(NB_KEY(n)); if (!r) throw new Error('falta ' + n); return r; };
-    const files = { ortJs: URL.createObjectURL(await (await get('ort.wasm.min.js')).blob()), ortWasm: URL.createObjectURL(await (await get('ort-wasm-simd.wasm')).blob()) };
+    const cache = await caches.open(NB_CACHE), native = NB.st.where === 'nativo';
+    const get = async n => { const r = native ? await nbGetNative(n) : await cache.match(NB_KEY(n)); if (!r) throw new Error('falta ' + n); return r; };
+    const typed = async (n, type) => URL.createObjectURL(new Blob([await (await get(n)).arrayBuffer()], { type }));
+    const files = { ortJs: await typed('ort.wasm.min.js', 'text/javascript'), ortWasm: await typed('ort-wasm-simd.wasm', 'application/wasm') };
     const tok = await (await get('tokenizer.json')).text(), model = await (await get('modelo.onnx')).arrayBuffer();
     NB.worker = new Worker(URL.createObjectURL(new Blob([NB_WORKER_SRC], { type: 'text/javascript' })));
     NB.worker.onmessage = e => { const r = NB.wait.get(e.data.id); if (r) { NB.wait.delete(e.data.id); r(e.data); } };
@@ -4926,6 +5387,7 @@ function nbInit() {
     NB.ms = r.ms; NB.dim = r.dim;
     await nbLoadBank(cache);
     renderNB();
+    if (!native) setTimeout(() => nbMigrate().then(ok => { if (ok) renderNB(); }), 30000);
     return true;
   })();
   NB.ready.catch(e => {
@@ -5774,7 +6236,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }

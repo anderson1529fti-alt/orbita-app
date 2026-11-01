@@ -1,3 +1,11 @@
+Órbita 3.2 · beta 1 (versión de prueba): YouTube sin clave y videoclips.
+
+- YouTube sin clave: comparte un vídeo o una lista desde la app de YouTube (Compartir › Órbita) o pega el enlace en Buscar › YouTube. Entra en tu cola, Nova lo presenta y después sigue tu música.
+- El vídeo se ve en grande en «Ahora suena» y en pequeño encima del reproductor mientras usas la app. Los botones de Órbita (y los de la notificación) lo manejan como a una canción.
+- Como pide YouTube, el vídeo siempre está a la vista y se para si sales de Órbita o apagas la pantalla. Al volver, sigue.
+- Videoclips: en «Ahora suena», toca «Videoclip». Órbita busca el vídeo oficial de la canción (con la clave de YouTube, o sin ella en Wikidata). Si no lo encuentra, compártelo tú desde YouTube y quedará guardado para esa canción.
+- El cerebro de Nova se guarda ahora dentro de la app: Android ya no puede borrarlo para hacer sitio. Si ya lo tenías, se traslada solo, sin volver a descargarlo.
+
 Órbita 3.1: el cerebro grande de Nova.
 
 - Cerebro grande (Ajustes › Tu DJ › Cerebro grande): un modelo de lenguaje de verdad, Qwen3 1.7B, que funciona dentro del móvil. Se descarga una vez (1,1 GB) y después va sin internet.

@@ -439,6 +439,23 @@ html.booting .bg::before,html.booting .ticker-track,html.booting .dj-avatar .rin
 .np-close{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;font-weight:800;color:var(--fg);padding:8px 12px;border-radius:999px;background:rgba(0,0,0,.4);border:1px solid var(--line-2)}
 .np-art{width:100%;aspect-ratio:1;border-radius:calc(22px * var(--round,1));overflow:hidden;box-shadow:0 40px 80px -30px rgba(0,0,0,.9),0 0 0 1px var(--line-2)}
 .np-art img{width:100%;height:100%;object-fit:cover;display:block}
+/* 3.2 · YouTube: big in «Ahora suena», small above the player everywhere else */
+.np-video{display:none;width:100%;aspect-ratio:16/9;border-radius:calc(18px * var(--round,1));background:#000}
+.np.yt-on .np-video{display:block}
+.np.yt-on .np-art,.np.yt-on .np-lyrics,.np.yt-on .np-viz,.np.yt-on #npLyBtn,.np.yt-on #npVizBtn,.np.yt-on #npClipBtn,.np.yt-on .np-brain{display:none!important}
+.yt-dock{position:fixed;z-index:48;display:flex;flex-direction:column;background:#000;border-radius:calc(16px * var(--round,1));overflow:hidden;box-shadow:0 18px 50px -12px rgba(0,0,0,.85),0 0 0 1px var(--line-2)}
+.yt-dock[hidden]{display:none}
+.yt-dock.big{z-index:56;border-radius:calc(18px * var(--round,1));box-shadow:0 30px 70px -30px rgba(0,0,0,.9),0 0 0 1px var(--line-2)}
+.yt-dock.big .yt-bar,.yt-dock.big .yt-note{display:none}
+.yt-bar{display:flex;align-items:center;gap:6px;padding:4px 4px 4px 12px;background:rgba(10,7,20,.97);min-height:44px}
+.yt-bar b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.9rem}
+.yt-mark{display:grid;place-items:center;width:22px;height:22px;border-radius:6px;background:#ff0033;color:#fff;flex:none}
+.yt-btn{width:40px;height:40px}
+.yt-box{position:relative;width:100%;height:200px;background:#000}
+.yt-dock.big .yt-box{height:auto;flex:1}
+.yt-box iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.yt-note{padding:6px 12px;background:rgba(10,7,20,.97)}
+html.yt-docked .view{padding-bottom:300px}
 .np-art .art-ph{font-size:7rem}
 .np h2{margin:0;font-family:var(--f-display);font-weight:900;font-size:clamp(1.5rem,6vw,2.2rem);letter-spacing:-.035em;line-height:1.05}
 .np-sub{margin:4px 0 0;color:var(--muted);font-size:1.05rem;font-weight:600}
@@ -840,7 +857,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
           <label class="search big"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input id="ytQ" type="search" maxlength="300" placeholder="Pega un enlace de YouTube o busca…" aria-label="Enlace o búsqueda de YouTube"></label>
           <button class="btn primary big" type="submit">Ver</button>
         </form>
-        <p class="note">Los vídeos se ven aquí dentro, con el reproductor oficial de YouTube. YouTube no deja que sigan sonando con la pantalla apagada ni con Órbita en segundo plano: para eso tienes las radios y tu música. También puedes compartir un vídeo desde la app de YouTube con «Compartir › Órbita».</p>
+        <p class="note">Pega el enlace de un vídeo o de una lista, o compártelo desde la app de YouTube con «Compartir › Órbita». No hace falta ninguna clave: el vídeo entra en tu cola, Nova lo presenta y después sigue tu música. Se ve con el reproductor oficial de YouTube, que se para si sales de Órbita o apagas la pantalla (YouTube no deja que suene en segundo plano).</p>
         <div id="ytOut" class="stack" style="gap:16px"></div>
         <details class="panel ytkey" id="ytKeyBox">
           <summary><b>Buscar vídeos sin salir de Órbita</b> (opcional)</summary>
@@ -1100,6 +1117,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
   <div class="np-inner">
     <button class="np-close" data-act="np-close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>Cerrar</button>
     <div class="np-art" id="npArt"></div>
+    <div class="np-video" id="npVideo" aria-hidden="true"></div>
     <div class="np-lyrics" id="npLyrics"></div>
     <div class="np-viz" id="npViz" role="button" tabindex="0" aria-label="Visualizador: tócalo para verlo a pantalla completa"><canvas id="vizNP" aria-hidden="true"></canvas><button class="viz-chip" data-act="viz-scene" aria-label="Cambiar el estilo del visualizador"><span data-viz-scene-label>Órbita</span></button></div>
     <div class="row-wrap" style="align-items:flex-start;flex-wrap:nowrap">
@@ -1112,7 +1130,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
       <button class="ctrl play" data-ctl="play" aria-label="Reproducir"></button>
       <button class="ctrl" data-ctl="next" aria-label="Siguiente"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
     </div>
-    <div class="row-wrap" style="justify-content:center"><button class="hifi" id="npLyBtn" aria-pressed="false" style="cursor:pointer">Letra</button><button class="hifi" id="npVizBtn" aria-pressed="false" style="cursor:pointer">Visual</button><span class="hifi" id="npQ">DIRECTO</span><span class="hifi" id="npAlbum" hidden></span><button class="hifi" data-act="sleep-open" style="cursor:pointer"><svg width="12" height="12" style="display:inline;vertical-align:-1px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg> <span class="sleep-label">Dormir</span></button></div>
+    <div class="row-wrap" style="justify-content:center"><button class="hifi" id="npLyBtn" aria-pressed="false" style="cursor:pointer">Letra</button><button class="hifi" id="npVizBtn" aria-pressed="false" style="cursor:pointer">Visual</button><button class="hifi" id="npClipBtn" hidden style="cursor:pointer">Videoclip</button><span class="hifi" id="npQ">DIRECTO</span><span class="hifi" id="npAlbum" hidden></span><button class="hifi" data-act="sleep-open" style="cursor:pointer"><svg width="12" height="12" style="display:inline;vertical-align:-1px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg> <span class="sleep-label">Dormir</span></button></div>
     <div class="row-wrap np-brain"><button class="btn small" id="npMore">Más como esta</button><button class="btn small" id="npBan">No me la pongas más</button><button class="btn small" id="npMic" hidden>Háblale</button></div>
     <div class="np-queue" id="npQueue"></div>
     <div class="np-about" id="npAbout" hidden></div>
@@ -1178,6 +1196,13 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
     <label id="editAlbumL">Álbum<input id="editAlbum" maxlength="160"></label>
     <div class="btns"><button type="button" class="btn small" id="editCancel">Cancelar</button><button type="submit" class="btn small primary">Guardar</button></div>
   </form>
+</div>
+<div class="yt-dock" id="ytDock" hidden role="region" aria-label="Vídeo de YouTube">
+  <div class="yt-bar"><span class="yt-mark" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span><b id="ytDockTitle">YouTube</b>
+    <button class="icon-btn yt-btn" data-act="yt-expand" aria-label="Ver el vídeo en grande"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+    <button class="icon-btn yt-btn" data-act="yt-x" aria-label="Quitar el vídeo y seguir con la música"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="yt-box" id="ytFrameBox"></div>
+  <p class="note yt-note" id="ytDockNote" hidden>Este vídeo se maneja con sus propios botones.</p>
 </div>
 
 <script>(function(){var done=false;function load(){if(done)return;done=true;var s=document.createElement("script");s.src="app.js";document.body.appendChild(s);}if(window.ORBITA_GO)load();else window.ORBITA_LOAD=load;})();</script>

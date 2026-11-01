@@ -33,6 +33,8 @@ import java.util.concurrent.Executors;
 public class NovaVoicePlugin extends Plugin {
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
+    /** Archivos que no son de la voz (el cerebro pequeño): en su propio hilo, para no hacer esperar a la voz. */
+    private final ExecutorService files = Executors.newSingleThreadExecutor();
     private OrtEnvironment env;
     private OrtSession session;
     private String loadedPath;
@@ -41,6 +43,18 @@ public class NovaVoicePlugin extends Plugin {
 
     private File voiceDir() {
         File d = new File(getContext().getFilesDir(), "nova-voz");
+        if (!d.exists()) d.mkdirs();
+        return d;
+    }
+
+    /** La carpeta de cada cosa: «voz» (por defecto) o «cerebro» (el cerebro pequeño de Nova, que no se toca al cambiar de voz). */
+    private boolean isBrain(PluginCall call) {
+        return "cerebro".equals(call.getString("dir"));
+    }
+
+    private File dirFor(PluginCall call) {
+        if (!isBrain(call)) return voiceDir();
+        File d = new File(getContext().getFilesDir(), "nova-cerebro-pequeno");
         if (!d.exists()) d.mkdirs();
         return d;
     }
@@ -77,6 +91,7 @@ public class NovaVoicePlugin extends Plugin {
         try {
             exec.execute(this::closeSession);
             exec.shutdown();
+            files.shutdown();
         } catch (Throwable ignored) {
         }
         super.handleOnDestroy();
@@ -96,6 +111,7 @@ public class NovaVoicePlugin extends Plugin {
             }
             r.put("cores", Runtime.getRuntime().availableProcessors());
             r.put("loaded", loadedPath != null);
+            r.put("dirs", true);
             call.resolve(r);
         });
     }
@@ -107,9 +123,10 @@ public class NovaVoicePlugin extends Plugin {
         final String data = call.getString("data", "");
         final boolean append = Boolean.TRUE.equals(call.getBoolean("append", false));
         final boolean done = Boolean.TRUE.equals(call.getBoolean("done", false));
-        exec.execute(() -> {
+        final File dir = dirFor(call);
+        (isBrain(call) ? files : exec).execute(() -> {
             try {
-                File part = new File(voiceDir(), name + ".part");
+                File part = new File(dir, name + ".part");
                 FileOutputStream fos = new FileOutputStream(part, append);
                 try {
                     if (data != null && data.length() > 0) fos.write(Base64.decode(data, Base64.DEFAULT));
@@ -118,7 +135,7 @@ public class NovaVoicePlugin extends Plugin {
                 }
                 JSObject r = new JSObject();
                 if (done) {
-                    File fin = new File(voiceDir(), name);
+                    File fin = new File(dir, name);
                     if (fin.exists() && fin.getAbsolutePath().equals(loadedPath)) closeSession();
                     if (fin.exists()) fin.delete();
                     if (!part.renameTo(fin)) throw new Exception("no se pudo renombrar");
@@ -137,12 +154,31 @@ public class NovaVoicePlugin extends Plugin {
     @PluginMethod
     public void fileInfo(PluginCall call) {
         final String name = safe(call.getString("name"));
-        exec.execute(() -> {
-            File f = new File(voiceDir(), name);
+        final File dir = dirFor(call);
+        (isBrain(call) ? files : exec).execute(() -> {
+            File f = new File(dir, name);
             JSObject r = new JSObject();
             r.put("exists", f.exists());
             r.put("size", f.exists() ? f.length() : 0L);
             r.put("path", f.getAbsolutePath());
+            call.resolve(r);
+        });
+    }
+
+    /** Borra los archivos del cerebro pequeño (solo esa carpeta: nunca la voz). */
+    @PluginMethod
+    public void removeFiles(PluginCall call) {
+        if (!isBrain(call)) {
+            call.reject("Solo se puede vaciar la carpeta del cerebro", "BAD_DIR");
+            return;
+        }
+        final File dir = dirFor(call);
+        files.execute(() -> {
+            int n = 0;
+            File[] fs = dir.listFiles();
+            if (fs != null) for (File f : fs) if (f.delete()) n++;
+            JSObject r = new JSObject();
+            r.put("deleted", n);
             call.resolve(r);
         });
     }
