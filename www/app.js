@@ -189,7 +189,9 @@ async function audioUrl(t) {
   if (urlCache.has(t.id)) return urlCache.get(t.id);
   const blob = await blobFor(t); if (!blob) return null;
   if (!t.size) { t.size = blob.size; t.codec = codecOf(blob.type, blob.name); saveTrack(t); }
-  const u = URL.createObjectURL(blob); urlCache.set(t.id, u); return u;
+  const u = URL.createObjectURL(blob); urlCache.set(t.id, u);
+  while (urlCache.size > 8) { const [k, old] = urlCache.entries().next().value; urlCache.delete(k); if (els.some(e => e.src === old)) { urlCache.set(k, old); break; } setTimeout(() => URL.revokeObjectURL(old), 2000); }
+  return u;
 }
 function coverUrl(t, size = 'thumb') {
   if (!t) return null;
@@ -773,11 +775,25 @@ async function analyzeTrack(t) {
   let buf;
   try { buf = await new OAC(1, 1, 11025).decodeAudioData(await blob.arrayBuffer()); } catch { return null; }
   await sleep(0);
-  const res = analyzeBuffer(buf);
+  const res = await analyzeOff(buf); buf = null;
   Object.assign(res, { v: ANA_V, id: t.id, size: t.size || blob.size });
   anaCache.set(t.id, res); idbPut('analysis', res);
   if (current() === t && A < 2) applyNorm(A, t, 3);
   return res;
+}
+/* The analysis runs in a worker (the same function, sent as code), so the app never stutters while it learns a song */
+let anaWorker = null, anaN = 0; const anaWait = new Map();
+function analyzeOff(buf) {
+  try {
+    if (!anaWorker) {
+      const src = analyzeBuffer.toString() + '\nonmessage = e => { const m = e.data; let res = null, error = null; try { res = analyzeBuffer({ sampleRate: m.sr, length: m.n, numberOfChannels: m.ch.length, getChannelData: i => m.ch[i] }); } catch (err) { error = String(err); } postMessage({ id: m.id, res, error }); };';
+      anaWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+      anaWorker.onmessage = e => { const r = anaWait.get(e.data.id); if (r) { anaWait.delete(e.data.id); r(e.data); } };
+      anaWorker.onerror = () => { for (const r of anaWait.values()) r({ error: 'worker' }); anaWait.clear(); try { anaWorker.terminate(); } catch {} anaWorker = null; };
+    }
+    const ch = []; for (let i = 0; i < Math.min(2, buf.numberOfChannels); i++) ch.push(buf.getChannelData(i).slice());
+    return new Promise(res => { const id = ++anaN; anaWait.set(id, d => res(d.res || analyzeBuffer(buf))); anaWorker.postMessage({ id, sr: buf.sampleRate, n: buf.length, ch }, ch.map(c => c.buffer)); });
+  } catch { return Promise.resolve(analyzeBuffer(buf)); }
 }
 function analyzeBuffer(buf) {
   const sr = buf.sampleRate, n = buf.length, nc = buf.numberOfChannels;
@@ -1367,7 +1383,7 @@ function markPlaying() { const id = current()?.id; $$('[data-track]').forEach(el
 const artCache = new Map();
 function artDataUrl(t) {
   const blob = t && (t.thumb || t.cover); if (!blob) return Promise.resolve(null);
-  if (!artCache.has(t.id)) artCache.set(t.id, new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => r(null); fr.readAsDataURL(blob); }));
+  if (!artCache.has(t.id)) { artCache.set(t.id, new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => r(null); fr.readAsDataURL(blob); })); while (artCache.size > 30) artCache.delete(artCache.keys().next().value); }
   return artCache.get(t.id);
 }
 let lastPosSync = 0;
@@ -1718,8 +1734,9 @@ function speakTTS(text, voice) {
   const clean = String(text).replace(/[«»"“”]/g, '').replace(/\s·\s/g, ', ').replace(/\s+/g, ' ').trim();
   const parts = sentences(clean);
   const v = voice || dj.voice;
-  if (own) return speakNeural(clean, parts, my).catch(() => {
-    NV.fails++; if (my !== dj.talkGen) return;
+  if (own) return speakNeural(clean, parts, my).catch(e => {
+    if (!(e && e.message === 'lenta')) NV.fails++;
+    if (my !== dj.talkGen) return;
     if (!dj.supported) { setBubble(clean, dj.name); return; }
     NV.skip = true; return speakTTS(text);
   });
@@ -2544,14 +2561,14 @@ function bgAnalysis(delay = 8000) {
   clearTimeout(bgT);
   bgT = setTimeout(async () => {
     const charging = await isCharging();
-    if (document.hidden || job || mixing || mixArm) { bgAnalysis(15000); return; }
-    if (!charging && bgDone >= 40) return;
+    if (document.hidden || job || mixing || mixArm || NV.running || $('#dj').classList.contains('speaking')) { bgAnalysis(15000); return; }
+    if (!charging && bgDone >= 24) return;
     const todo = state.tracks.filter(t => !t.net && !anaCache.has(t.id) && !anaPending.has(t.id) && !t.anaFail && (!t.duration || t.duration <= 900) && (!t.size || t.size < 60e6));
     if (!todo.length) return;
     const t = todo.sort((a, b) => plays(b) - plays(a))[0]; bgDone++;
     scheduleAnalysis(t); await anaQueue; if (!anaCache.has(t.id)) t.anaFail = true;
     if (state.view === 'tu') renderTuSoon();
-    bgAnalysis(charging ? 1500 : 5000);
+    bgAnalysis(charging ? 4000 : 12000);
   }, delay);
 }
 const analysedShare = () => { const own = state.tracks.filter(t => !t.net && !t.demo); return own.length ? [own.filter(t => anaCache.has(t.id)).length, own.length] : [0, 0]; };
@@ -3742,7 +3759,7 @@ let angle = 0, lastTs = 0, lastDraw = 0, grooveCache = null;
 const coverImgs = new Map();
 function coverImg(t) {
   const u = coverUrl(t, 'full'); if (!u) return null;
-  if (!coverImgs.has(u)) { const im = new Image(); im.decoding = 'async'; im.src = u; coverImgs.set(u, im); }
+  if (!coverImgs.has(u)) { const im = new Image(); im.decoding = 'async'; im.src = u; coverImgs.set(u, im); while (coverImgs.size > 12) coverImgs.delete(coverImgs.keys().next().value); }
   const im = coverImgs.get(u); return im.complete && im.naturalWidth ? im : null;
 }
 function sizeVinyl() { const r = cv.getBoundingClientRect(); const dpr = Math.min(1.5, window.devicePixelRatio || 1); const w = Math.max(1, Math.round(r.width * dpr)); if (cv.width !== w) { cv.width = w; cv.height = w; grooveCache = null; } }
@@ -3758,13 +3775,21 @@ function grooves(W, R, dR) {
   x.lineWidth = Math.max(2, W / 150); x.strokeStyle = 'rgba(255,255,255,.08)'; x.beginPath(); x.arc(cx, cx, dR + R * 0.025, 0, Math.PI * 2); x.stroke();
   grooveCache = c; return c;
 }
+let drawOn = false, lastInput = performance.now();
+const idleSlow = () => performance.now() - lastInput > 60000;
+['pointerdown', 'keydown', 'wheel'].forEach(ev => document.addEventListener(ev, () => { lastInput = performance.now(); }, { capture: true, passive: true }));
+const drawWanted = () => state.view === 'inicio' && !document.hidden && state.heroMode === 'vinyl' && $('#np').hidden && !root.classList.contains('booting');
+function drawKick() { if (!drawOn && drawWanted()) { drawOn = true; requestAnimationFrame(draw); } }
+setInterval(drawKick, 700);
+document.addEventListener('visibilitychange', drawKick);
 function draw(ts) {
+  if (!drawWanted()) { drawOn = false; lastTs = 0; return; }
   requestAnimationFrame(draw);
   const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
   if (state.view !== 'inicio' || document.hidden || state.heroMode !== 'vinyl' || !$('#np').hidden || root.classList.contains('booting')) return;
   const t = current(); const d = act(); const playing = !d.paused && !!t;
   if (playing && !reduceMotion) angle += dt * 2.0;
-  const minGap = !playing ? 90 : state.anim === 'lite' ? 33 : 0;
+  const minGap = !playing ? 90 : (state.anim === 'lite' || idleSlow()) ? 33 : 0;
   if (ts - lastDraw < minGap) return;
   lastDraw = ts;
   const W = cv.width; if (W < 10) return;
@@ -3956,7 +3981,7 @@ function vizFrame(ts) {
   const cvs = document.hidden || root.classList.contains('booting') ? [] : vizCanvases();
   if (!cvs.length) return;
   VZ.raf = requestAnimationFrame(vizFrame);
-  if (state.anim === 'lite' && ts - (VZ.lastDraw || 0) < 31) return;
+  if ((state.anim === 'lite' || idleSlow()) && ts - (VZ.lastDraw || 0) < 31) return;
   VZ.lastDraw = ts;
   const f = vizRead(ts), t = current(), img = t && coverImg(t);
   for (const cv of cvs) {
@@ -3996,13 +4021,19 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '3.1': [
+    '<b>El cerebro grande de Nova</b> (beta): en Ajustes › Tu DJ, descarga un modelo de lenguaje de verdad (Qwen3 1.7B, 1,1 GB) que funciona dentro del móvil. Nova charla contigo con sus propias palabras, entiende peticiones raras y sabe de qué estabais hablando.',
+    'No elige canciones ni da datos: eso lo siguen haciendo tu biblioteca, el gusto que Nova ha aprendido de ti y Wikipedia.',
+    'Prueba a contarle cómo te ha ido el día, o a preguntarle qué opina de lo que suena.'
+  ],
   '3.0': [
     '<b>Nova recuerda lo que le dices</b>: «no me pongas reguetón por la mañana», «me encanta el rap», «por la noche, cosas tranquilas». Lo cumple siempre en la radio y en sus mezclas.',
     '<b>Conoce los estilos</b> de tus artistas (por la etiqueta de la canción, por Wikipedia o porque se lo enseñas: «tal artista es trap»).',
     '<b>Rutinas</b>: «cada mañana ponme algo suave» y lo pondrá al abrir Órbita.',
     '<b>Recuerdos</b> y el resumen de tu semana: «hace un año no parabas de escuchar…».',
-    '<b>Voz propia</b>: en Ajustes › Tu DJ, descarga una voz neuronal para Nova. Suena igual en todos los móviles y funciona sin internet.',
+    '<b>Voz propia</b>: en Ajustes › Tu DJ, descarga una voz neuronal para Nova. Funciona sin internet y, en la app de Android, con un motor nativo que la hace hablar al momento.',
     '<b>El cerebro de Nova</b> (beta): en Ajustes › Tu DJ, descarga un modelo de lenguaje que entiende lo que le dices con tus palabras («esta es una pasada», «estoy reventado», «baja las revoluciones»). Funciona sin internet, nunca se inventa datos y puedes enseñarle frases tuyas.',
+    '<b>Más fluida</b> en sesiones largas: aprender tus canciones ya no frena la app, y gasta menos memoria y batería.',
     '<b>Conversación</b>: toca el bocadillo de Nova o «Conversación» para hablar con ella con historial. Pregúntale «¿qué recuerdas de mí?».'
   ],
   '2.3': [
@@ -4332,13 +4363,16 @@ $('#djMic').onclick = () => voiceAsk();
 $('#npMic').onclick = () => voiceAsk();
 $('#djMic').hidden = $('#npMic').hidden = !voiceAvailable();
 renderCity();
-const NV_WORKER_SRC = "/* Nova's own voice, running on the phone in a worker so the app never stutters:\n   espeak-ng turns text into phonemes (piper-phonemize), ONNX Runtime turns phonemes into sound (a Piper/VITS voice). */\nlet session = null, cfg = null, speaker = 0, phon = null, phonOut = null, files = null;\nfunction phonemizer() {\n  if (phon) return phon;\n  phon = createPiperPhonemize({\n    noInitialRun: true,\n    print: d => { if (phonOut) { const f = phonOut; phonOut = null; try { f(JSON.parse(d).phoneme_ids); } catch (e) { f(null); } } },\n    printErr: () => {},\n    locateFile: u => u.endsWith('.wasm') ? files.phonWasm : u.endsWith('.data') ? files.phonData : u\n  });\n  return phon;\n}\nasync function phonemize(text) {\n  const m = await phonemizer();\n  return new Promise((res, rej) => {\n    phonOut = ids => ids ? res(ids) : rej(new Error('phonemize'));\n    try { m.callMain(['-l', cfg.espeak.voice, '--input', JSON.stringify([{ text }]), '--espeak_data', '/espeak-ng-data']); }\n    catch (e) { phonOut = null; rej(e); }\n  });\n}\nonmessage = async e => {\n  const m = e.data;\n  try {\n    if (m.type === 'init') {\n      files = m.files;\n      importScripts(files.ortJs, files.phonJs);\n      ort.env.wasm.numThreads = 1;\n      ort.env.wasm.wasmPaths = { 'ort-wasm-simd.wasm': files.ortWasm, 'ort-wasm.wasm': files.ortWasm };\n      cfg = m.config; speaker = m.speaker || 0;\n      session = await ort.InferenceSession.create(m.model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });\n      await phonemizer();\n      postMessage({ id: m.id, ok: true });\n    } else if (m.type === 'speak') {\n      const t0 = performance.now();\n      const ids = await phonemize(m.text);\n      const inf = cfg.inference || {};\n      const feeds = {\n        input: new ort.Tensor('int64', BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),\n        input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),\n        scales: new ort.Tensor('float32', Float32Array.from([inf.noise_scale ?? 0.667, (inf.length_scale ?? 1) * (m.lengthScale || 1), inf.noise_w ?? 0.8]), [3])\n      };\n      if (cfg.num_speakers > 1) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([BigInt(speaker)]), [1]);\n      const out = await session.run(feeds);\n      const pcm = Float32Array.from(out.output.data);\n      postMessage({ id: m.id, ok: true, pcm, sr: cfg.audio.sample_rate, ms: Math.round(performance.now() - t0) }, [pcm.buffer]);\n    }\n  } catch (err) { postMessage({ id: m.id, ok: false, error: String(err && err.message || err) }); }\n};\n";
-/* ---------- 3.0 beta 2 · Nova's own voice ----------
-   A neural voice (Piper) that runs on the phone, without internet, after a one-time download:
-   the voice from the Piper catalogue (Hugging Face) and the engine (ONNX Runtime + espeak-ng) from npm's CDNs.
-   Everything is kept in the app's storage; the system voice stays as the fallback. */
-const NV = { st: LS.get('nv', null), on: LS.get('nvOn', true), worker: null, ready: null, n: 0, wait: new Map(), cache: new Map(), dl: null, cat: null, fails: 0 };
-const NV_CACHE = 'orbita-voz-1', NV_KEY = n => 'https://orbita.voz/' + n;
+const NV_WORKER_SRC = "/* Nova's own voice, in a worker so the app never stutters:\n   espeak-ng turns text into phonemes (piper-phonemize), and ONNX Runtime turns phonemes into sound (a Piper/VITS voice).\n   With the native engine (Android), this worker only does the phonemes: the sound is made outside the WebView. */\nlet session = null, cfg = null, speaker = 0, phon = null, phonOut = null, files = null;\nfunction phonemizer() {\n  if (phon) return phon;\n  phon = createPiperPhonemize({\n    noInitialRun: true,\n    print: d => { if (phonOut) { const f = phonOut; phonOut = null; try { f(JSON.parse(d).phoneme_ids); } catch (e) { f(null); } } },\n    printErr: () => {},\n    locateFile: u => u.endsWith('.wasm') ? files.phonWasm : u.endsWith('.data') ? files.phonData : u\n  });\n  return phon;\n}\nasync function phonemize(text) {\n  const m = await phonemizer();\n  return new Promise((res, rej) => {\n    phonOut = ids => ids ? res(ids) : rej(new Error('phonemize'));\n    try { m.callMain(['-l', cfg.espeak.voice, '--input', JSON.stringify([{ text }]), '--espeak_data', '/espeak-ng-data']); }\n    catch (e) { phonOut = null; rej(e); }\n  });\n}\nonmessage = async e => {\n  const m = e.data;\n  try {\n    if (m.type === 'init') {\n      files = m.files; cfg = m.config; speaker = m.speaker || 0;\n      if (!m.phonOnly) {\n        importScripts(files.ortJs);\n        ort.env.wasm.numThreads = 1;\n        ort.env.wasm.wasmPaths = { 'ort-wasm-simd.wasm': files.ortWasm, 'ort-wasm.wasm': files.ortWasm };\n        /* sentences of every length: without a memory arena and memory patterns, memory doesn't keep growing */\n        session = await ort.InferenceSession.create(m.model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all', enableCpuMemArena: false, enableMemPattern: false });\n        m.model = null;\n      }\n      importScripts(files.phonJs);\n      await phonemizer();\n      postMessage({ id: m.id, ok: true });\n    } else if (m.type === 'phon') {\n      const ids = await phonemize(m.text);\n      postMessage({ id: m.id, ok: true, ids });\n    } else if (m.type === 'speak') {\n      if (!session) throw new Error('sin motor');\n      const t0 = performance.now();\n      const ids = await phonemize(m.text);\n      const inf = cfg.inference || {};\n      const feeds = {\n        input: new ort.Tensor('int64', BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),\n        input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),\n        scales: new ort.Tensor('float32', Float32Array.from([inf.noise_scale ?? 0.667, (inf.length_scale ?? 1) * (m.lengthScale || 1), inf.noise_w ?? 0.8]), [3])\n      };\n      if (cfg.num_speakers > 1) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([BigInt(speaker)]), [1]);\n      const out = await session.run(feeds);\n      const pcm = Float32Array.from(out.output.data);\n      for (const k in out) { try { out[k].dispose && out[k].dispose(); } catch (err) {} }\n      postMessage({ id: m.id, ok: true, pcm, sr: cfg.audio.sample_rate, ms: Math.round(performance.now() - t0) }, [pcm.buffer]);\n    }\n  } catch (err) { postMessage({ id: m.id, ok: false, error: String(err && err.message || err) }); }\n};\n";
+/* ---------- 3.0 · Nova's own voice ----------
+   A neural voice (Piper) that runs on the phone, without internet, after a one-time download.
+   In the Android app the sound is made by the native engine (ONNX Runtime for Android: several cores, outside the WebView);
+   the web engine (ONNX Runtime Web) is the fallback. espeak-ng turns the text into phonemes in a worker.
+   Sentences are split so Nova starts talking sooner, what you ask always goes ahead of what's prepared in the background,
+   and every phrase said is kept, so it's instant the next time. The system voice stays as the fallback. */
+const NV = { st: LS.get('nv', null), on: LS.get('nvOn', true), worker: null, ready: null, n: 0, wait: new Map(), cache: new Map(), dl: null, cat: null, fails: 0,
+  eng: null, q: [], running: false, natOk: null, noNative: false, natFails: 0, slow: 0, slowSaid: false, mig: null, cfg: null, speed: LS.get('nvSpeed', null) };
+const NV_CACHE = 'orbita-voz-1', NV_KEY = n => 'https://orbita.voz/' + n, NV_FR = 'orbita-voz-frases';
 const NV_HF = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/';
 const NV_ORT = ['https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/', 'https://unpkg.com/onnxruntime-web@1.18.0/dist/'];
 const NV_PHON = ['https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/', 'https://unpkg.com/@diffusionstudio/piper-wasm@1.0.0/build/'];
@@ -4347,16 +4381,21 @@ const NV_ENGINE = [
   ['phonJs', 'piper_phonemize.js', NV_PHON, 'text/javascript', 0.12], ['phonWasm', 'piper_phonemize.wasm', NV_PHON, 'application/wasm', 0.64],
   ['phonData', 'piper_phonemize.data', NV_PHON, 'application/octet-stream', 18.1]
 ];
+const NV_NATIVE = capPlugin('NovaVoice');
+const NV_CHUNK = 1572864;   // 1.5 MB per piece when saving the voice for the native engine
 const NV_ACCENT = { es_ES: 'España', es_MX: 'México', es_AR: 'Argentina', es_US: 'Estados Unidos', es_CO: 'Colombia', es_CL: 'Chile' };
 const NV_QUALITY = { x_low: 'básica', low: 'normal', medium: 'buena', high: 'muy buena' };
 /* Used when the catalogue can't be read: the Spanish voices Piper publishes */
 const NV_KNOWN = [['es_ES-sharvard-medium', 77, { F: 1, M: 0 }], ['es_ES-davefx-medium', 63], ['es_MX-ald-medium', 63], ['es_AR-daniela-high', 114], ['es_MX-claude-high', 63], ['es_ES-carlfm-x_low', 28]];
 const nvPathOf = key => { const [code, name, q] = key.split('-'); return `${code.split('_')[0]}/${code}/${name}/${q}/${key}.onnx`; };
+const nvModelName = () => NV.st.key + '.onnx';
+function nvHash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
+const nvKey = text => 'f' + nvHash(`${NV.st.key}|${NV.st.speaker || 0}|${(dj.rate || 1).toFixed(2)}|${text}`) + '-' + text.length;
 function nvOptions(list) {
   const out = [];
   for (const v of list) {
     const [code, name, q] = v.key.split('-');
-    const base = { key: v.key, path: v.path || nvPathOf(v.key), mb: Math.round(v.mb), accent: NV_ACCENT[code] || code, quality: NV_QUALITY[q] || q, name: cap(name.replace(/_/g, ' ')) };
+    const base = { key: v.key, path: v.path || nvPathOf(v.key), mb: Math.round(v.mb), accent: NV_ACCENT[code] || code, quality: NV_QUALITY[q] || q, heavy: q === 'high', name: cap(name.replace(/_/g, ' ')) };
     const sp = v.speakers && Object.keys(v.speakers).length > 1 ? v.speakers : null;
     if (sp) for (const [s, id] of Object.entries(sp).slice(0, 4)) out.push({ ...base, speaker: id, label: `${base.name} · ${s === 'F' ? 'mujer' : s === 'M' ? 'hombre' : 'voz ' + s}` });
     else out.push({ ...base, speaker: 0, label: base.name });
@@ -4380,6 +4419,13 @@ async function nvCatalogue() {
   } catch { return (NV.cat = nvOptions(NV_KNOWN.map(([key, mb, speakers]) => ({ key, mb, speakers })))); }
 }
 const nvUsable = () => !!(NV.st && NV.on && NV.fails < 3 && window.Worker && window.caches);
+/* Is the native engine there (Android app with the module) and working? */
+function nvNativeOk() {
+  if (!NV_NATIVE) return Promise.resolve(false);
+  if (!NV.natOk) NV.natOk = NV_NATIVE.status().then(s => !!(s && s.available), () => false);
+  return NV.natOk;
+}
+const nvB64 = blob => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => { const s = String(fr.result); res(s.slice(s.indexOf(',') + 1)); }; fr.onerror = () => rej(fr.error); fr.readAsDataURL(blob); });
 /* Download, with progress, trying a second address if the first fails */
 async function nvFetch(urls, onBytes, signal) {
   let last;
@@ -4395,6 +4441,43 @@ async function nvFetch(urls, onBytes, signal) {
   }
   throw last || new Error('download');
 }
+/* The same, but saved straight into the native engine's folder, piece by piece (the voice never sits whole in the WebView's memory) */
+async function nvFetchToNative(urls, name, onBytes, signal) {
+  let last;
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, { signal }); if (!r.ok) throw new Error('http ' + r.status);
+      let first = true, pend = [], pn = 0;
+      const flush = async done => { const data = pn ? await nvB64(new Blob(pend)) : ''; pend = []; pn = 0; await NV_NATIVE.writeChunk({ name, data, append: !first, done }); first = false; };
+      if (r.body && r.body.getReader) {
+        const rd = r.body.getReader();
+        for (;;) { const { done, value } = await rd.read(); if (done) break; pend.push(value); pn += value.length; onBytes(value.length); if (pn >= NV_CHUNK) await flush(false); }
+      } else { const b = await r.arrayBuffer(); onBytes(b.byteLength); pend.push(new Uint8Array(b)); pn = b.byteLength; }
+      await flush(true);
+      return;
+    } catch (e) { if (signal && signal.aborted) throw e; last = e; }
+  }
+  throw last || new Error('download');
+}
+/* A voice installed before the native engine existed: moved to it once, without downloading it again */
+async function nvMigrate(cache) {
+  const r = await cache.match(NV_KEY('voz.onnx')); if (!r) return false;
+  const blob = await r.blob(), name = nvModelName();
+  NV.mig = { done: 0, total: blob.size }; renderNV();
+  try {
+    for (let o = 0, first = true; o < blob.size; o += NV_CHUNK, first = false) {
+      await NV_NATIVE.writeChunk({ name, data: await nvB64(blob.slice(o, o + NV_CHUNK)), append: !first, done: o + NV_CHUNK >= blob.size });
+      NV.mig.done = Math.min(blob.size, o + NV_CHUNK); renderNVProgress();
+    }
+  } finally { NV.mig = null; renderNV(); }
+  try { await cache.delete(NV_KEY('voz.onnx')); } catch {}
+  return true;
+}
+async function nvClearPhrases() {
+  try { await caches.delete(NV_FR); } catch {}
+  LS.set('nvFr', []); NV.cache.clear();
+  if (NV_NATIVE && await nvNativeOk()) { try { await NV_NATIVE.clear({ voices: false }); } catch {} }
+}
 async function nvInstall(opt) {
   if (NV.dl) return;
   if (!ONLINE && !STANDALONE) { toast('La voz propia se instala en la app de Android, con internet'); return; }
@@ -4402,21 +4485,28 @@ async function nvInstall(opt) {
   NV.dl = { opt, done: 0, total: 0, ctl }; renderNV();
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch {}
   try {
+    const native = await nvNativeOk();
     const jobs = [];
     for (const [, name, bases, type, mb] of NV_ENGINE) if (!(await cache.match(NV_KEY(name)))) jobs.push({ name, urls: bases.map(b => b + name), type, mb });
-    jobs.push({ name: 'voz.onnx.json', urls: [NV_HF + opt.path + '.json'], type: 'application/json', mb: 0.01 }, { name: 'voz.onnx', urls: [NV_HF + opt.path], type: 'application/octet-stream', mb: opt.mb });
-    NV.dl.total = jobs.reduce((a, j) => a + j.mb * 1048576, 0);
+    jobs.push({ name: 'voz.onnx.json', urls: [NV_HF + opt.path + '.json'], type: 'application/json', mb: 0.01 });
+    NV.dl.total = (jobs.reduce((a, j) => a + j.mb, 0) + opt.mb) * 1048576;
     let t = 0;
     const tick = n => { NV.dl.done += n; if (Date.now() - t > 250) { t = Date.now(); renderNVProgress(); } };
     const got = [];
     for (const j of jobs) got.push([j, await nvFetch(j.urls, tick, ctl.signal)]);
     const cfg = JSON.parse(new TextDecoder().decode(got.find(([j]) => j.name === 'voz.onnx.json')[1]));
     if (!cfg.audio || !cfg.espeak) throw new Error('config');
+    if (native) await nvFetchToNative([NV_HF + opt.path], opt.key + '.onnx', tick, ctl.signal);
+    else got.push([{ name: 'voz.onnx', type: 'application/octet-stream' }, await nvFetch([NV_HF + opt.path], tick, ctl.signal)]);
     for (const [j, buf] of got) await cache.put(NV_KEY(j.name), new Response(buf, { headers: { 'Content-Type': j.type } }));
-    NV.st = { key: opt.key, speaker: opt.speaker, label: opt.label, accent: opt.accent, mb: opt.mb, ts: Date.now() };
-    LS.set('nv', NV.st); NV.on = true; LS.set('nvOn', true); NV.fails = 0;
+    if (native) { try { await cache.delete(NV_KEY('voz.onnx')); } catch {} try { await NV_NATIVE.clear({ keep: opt.key + '.onnx' }); } catch {} }
+    const changed = !NV.st || NV.st.key !== opt.key || (NV.st.speaker || 0) !== (opt.speaker || 0);
+    NV.st = { key: opt.key, speaker: opt.speaker, label: opt.label, accent: opt.accent, mb: opt.mb, heavy: !!opt.heavy, ts: Date.now() };
+    LS.set('nv', NV.st); NV.on = true; LS.set('nvOn', true); NV.fails = 0; NV.slow = 0; NV.slowSaid = false; NV.noNative = false; NV.natFails = 0;
+    if (changed) await nvClearPhrases();
     nvReset(); NV.dl = null; renderNV();
-    toast('Voz propia instalada'); haptic(12);
+    await nvSpeedTest().catch(() => {});
+    renderNV(); toast('Voz propia instalada'); haptic(12);
     speakTTS(`Hola, soy ${dj.name}. Esta es mi voz nueva, y funciona sin internet.`);
   } catch (e) {
     const aborted = ctl.signal.aborted; NV.dl = null; renderNV();
@@ -4425,27 +4515,54 @@ async function nvInstall(opt) {
 }
 async function nvRemove() {
   try { await caches.delete(NV_CACHE); } catch {}
-  nvReset(); NV.st = null; LS.set('nv', null); NV.cache.clear(); renderNV(); toast('Voz propia borrada: vuelvo a la voz del sistema');
+  if (NV_NATIVE && await nvNativeOk()) { try { await NV_NATIVE.clear({}); } catch {} }
+  await nvClearPhrases();
+  nvReset(); NV.st = null; LS.set('nv', null); NV.speed = null; LS.set('nvSpeed', null); renderNV(); toast('Voz propia borrada: vuelvo a la voz del sistema');
 }
-function nvReset() { if (NV.worker) { try { NV.worker.terminate(); } catch {} } NV.worker = null; NV.ready = null; for (const r of NV.wait.values()) r({ ok: false, error: 'reset' }); NV.wait.clear(); NV.cache.clear(); }
-function nvCall(msg, tr) { return new Promise(res => { const id = ++NV.n; NV.wait.set(id, res); NV.worker.postMessage({ ...msg, id }, tr || []); }); }
+function nvReset() {
+  if (NV.worker) { try { NV.worker.terminate(); } catch {} }
+  NV.worker = null; NV.ready = null; NV.eng = null;
+  for (const r of NV.wait.values()) r({ ok: false, error: 'reset' }); NV.wait.clear(); NV.cache.clear();
+  for (const j of NV.q.splice(0)) j.rej(new Error('reset'));
+}
+function nvCall(msg, tr) { return new Promise(res => { if (!NV.worker) { res({ ok: false, error: 'sin motor' }); return; } const id = ++NV.n; NV.wait.set(id, res); NV.worker.postMessage({ ...msg, id }, tr || []); }); }
+/* The voice file for the web engine: from the app's storage, or from the native engine's folder */
+async function nvModelBuffer(cache) {
+  const mr = await cache.match(NV_KEY('voz.onnx')); if (mr) return mr.arrayBuffer();
+  if (NV_NATIVE && await nvNativeOk()) {
+    const info = await NV_NATIVE.fileInfo({ name: nvModelName() }).catch(() => null);
+    if (info && info.exists) { const r = await fetch(window.Capacitor.convertFileSrc(info.path)); if (r.ok) return r.arrayBuffer(); }
+  }
+  throw new Error('falta la voz');
+}
 function nvInit() {
   if (NV.ready) return NV.ready;
   NV.ready = (async () => {
     const cache = await caches.open(NV_CACHE), files = {};
     for (const [k, name] of NV_ENGINE) { const r = await cache.match(NV_KEY(name)); if (!r) throw new Error('falta ' + name); files[k] = URL.createObjectURL(await r.blob()); }
-    const mr = await cache.match(NV_KEY('voz.onnx')), cr = await cache.match(NV_KEY('voz.onnx.json'));
-    if (!mr || !cr) throw new Error('falta la voz');
-    const model = await mr.arrayBuffer(), config = await cr.json();
-    NV.cfg = config;
+    const cr = await cache.match(NV_KEY('voz.onnx.json')); if (!cr) throw new Error('falta la voz');
+    const config = await cr.json(); NV.cfg = config;
+    let native = false;
+    if (!NV.noNative && await nvNativeOk()) {
+      try {
+        const name = nvModelName();
+        let info = await NV_NATIVE.fileInfo({ name });
+        if (!(info.exists && info.size > 1e5) && await nvMigrate(cache)) info = await NV_NATIVE.fileInfo({ name });
+        if (info.exists && info.size > 1e5) { const r = await NV_NATIVE.load({ name }); NV.threads = r.threads; native = true; }
+      } catch (e) { NV.nativeErr = String(e && e.message || e); }
+    }
+    const model = native ? null : await nvModelBuffer(cache);
     NV.worker = new Worker(URL.createObjectURL(new Blob([NV_WORKER_SRC], { type: 'text/javascript' })));
     NV.worker.onmessage = e => { const r = NV.wait.get(e.data.id); if (r) { NV.wait.delete(e.data.id); r(e.data); } };
     NV.worker.onerror = () => { NV.fails++; };
-    const r = await nvCall({ type: 'init', files, config, speaker: NV.st.speaker || 0, model }, [model]);
+    const r = await nvCall({ type: 'init', files, config, speaker: NV.st.speaker || 0, model, phonOnly: native }, model ? [model] : []);
     if (!r.ok) throw new Error(r.error);
+    NV.eng = native ? 'nativo' : 'web';
+    try { await nvRunReady('Hola.', true); } catch {}   // the first sentence is always the slowest: get it out of the way now
+    renderNV();
     return true;
   })();
-  NV.ready.catch(() => { NV.fails++; NV.ready = null; });
+  NV.ready.catch(() => { NV.fails++; if (NV.worker) { try { NV.worker.terminate(); } catch {} } NV.worker = null; NV.ready = null; NV.eng = null; });
   return NV.ready;
 }
 function nvWav(pcm, sr) {
@@ -4456,43 +4573,140 @@ function nvWav(pcm, sr) {
   for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 32767, true);
   return new Blob([buf], { type: 'audio/wav' });
 }
-/* Synthesis of one sentence (cached: song intros are prepared while the previous song plays) */
-function nvSynth(text) {
+/* Phrases already said, kept for next time (web engine; the native engine keeps its own) */
+async function nvPhraseGet(key) { try { const c = await caches.open(NV_FR), r = await c.match('https://orbita.voz/f/' + key); return r ? await r.blob() : null; } catch { return null; } }
+async function nvPhrasePut(key, blob) {
+  try {
+    const c = await caches.open(NV_FR); await c.put('https://orbita.voz/f/' + key, new Response(blob, { headers: { 'Content-Type': 'audio/wav' } }));
+    const idx = LS.get('nvFr', []).filter(k => k !== key); idx.push(key);
+    while (idx.length > 250) c.delete('https://orbita.voz/f/' + idx.shift());
+    LS.set('nvFr', idx);
+  } catch {}
+}
+/* How fast this voice is on this phone (seconds of work per second of speech) */
+function nvSpeed(ms, dur) {
+  if (!dur || dur < 0.4 || !ms) return;
+  const rtf = ms / (dur * 1000), prev = NV.speed && NV.speed.key === NV.st.key && NV.speed.eng === NV.eng ? NV.speed.rtf : null;
+  NV.speed = { key: NV.st.key, eng: NV.eng, rtf: prev == null ? rtf : prev * 0.75 + rtf * 0.25, n: ((NV.speed && NV.speed.n) || 0) + 1 };
+  if (NV.speed.n % 4 === 1) LS.set('nvSpeed', NV.speed);
+}
+async function nvSpeedTest() {
+  await nvInit();
+  const r = await nvRun('Esta es una prueba rápida de mi voz nueva, para ver cómo va en tu móvil.', true);
+  if (r.ms && r.dur) { NV.speed = { key: NV.st.key, eng: NV.eng, rtf: r.ms / (r.dur * 1000), n: 1 }; LS.set('nvSpeed', NV.speed); }
+}
+/* One sentence → sound. Returns { src } (a file of the native engine) or { blob } (web engine) */
+async function nvRun(text, warm) { await nvInit(); return nvRunReady(text, warm); }
+async function nvRunReady(text, warm) {
+  const ls = 1 / Math.max(0.6, Math.min(1.6, dj.rate || 1)), inf = NV.cfg.inference || {}, sr = NV.cfg.audio.sample_rate;
+  const key = warm ? null : nvKey(text);
+  if (NV.eng === 'nativo') {
+    const ph = await nvCall({ type: 'phon', text }); if (!ph.ok) throw new Error(ph.error);
+    let r;
+    try { r = await NV_NATIVE.synth({ ids: ph.ids, key, noise: inf.noise_scale ?? 0.667, length: (inf.length_scale ?? 1) * ls, noiseW: inf.noise_w ?? 0.8, sid: NV.st.speaker || 0, sampleRate: sr }); }
+    catch (e) { if (++NV.natFails >= 2) { NV.noNative = true; nvReset(); } throw e; }
+    NV.natFails = 0;
+    const dur = r.samples ? r.samples / sr : 0;
+    if (!r.cached && !warm) nvSpeed(r.ms, dur);
+    return { src: window.Capacitor.convertFileSrc(r.path), ms: r.ms, dur };
+  }
+  if (key) { const hit = await nvPhraseGet(key); if (hit) return { blob: hit }; }
+  const r = await nvCall({ type: 'speak', text, lengthScale: ls }); if (!r.ok) throw new Error(r.error);
+  const dur = r.pcm.length / r.sr;
+  if (!warm) nvSpeed(r.ms, dur);
+  const blob = nvWav(r.pcm, r.sr); if (key) nvPhrasePut(key, blob);
+  return { blob, ms: r.ms, dur };
+}
+/* A queue with priorities: what Nova says now (0) goes before the rest of the sentence (1) and before what she prepares in the background (2) */
+function nvSynth(text, prio = 1) {
   const k = text + '|' + (dj.rate || 1);
-  if (NV.cache.has(k)) { const p = NV.cache.get(k); NV.cache.delete(k); NV.cache.set(k, p); return p; }
-  const p = nvInit().then(() => nvCall({ type: 'speak', text, lengthScale: 1 / Math.max(0.6, Math.min(1.6, dj.rate || 1)) })).then(r => { if (!r.ok) throw new Error(r.error); return nvWav(r.pcm, r.sr); });
-  p.catch(() => NV.cache.delete(k));
-  NV.cache.set(k, p); while (NV.cache.size > 24) NV.cache.delete(NV.cache.keys().next().value);
+  if (NV.cache.has(k)) {
+    const p = NV.cache.get(k); NV.cache.delete(k); NV.cache.set(k, p);
+    const j = NV.q.find(x => x.k === k); if (j && j.prio > prio) j.prio = prio;
+    return p;
+  }
+  let job; const p = new Promise((res, rej) => { job = { k, text, prio, res, rej, ts: Date.now() }; });
+  p.catch(() => { if (NV.cache.get(k) === p) NV.cache.delete(k); });
+  NV.cache.set(k, p); while (NV.cache.size > 30) NV.cache.delete(NV.cache.keys().next().value);
+  NV.q.push(job); nvPump();
   return p;
 }
-const nvAudio = new Audio();
-NV_STOP = () => { if (nvAudio._stop) nvAudio._stop(); };
-function nvPlay(blob, my) {
+async function nvPump() {
+  if (NV.running) return;
+  NV.running = true;
+  try {
+    while (NV.q.length) {
+      NV.q.sort((a, b) => a.prio - b.prio || a.ts - b.ts);
+      const j = NV.q.shift();
+      if (j.prio >= 2 && Date.now() - j.ts > 90000) { j.rej(new Error('caducada')); continue; }
+      try { j.res(await nvRun(j.text)); } catch (e) { j.rej(e); }
+    }
+  } finally { NV.running = false; }
+}
+/* Pieces of speech: whole sentences, long ones cut at commas, and a short first piece so Nova starts sooner */
+function nvChunks(text) {
+  const out = [];
+  const cut = s => { while (s.length > 200) { let i = s.lastIndexOf(' ', 150); if (i < 60) i = s.indexOf(' ', 150); if (i < 0) break; out.push(s.slice(0, i)); s = s.slice(i + 1); } if (s) out.push(s); };
+  for (const s of sentences(text)) {
+    if (s.length <= 160) { out.push(s); continue; }
+    let buf = '';
+    for (const piece of s.split(/(?<=[,;:])\s+/)) {
+      if (buf && (buf + ' ' + piece).length > 140) { cut(buf); buf = piece; } else buf = buf ? buf + ' ' + piece : piece;
+    }
+    if (buf) cut(buf);
+  }
+  if (out.length && out[0].length > 80) { const m = out[0].match(/^(.{18,70}?[,;:])\s+(.+)$/); if (m) out.splice(0, 1, m[1], m[2]); }
+  return out.filter(s => /[a-záéíóúñü0-9]/i.test(s));
+}
+const nvWithin = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('lenta')), ms))]);
+/* Two players taking turns: while one speaks, the next piece is already loaded */
+const nvPlayers = [new Audio(), new Audio()]; let nvTurn = 0;
+NV_STOP = () => { for (const a of nvPlayers) if (a._stop) a._stop(); };
+function nvSrc(item) { if (item.src) return { url: item.src, free: () => {} }; const url = URL.createObjectURL(item.blob); return { url, free: () => URL.revokeObjectURL(url) }; }
+function nvLoad(a, item) { const s = nvSrc(item); a._free = s.free; a.preload = 'auto'; a.src = s.url; try { a.load(); } catch {} }
+function nvPlay(a, my) {
   return new Promise(res => {
-    if (my !== dj.talkGen) return res();
-    const u = URL.createObjectURL(blob); let done = false;
-    const fin = () => { if (done) return; done = true; clearTimeout(to); nvAudio.onended = nvAudio.onerror = null; URL.revokeObjectURL(u); res(); };
-    nvAudio.onended = nvAudio.onerror = fin;
-    nvAudio.src = u; nvAudio.volume = Math.min(1, baseVol * 1.3);
+    if (my !== dj.talkGen) { if (a._free) a._free(); return res(); }
+    let done = false;
+    const fin = () => { if (done) return; done = true; clearTimeout(to); a.onended = a.onerror = null; a._stop = null; if (a._free) { a._free(); a._free = null; } res(); };
+    a.onended = a.onerror = fin;
+    a.volume = Math.min(1, baseVol * 1.3);
     const to = setTimeout(fin, 30000);
-    nvAudio.play().catch(fin);
-    nvAudio._stop = () => { try { nvAudio.pause(); } catch {} fin(); };
+    a._stop = () => { try { a.pause(); } catch {} fin(); };
+    a.play().catch(fin);
   });
 }
 async function speakNeural(clean, parts, my) {
-  if (!parts.length) return;
-  let next = nvSynth(parts[0]);
-  const first = await next;   // if the voice can't start, the caller falls back to the system voice
+  const chunks = nvChunks(clean);
+  if (!chunks.length) return;
+  const ps = chunks.map((c, i) => nvSynth(c, i === 0 ? 0 : 1));
+  ps.forEach(p => p.catch(() => {}));
+  /* If the first piece takes too long, the system voice says this one (and the voice keeps preparing in the background) */
+  let first;
+  try { first = await nvWithin(ps[0], NV.eng === 'nativo' ? 5000 : NV.eng ? 4000 : 9000); }
+  catch (e) {
+    if (e && e.message === 'lenta') {
+      NV.slow++;
+      if (NV.slow >= 3 && !NV.slowSaid && NV.st && NV.st.heavy) { NV.slowSaid = true; setTimeout(() => toast(`La voz «${NV.st.label}» va lenta en este móvil. En Ajustes › Tu DJ puedes elegir una de calidad buena, que es más rápida.`, 6000), 2500); }
+    }
+    throw e;
+  }
   if (my !== dj.talkGen) return;
   $('#dj').classList.add('speaking'); if (!act().paused) tween('duck', 0.3, 380);
   setBubble(clean, dj.name, 15 * (dj.rate || 1));
-  let wav = first;
-  for (let i = 0; i < parts.length; i++) {
-    next = i + 1 < parts.length ? nvSynth(parts[i + 1]) : null;
+  let a = nvPlayers[nvTurn = 1 - nvTurn];
+  nvLoad(a, first);
+  for (let i = 0; i < chunks.length; i++) {
     if (my !== dj.talkGen) break;
-    await nvPlay(wav, my);
-    if (!next) break;
-    try { wav = await next; } catch { break; }
+    const playing = nvPlay(a, my);
+    let nextA = null;
+    if (i + 1 < chunks.length) {
+      const item = await ps[i + 1].catch(() => null);
+      if (item && my === dj.talkGen) { nextA = nvPlayers[nvTurn = 1 - nvTurn]; nvLoad(nextA, item); }
+    }
+    await playing;
+    if (!nextA) break;
+    a = nextA;
   }
   if (my === dj.talkGen) { $('#dj').classList.remove('speaking'); tween('duck', 1, 1100); }
   bubbleFinish();
@@ -4502,27 +4716,35 @@ const ttsClean = text => String(text).replace(/[«»"“”]/g, '').replace(/\s�
 function nvPrepareIntro(t) {
   if (!nvUsable() || !t || t.net || !dj.voiceOn || dj.freq === 'inicio') return;
   if (!state.intros[t.id]) state.intros[t.id] = introFor(t);
-  for (const p of sentences(ttsClean(state.intros[t.id]))) nvSynth(p).catch(() => {});
+  for (const p of nvChunks(ttsClean(state.intros[t.id]))) nvSynth(p, 2).catch(() => {});
 }
 /* Settings card */
+function nvSpeedLabel() {
+  const s = NV.speed; if (!s || !NV.st || s.key !== NV.st.key || !s.rtf || (NV.eng && s.eng !== NV.eng)) return '';
+  return s.rtf < 0.3 ? 'responde rápido' : s.rtf < 0.75 ? 'velocidad normal' : '<b>va lenta en este móvil</b>';
+}
 function renderNVProgress() {
-  const d = NV.dl, el = $('#nvBar'); if (!d || !el) return;
+  const d = NV.dl || NV.mig, el = $('#nvBar'); if (!d || !el) return;
   const pct = d.total ? Math.min(100, Math.round(d.done / d.total * 100)) : 0;
   el.style.width = pct + '%'; $('#nvPct').textContent = `${pct} % · ${Math.round(d.done / 1048576)} de ${Math.round(d.total / 1048576)} MB`;
 }
 async function renderNV(showList) {
   const box = $('#nvBox'); if (!box) return;
   const credits = '<p class="note nv-credits">Motor: Piper (MIT) con espeak-ng (GPL-3.0) y ONNX Runtime (MIT). Las voces son de los conjuntos de datos que indica su ficha en el catálogo de Piper.</p>';
-  if (NV.dl) {
-    box.innerHTML = `<div class="d-text"><b>Descargando la voz «${esc(NV.dl.opt.label)}»</b><span id="nvPct">0 %</span></div><div class="bar nv-bar"><i id="nvBar"></i></div><div class="row-wrap"><button class="btn small" data-nv="cancel">Cancelar</button></div><p class="note">Se descarga una sola vez. Después funciona sin internet.</p>`;
+  if (NV.dl || NV.mig) {
+    const title = NV.dl ? `Descargando la voz «${esc(NV.dl.opt.label)}»` : 'Pasando la voz al motor nativo (una sola vez)';
+    box.innerHTML = `<div class="d-text"><b>${title}</b><span id="nvPct">0 %</span></div><div class="bar nv-bar"><i id="nvBar"></i></div>${NV.dl ? '<div class="row-wrap"><button class="btn small" data-nv="cancel">Cancelar</button></div><p class="note">Se descarga una sola vez. Después funciona sin internet.</p>' : '<p class="note">Así hablará antes y gastará menos memoria. Mientras tanto, Nova usa la voz del sistema.</p>'}`;
     renderNVProgress(); return;
   }
   const list = showList ? await nvCatalogue() : null;
+  const native = await nvNativeOk();
+  const eng = NV.eng === 'nativo' ? 'motor nativo' : NV.eng === 'web' ? 'motor web' : native && !NV.noNative ? 'motor nativo' : 'motor web';
+  const sp = nvSpeedLabel();
   const head = NV.st
-    ? `<div class="d-text"><b>Voz propia: ${esc(NV.st.label)}</b><span>${esc(NV.st.accent || '')} · ${NV.st.mb} MB · funciona sin internet${NV.fails >= 3 ? ' · <b>no ha podido arrancar en este móvil</b>' : ''}</span></div>
+    ? `<div class="d-text"><b>Voz propia: ${esc(NV.st.label)}</b><span>${esc(NV.st.accent || '')} · ${NV.st.mb} MB · ${eng}${sp ? ' · ' + sp : ''} · funciona sin internet${NV.fails >= 3 ? ' · <b>no ha podido arrancar en este móvil</b>' : ''}</span></div>
        <div class="row-wrap"><button class="toggle" id="tNV" aria-pressed="${NV.on}"><span class="sw"></span>Usar mi voz propia</button><button class="btn small" data-nv="test">Probar</button><button class="btn small" data-nv="list">Cambiar de voz</button><button class="btn small" data-nv="remove">Borrar</button></div>`
     : `<div class="d-text"><b>Voz propia para ${esc(dj.name)}</b><span>Una voz neuronal en español que suena igual en todos los móviles y no necesita internet. Se descarga una vez (unos 100 MB con el motor).</span></div>${list ? '' : '<div class="row-wrap"><button class="btn small primary" data-nv="list">Elegir voz</button></div>'}`;
-  const opts = list ? `<ul class="voices nv-list">${list.map((o, i) => `<li class="voice${NV.st && NV.st.key === o.key && (NV.st.speaker || 0) === o.speaker ? ' on' : ''}"><div class="v-text"><b>${esc(o.label)}${i === 0 ? ' · recomendada' : ''}</b><span>${esc(o.accent)} · calidad ${esc(o.quality)} · ${o.mb} MB</span></div><button class="btn small" data-nv-get="${i}">Descargar</button></li>`).join('')}</ul><p class="note">Si cambias de voz, se borra la anterior. Para oír una antes de descargarla no hay muestras: elige, prueba y cambia si no te convence.</p>` : '';
+  const opts = list ? `<ul class="voices nv-list">${list.map((o, i) => `<li class="voice${NV.st && NV.st.key === o.key && (NV.st.speaker || 0) === o.speaker ? ' on' : ''}"><div class="v-text"><b>${esc(o.label)}${i === 0 ? ' · recomendada' : ''}</b><span>${esc(o.accent)} · calidad ${esc(o.quality)}${o.heavy ? ' (más pesada: mejor en móviles potentes)' : ''} · ${o.mb} MB</span></div><button class="btn small" data-nv-get="${i}">Descargar</button></li>`).join('')}</ul><p class="note">Si cambias de voz, se borra la anterior. Para oír una antes de descargarla no hay muestras: elige, prueba y cambia si no te convence.</p>` : '';
   box.innerHTML = head + opts + credits;
 }
 $('#nvBox').addEventListener('click', async e => {
@@ -4536,7 +4758,7 @@ $('#nvBox').addEventListener('click', async e => {
   else if (a === 'test') { NV.fails = 0; speakTTS(`Hola, soy ${dj.name}. Así sueno con mi voz propia. ¿Te gusta?`); }
 });
 renderNV();
-const NB_WORKER_SRC = "/* Nova's understanding, in a worker so the app never stutters:\n   a multilingual sentence model (ONNX Runtime) turns each phrase into a vector of meaning,\n   and phrases that mean the same land close together, whatever the words. */\nlet session = null, tok = null, cfg = null, bank = null;\n\n/* ---- Tokenizer: SentencePiece Unigram read from tokenizer.json (the format of XLM-R models) ---- */\nconst NMT_DROP = /[\\u0001-\\u0008\\u000B\\u000E-\\u001F\\u007F\\u008F\\u009F]/g;\nconst NMT_SPACE = /[\\u0009\\u000A\\u000C\\u000D\\u1680\\u200B-\\u200F\\u2028\\u2029\\u2581\\uFEFF\\uFFFD]/g;\nfunction normalizer(n) {\n  if (!n) return s => s;\n  switch (n.type) {\n    case 'Sequence': { const fs = (n.normalizers || []).map(normalizer); return s => fs.reduce((a, f) => f(a), s); }\n    case 'NFKC': return s => s.normalize('NFKC');\n    case 'NFC': return s => s.normalize('NFC');\n    case 'NFKD': return s => s.normalize('NFKD');\n    case 'NFD': return s => s.normalize('NFD');\n    case 'Nmt': return s => s.replace(NMT_DROP, '').replace(NMT_SPACE, ' ');\n    /* SentencePiece's compiled table is essentially NFKC plus the Nmt clean-up */\n    case 'Precompiled': return s => s.replace(NMT_DROP, '').replace(NMT_SPACE, ' ').normalize('NFKC');\n    case 'Lowercase': return s => s.toLowerCase();\n    case 'Strip': return s => { if (n.strip_left !== false) s = s.replace(/^\\s+/, ''); if (n.strip_right !== false) s = s.replace(/\\s+$/, ''); return s; };\n    case 'StripAccents': return s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');\n    case 'Replace': {\n      const p = n.pattern || {}; const re = p.Regex !== undefined ? new RegExp(p.Regex, 'gu') : new RegExp(String(p.String).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'g');\n      return s => s.replace(re, n.content);\n    }\n    case 'Prepend': return s => n.prepend + s;\n    case 'BertNormalizer': return s => {\n      if (n.clean_text !== false) s = s.replace(NMT_DROP, '').replace(/\\s/g, ' ');\n      if (n.lowercase !== false) s = s.toLowerCase();\n      if (n.strip_accents || (n.strip_accents == null && n.lowercase !== false)) s = s.normalize('NFD').replace(/[̀-ͯ]/g, '');\n      return s;\n    };\n    default: return s => s;\n  }\n}\nfunction metaspaceOf(pre) {\n  if (!pre) return null;\n  if (pre.type === 'Metaspace') return pre;\n  if (pre.type === 'Sequence') for (const p of pre.pretokenizers || []) { const m = metaspaceOf(p); if (m) return m; }\n  return null;\n}\nfunction specialIds(j, ids) {\n  const p = j.post_processor, look = name => { const a = (j.added_tokens || []).find(t => t.content === name); return a ? a.id : ids.get(name); };\n  const fromTemplate = pp => {\n    const pre = [], post = []; let seen = false;\n    for (const it of pp.single || []) {\n      if (it.Sequence) { seen = true; continue; }\n      if (it.SpecialToken) { const st = (pp.special_tokens || {})[it.SpecialToken.id]; const v = st ? st.ids : [look(it.SpecialToken.id)]; (seen ? post : pre).push(...v); }\n    }\n    return { pre, post };\n  };\n  if (p) {\n    const list = p.type === 'Sequence' ? p.processors || [] : [p];\n    for (const pp of list) {\n      if (pp.type === 'TemplateProcessing') return fromTemplate(pp);\n      if (pp.type === 'RobertaProcessing' || pp.type === 'BertProcessing') return { pre: [pp.cls[1]], post: [pp.sep[1]] };\n    }\n  }\n  const cls = look('<s>') ?? look('[CLS]'), sep = look('<\/s>') ?? look('[SEP]');\n  return { pre: cls != null ? [cls] : [], post: sep != null ? [sep] : [] };\n}\nfunction buildTok(j) {\n  const m = j.model; if (!m || m.type !== 'Unigram' || !Array.isArray(m.vocab)) throw new Error('El tokenizador no es de tipo Unigram');\n  const ids = new Map(), scores = new Float32Array(m.vocab.length); let min = Infinity, maxLen = 1;\n  m.vocab.forEach(([p, s], i) => { if (!ids.has(p)) ids.set(p, i); scores[i] = s; if (s < min) min = s; const l = [...p].length; if (l > maxLen) maxLen = l; });\n  const ms = metaspaceOf(j.pre_tokenizer), rep = ms ? ms.replacement || '\\u2581' : '\\u2581';\n  const prefix = !ms || ms.add_prefix_space !== false && ms.prepend_scheme !== 'never';\n  return { ids, scores, unk: m.unk_id ?? ids.get('<unk>') ?? 0, unkScore: min - 10, maxLen: Math.min(maxLen, 48), norm: normalizer(j.normalizer), rep, prefix, sp: specialIds(j, ids) };\n}\n/* Best split of one word into pieces (Viterbi over the piece scores) */\nfunction viterbi(T, word) {\n  const ch = [...word], n = ch.length, best = new Float64Array(n + 1).fill(-Infinity), from = new Int32Array(n + 1), pid = new Int32Array(n + 1);\n  best[0] = 0;\n  for (let i = 0; i < n; i++) {\n    if (best[i] === -Infinity) continue;\n    let s = '', single = false;\n    for (let l = 1; l <= T.maxLen && i + l <= n; l++) {\n      s += ch[i + l - 1];\n      const id = T.ids.get(s); if (id === undefined) continue;\n      if (l === 1) single = true;\n      const v = best[i] + T.scores[id];\n      if (v > best[i + l]) { best[i + l] = v; from[i + l] = i; pid[i + l] = id; }\n    }\n    if (!single) { const v = best[i] + T.unkScore; if (v > best[i + 1]) { best[i + 1] = v; from[i + 1] = i; pid[i + 1] = T.unk; } }\n  }\n  const out = []; for (let k = n; k > 0; k = from[k]) out.push(pid[k]);\n  out.reverse();\n  return out.filter((id, i) => !(id === T.unk && out[i - 1] === T.unk));   // consecutive unknowns become one\n}\nfunction encode(T, text, max = 128) {\n  const words = T.norm(String(text).trim()).split(/\\s+/).filter(Boolean);\n  const out = [];\n  words.forEach((w, i) => { out.push(...viterbi(T, (i > 0 || T.prefix ? T.rep : '') + w)); });\n  return [...T.sp.pre, ...out.slice(0, max - T.sp.pre.length - T.sp.post.length), ...T.sp.post];\n}\n\n/* ---- Sentence vectors ---- */\nasync function embed(text) {\n  const ids = encode(tok, (cfg.prefix || '') + text), n = ids.length;\n  const big = a => new ort.Tensor('int64', BigInt64Array.from(a, BigInt), [1, n]);\n  const feeds = {};\n  for (const name of session.inputNames) {\n    if (name === 'input_ids') feeds[name] = big(ids);\n    else if (name === 'attention_mask') feeds[name] = big(ids.map(() => 1));\n    else if (name === 'token_type_ids') feeds[name] = big(ids.map(() => 0));\n  }\n  const out = await session.run(feeds);\n  const name = session.outputNames.includes('sentence_embedding') ? 'sentence_embedding' : session.outputNames.includes('last_hidden_state') ? 'last_hidden_state' : session.outputNames[0];\n  const t = out[name], d = t.dims[t.dims.length - 1], v = new Float32Array(d);\n  if (t.dims.length === 2) v.set(t.data.subarray(0, d));\n  else { const rows = t.dims[1]; for (let r = 0; r < rows; r++) for (let k = 0; k < d; k++) v[k] += t.data[r * d + k]; }   // mean of all tokens\n  let s = 0; for (let k = 0; k < d; k++) s += v[k] * v[k]; s = Math.sqrt(s) || 1;\n  for (let k = 0; k < d; k++) v[k] /= s;\n  return v;\n}\n\n/* ---- Understanding: nearest examples (kNN), with thresholds measured on the examples themselves ---- */\nfunction scoreAll(q, skip) {\n  const { vecs, labels, nI, d } = bank, best = new Float32Array(nI).fill(-1), sec = new Float32Array(nI).fill(-1);\n  for (let i = 0; i < labels.length; i++) {\n    if (i === skip) continue;\n    let s = 0; const o = i * d; for (let k = 0; k < d; k++) s += q[k] * vecs[o + k];\n    const l = labels[i]; if (s > best[l]) { sec[l] = best[l]; best[l] = s; } else if (s > sec[l]) sec[l] = s;\n  }\n  const sc = new Float32Array(nI); for (let l = 0; l < nI; l++) sc[l] = best[l] < -0.5 ? -1 : 0.75 * best[l] + 0.25 * (sec[l] > -0.5 ? (best[l] + sec[l]) / 2 : best[l]);\n  let b = 0, c = -1; for (let l = 1; l < nI; l++) if (sc[l] > sc[b]) b = l;\n  for (let l = 0; l < nI; l++) if (l !== b && (c < 0 || sc[l] > sc[c])) c = l;\n  return { b, s1: sc[b], c, s2: c >= 0 ? sc[c] : -1, raw: best[b] };\n}\nfunction calibrate() {\n  const { labels, vecs, d } = bank, rows = [];\n  for (let i = 0; i < labels.length; i++) { const r = scoreAll(vecs.subarray(i * d, i * d + d), i); rows.push({ s1: r.s1, s2: r.s2, ok: r.b === labels[i] }); }\n  const med = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };\n  const good = rows.filter(r => r.ok), pos = med(good.map(r => r.s1)), neg = med(rows.map(r => r.s2)), spread = Math.max(0.02, pos - neg);\n  /* lowest score at which at least 90 % of the examples are understood right */\n  const sorted = [...rows].sort((a, b) => b.s1 - a.s1); let ok = 0, tau = sorted.length ? sorted[sorted.length - 1].s1 : 0;\n  sorted.forEach((r, i) => { ok += r.ok; if (ok / (i + 1) >= 0.9) tau = r.s1; });\n  const loo = good.length / Math.max(1, rows.length);\n  return { tau: Math.max(tau, neg + 0.15 * spread), margin: 0.08 * spread, spread, pos, neg, loo };\n}\n\nonmessage = async e => {\n  const m = e.data;\n  try {\n    if (m.type === 'init') {\n      importScripts(m.files.ortJs);\n      ort.env.wasm.numThreads = 1;\n      ort.env.wasm.wasmPaths = { 'ort-wasm-simd.wasm': m.files.ortWasm, 'ort-wasm.wasm': m.files.ortWasm };\n      cfg = m.cfg || {};\n      tok = buildTok(JSON.parse(m.tok));\n      session = await ort.InferenceSession.create(m.model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });\n      const t0 = performance.now(); const v = await embed('hola, ¿qué tal?');\n      postMessage({ id: m.id, ok: true, dim: v.length, ms: Math.round(performance.now() - t0), vocab: tok.scores.length });\n    } else if (m.type === 'embed') {\n      const vs = []; const t0 = performance.now();\n      for (const t of m.texts) vs.push(await embed(t));\n      const d = vs.length ? vs[0].length : 0, out = new Float32Array(vs.length * d);\n      vs.forEach((v, i) => out.set(v, i * d));\n      postMessage({ id: m.id, ok: true, vecs: out, dim: d, ms: Math.round(performance.now() - t0) }, [out.buffer]);\n    } else if (m.type === 'bank') {\n      bank = { vecs: m.vecs, labels: m.labels, nI: m.nI, d: m.dim };\n      bank.cal = calibrate();\n      postMessage({ id: m.id, ok: true, cal: bank.cal });\n    } else if (m.type === 'classify') {\n      const t0 = performance.now(), q = await embed(m.text), r = scoreAll(q, -1);\n      postMessage({ id: m.id, ok: true, intent: r.b, s1: r.s1, second: r.c, s2: r.s2, raw: r.raw, cal: bank.cal, ms: Math.round(performance.now() - t0) });\n    } else if (m.type === 'tokenize') {\n      postMessage({ id: m.id, ok: true, ids: m.texts.map(t => encode(tok, t)) });\n    }\n  } catch (err) { postMessage({ id: m.id, ok: false, error: String(err && err.message || err) }); }\n};\n";
+const NB_WORKER_SRC = "/* Nova's understanding, in a worker so the app never stutters:\n   a multilingual sentence model (ONNX Runtime) turns each phrase into a vector of meaning,\n   and phrases that mean the same land close together, whatever the words. */\nlet session = null, tok = null, cfg = null, bank = null;\n\n/* ---- Tokenizer: SentencePiece Unigram read from tokenizer.json (the format of XLM-R models) ---- */\nconst NMT_DROP = /[\\u0001-\\u0008\\u000B\\u000E-\\u001F\\u007F\\u008F\\u009F]/g;\nconst NMT_SPACE = /[\\u0009\\u000A\\u000C\\u000D\\u1680\\u200B-\\u200F\\u2028\\u2029\\u2581\\uFEFF\\uFFFD]/g;\nfunction normalizer(n) {\n  if (!n) return s => s;\n  switch (n.type) {\n    case 'Sequence': { const fs = (n.normalizers || []).map(normalizer); return s => fs.reduce((a, f) => f(a), s); }\n    case 'NFKC': return s => s.normalize('NFKC');\n    case 'NFC': return s => s.normalize('NFC');\n    case 'NFKD': return s => s.normalize('NFKD');\n    case 'NFD': return s => s.normalize('NFD');\n    case 'Nmt': return s => s.replace(NMT_DROP, '').replace(NMT_SPACE, ' ');\n    /* SentencePiece's compiled table is essentially NFKC plus the Nmt clean-up */\n    case 'Precompiled': return s => s.replace(NMT_DROP, '').replace(NMT_SPACE, ' ').normalize('NFKC');\n    case 'Lowercase': return s => s.toLowerCase();\n    case 'Strip': return s => { if (n.strip_left !== false) s = s.replace(/^\\s+/, ''); if (n.strip_right !== false) s = s.replace(/\\s+$/, ''); return s; };\n    case 'StripAccents': return s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');\n    case 'Replace': {\n      const p = n.pattern || {}; const re = p.Regex !== undefined ? new RegExp(p.Regex, 'gu') : new RegExp(String(p.String).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'g');\n      return s => s.replace(re, n.content);\n    }\n    case 'Prepend': return s => n.prepend + s;\n    case 'BertNormalizer': return s => {\n      if (n.clean_text !== false) s = s.replace(NMT_DROP, '').replace(/\\s/g, ' ');\n      if (n.lowercase !== false) s = s.toLowerCase();\n      if (n.strip_accents || (n.strip_accents == null && n.lowercase !== false)) s = s.normalize('NFD').replace(/[̀-ͯ]/g, '');\n      return s;\n    };\n    default: return s => s;\n  }\n}\nfunction metaspaceOf(pre) {\n  if (!pre) return null;\n  if (pre.type === 'Metaspace') return pre;\n  if (pre.type === 'Sequence') for (const p of pre.pretokenizers || []) { const m = metaspaceOf(p); if (m) return m; }\n  return null;\n}\nfunction specialIds(j, ids) {\n  const p = j.post_processor, look = name => { const a = (j.added_tokens || []).find(t => t.content === name); return a ? a.id : ids.get(name); };\n  const fromTemplate = pp => {\n    const pre = [], post = []; let seen = false;\n    for (const it of pp.single || []) {\n      if (it.Sequence) { seen = true; continue; }\n      if (it.SpecialToken) { const st = (pp.special_tokens || {})[it.SpecialToken.id]; const v = st ? st.ids : [look(it.SpecialToken.id)]; (seen ? post : pre).push(...v); }\n    }\n    return { pre, post };\n  };\n  if (p) {\n    const list = p.type === 'Sequence' ? p.processors || [] : [p];\n    for (const pp of list) {\n      if (pp.type === 'TemplateProcessing') return fromTemplate(pp);\n      if (pp.type === 'RobertaProcessing' || pp.type === 'BertProcessing') return { pre: [pp.cls[1]], post: [pp.sep[1]] };\n    }\n  }\n  const cls = look('<s>') ?? look('[CLS]'), sep = look('<\/s>') ?? look('[SEP]');\n  return { pre: cls != null ? [cls] : [], post: sep != null ? [sep] : [] };\n}\nfunction buildTok(j) {\n  const m = j.model; if (!m || m.type !== 'Unigram' || !Array.isArray(m.vocab)) throw new Error('El tokenizador no es de tipo Unigram');\n  const ids = new Map(), scores = new Float32Array(m.vocab.length); let min = Infinity, maxLen = 1;\n  m.vocab.forEach(([p, s], i) => { if (!ids.has(p)) ids.set(p, i); scores[i] = s; if (s < min) min = s; const l = [...p].length; if (l > maxLen) maxLen = l; });\n  const ms = metaspaceOf(j.pre_tokenizer), rep = ms ? ms.replacement || '\\u2581' : '\\u2581';\n  const prefix = !ms || ms.add_prefix_space !== false && ms.prepend_scheme !== 'never';\n  return { ids, scores, unk: m.unk_id ?? ids.get('<unk>') ?? 0, unkScore: min - 10, maxLen: Math.min(maxLen, 48), norm: normalizer(j.normalizer), rep, prefix, sp: specialIds(j, ids) };\n}\n/* Best split of one word into pieces (Viterbi over the piece scores) */\nfunction viterbi(T, word) {\n  const ch = [...word], n = ch.length, best = new Float64Array(n + 1).fill(-Infinity), from = new Int32Array(n + 1), pid = new Int32Array(n + 1);\n  best[0] = 0;\n  for (let i = 0; i < n; i++) {\n    if (best[i] === -Infinity) continue;\n    let s = '', single = false;\n    for (let l = 1; l <= T.maxLen && i + l <= n; l++) {\n      s += ch[i + l - 1];\n      const id = T.ids.get(s); if (id === undefined) continue;\n      if (l === 1) single = true;\n      const v = best[i] + T.scores[id];\n      if (v > best[i + l]) { best[i + l] = v; from[i + l] = i; pid[i + l] = id; }\n    }\n    if (!single) { const v = best[i] + T.unkScore; if (v > best[i + 1]) { best[i + 1] = v; from[i + 1] = i; pid[i + 1] = T.unk; } }\n  }\n  const out = []; for (let k = n; k > 0; k = from[k]) out.push(pid[k]);\n  out.reverse();\n  return out.filter((id, i) => !(id === T.unk && out[i - 1] === T.unk));   // consecutive unknowns become one\n}\nfunction encode(T, text, max = 128) {\n  const words = T.norm(String(text).trim()).split(/\\s+/).filter(Boolean);\n  const out = [];\n  words.forEach((w, i) => { out.push(...viterbi(T, (i > 0 || T.prefix ? T.rep : '') + w)); });\n  return [...T.sp.pre, ...out.slice(0, max - T.sp.pre.length - T.sp.post.length), ...T.sp.post];\n}\n\n/* ---- Sentence vectors ---- */\nasync function embed(text) {\n  const ids = encode(tok, (cfg.prefix || '') + text), n = ids.length;\n  const big = a => new ort.Tensor('int64', BigInt64Array.from(a, BigInt), [1, n]);\n  const feeds = {};\n  for (const name of session.inputNames) {\n    if (name === 'input_ids') feeds[name] = big(ids);\n    else if (name === 'attention_mask') feeds[name] = big(ids.map(() => 1));\n    else if (name === 'token_type_ids') feeds[name] = big(ids.map(() => 0));\n  }\n  const out = await session.run(feeds);\n  const name = session.outputNames.includes('sentence_embedding') ? 'sentence_embedding' : session.outputNames.includes('last_hidden_state') ? 'last_hidden_state' : session.outputNames[0];\n  const t = out[name], d = t.dims[t.dims.length - 1], v = new Float32Array(d);\n  if (t.dims.length === 2) v.set(t.data.subarray(0, d));\n  else { const rows = t.dims[1]; for (let r = 0; r < rows; r++) for (let k = 0; k < d; k++) v[k] += t.data[r * d + k]; }   // mean of all tokens\n  let s = 0; for (let k = 0; k < d; k++) s += v[k] * v[k]; s = Math.sqrt(s) || 1;\n  for (let k = 0; k < d; k++) v[k] /= s;\n  return v;\n}\n\n/* ---- Understanding: nearest examples (kNN), with thresholds measured on the examples themselves ---- */\nfunction scoreAll(q, skip) {\n  const { vecs, labels, nI, d } = bank, best = new Float32Array(nI).fill(-1), sec = new Float32Array(nI).fill(-1);\n  for (let i = 0; i < labels.length; i++) {\n    if (i === skip) continue;\n    let s = 0; const o = i * d; for (let k = 0; k < d; k++) s += q[k] * vecs[o + k];\n    const l = labels[i]; if (s > best[l]) { sec[l] = best[l]; best[l] = s; } else if (s > sec[l]) sec[l] = s;\n  }\n  const sc = new Float32Array(nI); for (let l = 0; l < nI; l++) sc[l] = best[l] < -0.5 ? -1 : 0.75 * best[l] + 0.25 * (sec[l] > -0.5 ? (best[l] + sec[l]) / 2 : best[l]);\n  let b = 0, c = -1; for (let l = 1; l < nI; l++) if (sc[l] > sc[b]) b = l;\n  for (let l = 0; l < nI; l++) if (l !== b && (c < 0 || sc[l] > sc[c])) c = l;\n  return { b, s1: sc[b], c, s2: c >= 0 ? sc[c] : -1, raw: best[b] };\n}\nfunction calibrate() {\n  const { labels, vecs, d } = bank, rows = [];\n  for (let i = 0; i < labels.length; i++) { const r = scoreAll(vecs.subarray(i * d, i * d + d), i); rows.push({ s1: r.s1, s2: r.s2, ok: r.b === labels[i] }); }\n  const med = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };\n  const good = rows.filter(r => r.ok), pos = med(good.map(r => r.s1)), neg = med(rows.map(r => r.s2)), spread = Math.max(0.02, pos - neg);\n  /* lowest score at which at least 90 % of the examples are understood right */\n  const sorted = [...rows].sort((a, b) => b.s1 - a.s1); let ok = 0, tau = sorted.length ? sorted[sorted.length - 1].s1 : 0;\n  sorted.forEach((r, i) => { ok += r.ok; if (ok / (i + 1) >= 0.9) tau = r.s1; });\n  const loo = good.length / Math.max(1, rows.length);\n  return { tau: Math.max(tau, neg + 0.15 * spread), margin: 0.08 * spread, spread, pos, neg, loo };\n}\n\nonmessage = async e => {\n  const m = e.data;\n  try {\n    if (m.type === 'init') {\n      importScripts(m.files.ortJs);\n      ort.env.wasm.numThreads = 1;\n      ort.env.wasm.wasmPaths = { 'ort-wasm-simd.wasm': m.files.ortWasm, 'ort-wasm.wasm': m.files.ortWasm };\n      cfg = m.cfg || {};\n      tok = buildTok(JSON.parse(m.tok));\n      session = await ort.InferenceSession.create(m.model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all', enableCpuMemArena: false, enableMemPattern: false });\n      m.model = null;\n      const t0 = performance.now(); const v = await embed('hola, ¿qué tal?');\n      postMessage({ id: m.id, ok: true, dim: v.length, ms: Math.round(performance.now() - t0), vocab: tok.scores.length });\n    } else if (m.type === 'embed') {\n      const vs = []; const t0 = performance.now();\n      for (const t of m.texts) vs.push(await embed(t));\n      const d = vs.length ? vs[0].length : 0, out = new Float32Array(vs.length * d);\n      vs.forEach((v, i) => out.set(v, i * d));\n      postMessage({ id: m.id, ok: true, vecs: out, dim: d, ms: Math.round(performance.now() - t0) }, [out.buffer]);\n    } else if (m.type === 'bank') {\n      bank = { vecs: m.vecs, labels: m.labels, nI: m.nI, d: m.dim };\n      bank.cal = calibrate();\n      postMessage({ id: m.id, ok: true, cal: bank.cal });\n    } else if (m.type === 'classify') {\n      const t0 = performance.now(), q = await embed(m.text), r = scoreAll(q, -1);\n      postMessage({ id: m.id, ok: true, intent: r.b, s1: r.s1, second: r.c, s2: r.s2, raw: r.raw, cal: bank.cal, ms: Math.round(performance.now() - t0) });\n    } else if (m.type === 'tokenize') {\n      postMessage({ id: m.id, ok: true, ids: m.texts.map(t => encode(tok, t)) });\n    }\n  } catch (err) { postMessage({ id: m.id, ok: false, error: String(err && err.message || err) }); }\n};\n";
 const NB_BANK = {"pausa": ["para la música", "pausa un momento", "espera un segundo", "para que me llaman por teléfono", "silencio un momento", "deja de sonar", "corta la música", "para un ratito", "me están hablando, para", "quita el sonido un momento", "detén la canción", "frena la música", "ahora no, para"], "seguir": ["vuelve a ponerla", "ya estoy, dale", "quita la pausa", "ya puedes seguir", "continúa con la música", "sigue sonando", "pon otra vez la música", "ya he vuelto", "dale al play", "arranca de nuevo", "que siga la música", "venga, sigue"], "saltar": ["esta no me convence", "pasa de esta", "cambia, que esta ya la he oído mil veces", "quita esta que no la aguanto", "otra canción por favor", "esta no", "siguiente tema", "no me apetece esta", "pon otra", "cámbiala", "esta canción me aburre", "salta a la próxima", "venga va, otra", "next", "esta no me pega ahora"], "anterior": ["pon la de antes", "vuelve a la anterior", "la canción anterior", "atrás una canción", "la que sonaba antes", "quiero oír otra vez la anterior", "retrocede una"], "repetir": ["pon esta otra vez desde el principio", "repite esta canción", "empieza de nuevo esta", "vuelve al principio de la canción", "otra vez esta", "repítela"], "mas_ritmo": ["esto está muy flojo, dale caña", "más marcha que me duermo", "venga, algo con más vidilla", "esto es un muermo, anima esto", "súbele la energía", "más ritmo", "algo más cañero", "que se mueva esto", "pon algo con más fuerza", "esto está muy parado", "dale más alegría a esto", "necesito más energía", "más rápido el ritmo"], "mas_calma": ["relájate un poco que es tarde", "demasiado ruido, algo más suave", "tranqui, baja el ritmo", "baja un poco las revoluciones", "esto es demasiado fuerte", "algo más tranquilito", "más calmado por favor", "me estás estresando con tanto ruido", "algo más lento", "baja la intensidad", "menos caña", "más suave"], "parecidas": ["más cosas de este estilo", "sigue por esta línea", "pon otras que se parezcan", "dame más rollo de este", "más canciones como esta", "algo parecido a lo que suena", "de este palo, más", "sigue en esta onda", "más de lo mismo", "otras en esta vibra"], "me_gusta": ["qué temazo", "esta canción me encanta", "guárdame esta", "esta me flipa", "esta canción es una pasada", "me mola mucho esta", "qué buena es esta", "esta es la mejor", "guárdala en favoritas", "me chifla esta canción", "esta está brutal", "qué canción más bonita", "esta me gusta un montón", "temón"], "no_mas": ["no quiero volver a oír esta canción", "no me la pongas nunca más", "odio esta canción", "bórrame esta de la lista para siempre", "esta canción no la soporto, no la repitas", "que no vuelva a sonar esta", "esta jamás otra vez"], "subir_vol": ["súbele", "no se oye nada", "más alto por favor", "pon más volumen", "no oigo la música", "súbele el volumen que no se escucha", "a todo volumen", "un poco más fuerte el volumen"], "bajar_vol": ["bájale", "está muy alto", "baja el volumen", "me revientas los oídos", "más bajito", "menos volumen por favor", "se oye demasiado fuerte", "un poco más bajo"], "que_suena": ["¿qué canción es esta?", "¿quién canta esto?", "¿cómo se llama esta?", "¿qué está sonando?", "dime el nombre de la canción", "¿de quién es esta?", "¿qué es esto que suena?", "¿esta canción cómo se llamaba?"], "por_que": ["¿por qué me pones esto?", "¿por qué has elegido esta?", "¿a qué viene esta canción?", "explícame por qué suena esta", "¿por qué esta canción ahora?", "¿qué criterio has seguido?"], "artista": ["háblame de este artista", "¿qué sabes de este grupo?", "¿quién es este cantante?", "cuéntame algo de quien canta", "¿de dónde es este grupo?", "háblame de Shakira", "¿sabes algo de Rosalía?", "dime algo sobre la banda", "¿quiénes son estos?", "cuéntame la historia de este artista"], "tiempo": ["¿hace frío fuera?", "¿va a llover?", "¿qué temperatura hace?", "¿llevo paraguas hoy?", "¿hace sol?", "¿qué tiempo hace hoy?", "¿cómo está el día?", "¿hace calor en la calle?", "¿necesito chaqueta?", "¿está nublado?"], "hora": ["¿qué hora es?", "dime la hora", "¿qué hora tenemos?", "¿es muy tarde?", "¿cuánto falta para las doce?"], "letra": ["pon la letra", "quiero cantar esta", "enséñame la letra de la canción", "¿qué dice la canción?", "modo karaoke", "¿cómo sigue la letra?"], "radio": ["pon la radio", "modo radio", "ponte en plan radio y no pares", "música sin parar, tú eliges", "haz de radio", "no pares de poner música"], "resumen": ["¿qué he escuchado esta semana?", "resumen de mi semana", "¿cuánto he escuchado últimamente?", "dame mis estadísticas", "¿qué es lo que más escucho?", "¿cuál es mi artista más escuchado?"], "recuerdos": ["¿qué sabes de mí?", "¿qué recuerdas de mí?", "¿qué te he pedido antes?", "¿te acuerdas de mis gustos?", "¿qué has aprendido de mí?", "¿qué tienes apuntado sobre mí?"], "ayuda": ["¿qué puedes hacer?", "¿cómo funcionas?", "ayúdame", "¿qué te puedo pedir?", "no sé qué decirte", "¿qué sabes hacer?", "instrucciones", "¿para qué sirves?"], "sorpresa": ["sorpréndeme", "pon lo que quieras", "elige tú", "me da igual, pon algo", "lo que tú veas", "algo al azar", "sorpresa", "confío en ti, elige"], "favoritas": ["pon mis favoritas", "las que más me gustan", "mis canciones preferidas", "pon lo que más escucho", "mis temas de siempre", "las de siempre"], "descubrir": ["quiero descubrir algo nuevo", "pon canciones que no haya escuchado", "algo diferente a lo de siempre", "sorpréndeme con cosas nuevas", "estoy cansado de lo mismo, algo nuevo", "canciones que aún no conozca"], "m_relax": ["pon algo para dormir", "música para relajarme", "algo para desconectar", "quiero meditar", "algo tranquilo para leer", "música para una tarde de lluvia", "estoy agobiado con el trabajo, algo que me relaje", "algo suave para el sofá", "para darme un baño relajante", "música chill"], "m_focus": ["pon algo para estudiar", "música para concentrarme", "voy a trabajar, algo que no distraiga", "algo para programar", "tengo que hacer los deberes", "música de fondo para la oficina", "algo para estudiar sin distracciones", "necesito centrarme"], "m_triste": ["estoy de bajón, ponme algo", "música triste", "canciones para llorar", "algo melancólico", "ponme canciones de desamor", "hoy tengo el día gris, algo que me acompañe", "música para un día triste"], "m_animar": ["quiero algo que me levante el ánimo", "algo alegre", "uf qué pereza de lunes, anímame", "necesito buen rollo", "música feliz", "algo para sonreír", "pon algo positivo", "algo que me ponga de buen humor"], "m_fiesta": ["quiero bailar", "música de fiesta", "vamos a darlo todo esta noche", "pon algo para la fiesta de hoy", "algo para salir de marcha", "que empiece la fiesta", "quiero bailar como si no hubiera mañana", "ponme perreo", "música de discoteca", "tenemos gente en casa, algo para animar la fiesta"], "m_deporte": ["algo para darlo todo en el gimnasio", "algo para correr por la mañana", "música para entrenar", "voy a salir a correr", "algo motivador para hacer deporte", "pon música para hacer pesas", "música para la bici"], "m_coche": ["canciones para el coche", "música para conducir", "nos vamos de viaje, pon algo", "algo para la carretera", "música para un viaje largo"], "m_casa": ["pon algo para limpiar la casa", "música para cocinar", "algo para la ducha", "estoy haciendo la comida, pon algo", "música para ordenar mi cuarto"], "m_romance": ["algo romántico", "me apetece algo romántico para cenar con mi pareja", "música para una cena con velas", "canciones de amor", "estoy enamorado, pon algo bonito", "algo para escuchar con mi novia"], "m_generic": ["me apetece escuchar salsa", "ponme rock de los 80", "pon música de Kora", "quiero escuchar algo de pop", "ponme algo de reguetón", "pon música", "quiero escuchar música", "pon canciones de Los Rayos", "algo de jazz", "ponme a Banda Sur", "pon unas canciones", "quiero oír rap"], "c_saludo": ["hola", "buenas", "hola nova", "¿qué pasa?", "buenos días", "buenas tardes", "ey, ¿qué tal?", "holi", "qué hay"], "c_como_estas": ["¿qué tal estás?", "¿cómo estás?", "¿cómo te va?", "¿qué tal el día?", "¿todo bien?", "¿cómo andas?"], "c_gracias": ["gracias", "muchas gracias", "gracias guapa", "te lo agradezco", "muy bien, gracias", "genial, gracias", "perfecto, gracias"], "c_despedida": ["adiós", "hasta luego", "me voy", "nos vemos", "chao", "hasta mañana", "me tengo que ir"], "c_buenas_noches": ["buenas noches", "me voy a dormir", "me voy a la cama", "a dormir", "hasta mañana, me acuesto"], "c_quien_eres": ["¿quién eres?", "¿cómo te llamas?", "¿qué eres?", "preséntate", "¿tú quién eres?", "dime tu nombre"], "c_que_haces": ["¿qué haces?", "¿qué estás haciendo?", "¿en qué andas?", "¿estás ocupada?"], "c_chiste": ["cuéntame un chiste", "dime algo gracioso", "hazme reír", "¿sabes algún chiste?", "otro chiste"], "c_piropo": ["eres la mejor", "eres muy maja", "te quiero", "qué lista eres", "me encantas", "eres genial", "buen trabajo", "lo haces muy bien"], "c_enfado": ["eres tonta", "no me entiendes", "no sirves para nada", "qué mal lo haces", "eres un desastre", "no es eso lo que te he pedido", "me tienes harto", "vaya DJ más mala"], "c_aburrido": ["me aburro", "qué aburrimiento", "no sé qué hacer", "estoy aburrido", "qué tarde más aburrida"], "c_triste": ["estoy triste", "estoy triste porque me ha dejado mi novia", "he tenido un mal día", "me siento solo", "estoy fatal", "hoy no es mi día", "me han dado una mala noticia"], "c_cansado": ["estoy reventado", "qué cansancio", "estoy agotada", "no puedo más, estoy muerto", "estoy muy cansado"], "c_feliz": ["estoy muy contento", "hoy es un gran día", "me han dado una buena noticia", "estoy feliz", "he aprobado el examen", "qué buen día hace hoy"], "c_gustos": ["¿qué música te gusta?", "¿cuál es tu canción favorita?", "¿qué grupo te gusta más?", "¿qué escuchas tú?", "¿tienes un estilo favorito?"], "c_ia": ["¿eres una persona?", "¿eres real?", "¿eres un robot?", "¿eres una inteligencia artificial?", "¿hay alguien ahí?", "¿me escuchas de verdad?"], "c_si": ["sí", "vale", "venga", "dale", "claro", "sí, por favor", "me parece bien", "perfecto", "de acuerdo", "por qué no", "va"], "c_no": ["no", "no gracias", "mejor no", "déjalo", "ahora no", "paso", "no hace falta", "nada, olvídalo"]};
 /* ---------- 3.0 beta 3 · Nova understands ----------
    The «brain»: a multilingual sentence model (about 120 MB, downloaded once) that runs on the phone, without internet.
@@ -4748,12 +4970,15 @@ const NB_QUICK = [
   [/^(buenas noches|me voy a dormir|me voy a la cama|a dormir)$/, 'c_buenas_noches'], [/^(hola|buenas|buenos dias|buenas tardes|hey|holi)( .*)?$/, 'c_saludo'],
   [/^(adios|hasta luego|hasta manana|hasta pronto|nos vemos|chao|chau)( .*)?$/, 'c_despedida'], [/^(quien eres|como te llamas|que eres|presentate)$/, 'c_quien_eres'],
   [/(cuentame|dime|sabes|cuenta) (un|algun|otro) chiste|^un chiste$/, 'c_chiste'], [/^(eres (la mejor|genial|muy maja|muy buena|un amor)|te quiero|me encantas)$/, 'c_piropo'],
-  [/^(eres (una )?(persona|real|un robot|una ia|una inteligencia artificial))$/, 'c_ia'], [/^(me aburro|que aburrimiento|estoy aburrid[oa])$/, 'c_aburrido']
+  [/^(eres (una )?(persona|real|un robot|una ia|una inteligencia artificial))$/, 'c_ia'], [/^(me aburro|que aburrimiento|estoy aburrid[oa])$/, 'c_aburrido'],
+  [/^(estoy|que dia|vaya dia|uf)?.{0,20}(reventad[oa]|agotad[oa]|cansad[oa]|muert[oa] de sueno|sin energia)( .*)?$/, 'c_cansado'],
+  [/^(estoy|me siento|hoy estoy) (triste|fatal|mal|de bajon|hecho polvo|hecha polvo)( .*)?$/, 'c_triste'],
+  [/^(estoy|me siento|hoy estoy) (muy )?(feliz|contento|contenta|genial|de buen humor)( .*)?$/, 'c_feliz']
 ];
 const nbQuick = q => { const f = NB_QUICK.find(([re]) => re.test(q)); return f ? f[1] : null; };
 /* Called by novaCommand when none of the usual phrases matched. Returns true when the brain takes care of it. */
 function brainRoute(raw, q, clean) {
-  if (!nbUsable() && aiState !== 'ready') {
+  if (!nbUsable() && aiState !== 'ready' && !bbUsable()) {
     const k = nbQuick(q); if (k) { nbChat(k); return true; }
     if (/\?\s*$/.test(raw) && !nbLooksMusic(q)) { novaSay(nbDontKnow()); return true; }
     return false;
@@ -4770,13 +4995,13 @@ async function nbThink(raw, q, clean) {
     if (gen !== NB.gen) return;
     NB.last = { text: raw, ts: Date.now(), ...(r || { ok: false }) };
     if (r && r.ok) {
-      if (aiState === 'ready' && NB_FREE.has(r.intent) && await nbClaude(raw, clean)) return;
+      if (NB_FREE.has(r.intent) && await nbSmart(raw, clean, r.intent)) return;
       if (gen !== NB.gen) return;
       nbAct(r.intent, raw, q, clean); return;
     }
     const k = nbQuick(q);
-    if (k && !(aiState === 'ready' && NB_FREE.has(k))) { nbChat(k); return; }
-    if (aiState === 'ready' && !(NB_MUSIC_RE.test(q) && !/\?\s*$/.test(raw)) && await nbClaude(raw, clean)) return;
+    if (k && !nbSmartOn(k)) { nbChat(k); return; }
+    if (!(NB_MUSIC_RE.test(q) && !/\?\s*$/.test(raw)) && await nbSmart(raw, clean, k)) return;
     if (gen !== NB.gen) return;
     if (/\?\s*$/.test(raw) && !nbLooksMusic(q)) { novaSay(nbDontKnow()); return; }
     mixFromChat(clean);
@@ -4866,18 +5091,30 @@ Devuelve solo un JSON así: {"accion": "...", "detalle": "...", "respuesta": "..
 - Si te cuenta cómo se siente, contesta con cariño. Si le ofreces música en la respuesta (sin ponerla todavía), escribe en "oferta" qué pondrías, en pocas palabras; si no, déjala vacía.`;
   try {
     const r = await aiJson(prompt, { signal: ctl.signal, cache: false });
-    const a = String(r && r.accion || '').trim().toLowerCase(), det = String(r && r.detalle || '').trim().slice(0, 80);
-    const resp = String(r && r.respuesta || '').replace(/\s+/g, ' ').trim().slice(0, 300), off = String(r && r.oferta || '').trim().slice(0, 80);
-    if (a === 'charla' || !a) {
-      if (!resp) return false;
-      novaSay(resp); NB.offer = off ? { req: off, until: Date.now() + 60000 } : null; return true;
-    }
-    if (a === 'mezcla') { mixFromChat(clean, det); return true; }
-    if (a === 'artista') { aboutArtist(det || (t && !t.net ? t.artist : null)); return true; }
-    const it = NB_CLOUD[a] || a;
-    if (!NB_INTENTS[it] || it.startsWith('c_')) { if (resp) { novaSay(resp); return true; } return false; }
-    nbAct(it, raw, norm(raw), clean); return true;
+    return nbDoSmart(r || {}, raw, clean);
   } catch { return false; } finally { clearTimeout(to); }
+}
+
+/* The answer of a «thinking» brain (Claude or the big brain), carried out */
+function nbDoSmart(r, raw, clean) {
+  const t = current(), a = String(r.accion || '').trim().toLowerCase(), det = String(r.detalle || '').trim().slice(0, 80);
+  const resp = String(r.respuesta || '').replace(/\s+/g, ' ').trim().slice(0, 300), off = String(r.oferta || '').trim().slice(0, 80);
+  if (a === 'charla' || !a) {
+    if (!resp) return false;
+    novaSay(resp); NB.offer = off ? { req: off, until: Date.now() + 60000 } : null; return true;
+  }
+  if (a === 'mezcla') { mixFromChat(clean, det); return true; }
+  if (a === 'artista') { aboutArtist(det || (t && !t.net ? t.artist : null)); return true; }
+  const it = NB_CLOUD[a] || a;
+  if (!NB_INTENTS[it] || it.startsWith('c_')) { if (resp) { novaSay(resp); return true; } return false; }
+  nbAct(it, raw, norm(raw), clean); return true;
+}
+/* Who thinks when the usual phrases and the comprehension brain aren't enough: Claude (with a key) or the big brain */
+const nbSmartOn = it => aiState === 'ready' ? NB_FREE.has(it) : bbUsable() && NB_FREE.has(it) && !BB_SKIP.has(it);
+async function nbSmart(raw, clean, it) {
+  if (aiState === 'ready') return nbClaude(raw, clean);
+  if (bbUsable() && !(it && BB_SKIP.has(it))) return bbThink(raw, clean);
+  return false;
 }
 
 /* ---- Teaching: «cuando digo esto, quiero decir aquello» ---- */
@@ -4953,6 +5190,191 @@ $('#nbBox').addEventListener('click', e => {
 });
 $('#nbBox').addEventListener('submit', e => { if (e.target.id !== 'nbForm') return; e.preventDefault(); const v = $('#nbIn').value.trim(); if (v) nbTry(v); });
 renderNB();
+const BB_PROMPT = {"system": "Eres {NAME}, la DJ de Órbita, una app de música en el móvil. {PERSONA}\nHablas español con naturalidad y en frases cortas.\n\nLee lo que te dice el usuario y decide qué hacer. Contesta siempre con estas cuatro líneas:\naccion: una de estas: charla, mezcla, artista, saltar, pausa, mas_movida, mas_tranquila, me_gusta\nrespuesta: lo que dirás en voz alta, una o dos frases cortas\ndetalle: si es mezcla, lo que quiere escuchar en pocas palabras; si es artista, su nombre; si no, vacío\noferta: si le ofreces música sin ponerla todavía, qué pondrías; si no, vacío\n\nQué significa cada acción:\n- charla: saludos, preguntas sobre ti, cómo se siente, opiniones, bromas y todo lo demás.\n- mezcla: quiere escuchar algo (un estilo, un ánimo, una actividad o un artista).\n- artista: quiere saber cosas de un artista.\n- saltar: quiere pasar a otra canción. pausa: quiere parar la música.\n- mas_movida y mas_tranquila: quiere cambiar el ritmo de lo que suena. me_gusta: le gusta lo que suena.\n\nNormas:\n- Nunca inventes datos de artistas ni de canciones (fechas, premios, discos, cifras). Si te preguntan por un artista, usa artista.\n- Si te cuenta cómo se siente, contesta con cariño y ofrece música en oferta.\n- No digas que vas a poner una canción concreta: las canciones las elige la app.\n\nEjemplos:\nUsuario: esto está muy flojo\naccion: mas_movida\nrespuesta: ¡Subimos el ritmo!\ndetalle: \noferta: \n\nUsuario: ponme algo para cuando estoy de bajón\naccion: mezcla\nrespuesta: Te pongo algo suave para acompañarte.\ndetalle: canciones tranquilas y tristes\noferta: \n\nUsuario: ¿sabes algo de Rosalía?\naccion: artista\nrespuesta: Ahora te cuento.\ndetalle: Rosalía\noferta: \n\nUsuario: qué temazo, me encanta\naccion: me_gusta\nrespuesta: ¡A favoritas!\ndetalle: \noferta: \n\nUsuario: hoy he tenido un día horrible en el trabajo\naccion: charla\nrespuesta: Vaya, lo siento mucho. Ya estás en casa, respira. ¿Te pongo algo tranquilo?\ndetalle: \noferta: algo tranquilo para desconectar\n\nUsuario: ¿cuál es tu canción favorita?\naccion: charla\nrespuesta: Me cuesta elegir una, pero me encanta descubrir lo que te gusta a ti.\ndetalle: \noferta: ", "grammar": "root ::= \"accion: \" accion \"\\nrespuesta: \" resp \"\\ndetalle: \" linea \"\\noferta: \" linea\naccion ::= \"charla\" | \"mezcla\" | \"artista\" | \"saltar\" | \"pausa\" | \"mas_movida\" | \"mas_tranquila\" | \"me_gusta\"\nlinea ::= [^\\n]{0,60}\nresp ::= [^\\n]{1,200}"};
+/* ---------- 3.1 · Nova's big brain ----------
+   A real language model (Qwen3 1.7B, about 1.1 GB, downloaded once) running on the phone with llama.cpp, in native code.
+   It talks with its own words (with your context, the song that's playing and Nova's personality) and works out
+   unusual requests. It never picks songs and never gives facts: songs come from your library and Nova's ranking,
+   facts from Wikipedia. Commands are still understood first by the usual phrases and the comprehension brain. */
+const BB_NATIVE = capPlugin('NovaBrain');
+const BB = { st: LS.get('bb', null), on: LS.get('bbOn', true), ready: null, dl: null, stat: null, speed: LS.get('bbSpeed', null), fails: 0, part: 0, listening: false };
+const BB_FILE = 'cerebro-grande.gguf';
+const BB_REPOS = ['unsloth/Qwen3-1.7B-GGUF', 'bartowski/Qwen_Qwen3-1.7B-GGUF', 'Qwen/Qwen3-1.7B-GGUF', 'ggml-org/Qwen3-1.7B-GGUF'];
+const bbUsable = () => !!(BB.st && BB.on && BB_NATIVE && BB.fails < 3);
+/* What the big brain doesn't do: the jokes and who Nova is are her own, the curated ones */
+const BB_SKIP = new Set(['c_chiste', 'c_quien_eres', 'c_ia', 'c_si', 'c_no', 'c_saludo', 'c_gracias', 'c_despedida', 'c_buenas_noches', 'c_piropo']);
+async function bbStatus() { if (!BB_NATIVE) return null; try { return (BB.stat = await BB_NATIVE.status()); } catch { return null; } }
+/* The model file: Qwen3 1.7B in Q4_K_M, from the first repository that has it (with its size and checksum) */
+async function bbFind() {
+  for (const repo of BB_REPOS) {
+    try {
+      const r = await fetch(`https://huggingface.co/api/models/${repo}/tree/main`); if (!r.ok) continue;
+      const list = await r.json();
+      const f = (Array.isArray(list) ? list : []).find(x => /(^|\/)[^/]*q4_k_m\.gguf$/i.test(x.path || ''));
+      if (f) return { repo, file: f.path, size: (f.lfs && f.lfs.size) || f.size || 0, sha: (f.lfs && f.lfs.oid) || '' };
+    } catch {}
+  }
+  return { repo: BB_REPOS[0], file: 'Qwen3-1.7B-Q4_K_M.gguf', size: 0, sha: '' };
+}
+function bbListen() {
+  if (BB.listening || !BB_NATIVE) return;
+  BB.listening = true;
+  try { BB_NATIVE.addListener('descarga', bbOnDl); } catch {}
+}
+async function bbInstall() {
+  if (BB.dl) return;
+  const s = await bbStatus();
+  if (!s) { toast('El cerebro grande funciona en la app de Android'); return; }
+  if (!s.lib) { toast('Esta versión de la app no trae el motor del cerebro grande'); return; }
+  if (!s.cpuOk) { toast('El procesador de este móvil no es compatible con el cerebro grande'); return; }
+  BB.dl = { done: 0, total: 0, label: 'Buscando el modelo…' }; renderBB();
+  const m = await bbFind();
+  if (s.freeMb && m.size && s.freeMb * 1048576 < m.size * 1.05 + 150e6) { BB.dl = null; renderBB(); toast('No hay espacio suficiente: hacen falta unos 1,3 GB libres', 4200); return; }
+  BB.dl = { done: 0, total: m.size, label: 'Descargando el cerebro grande', m };
+  bbListen(); renderBB();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch {}
+  try { await BB_NATIVE.download({ url: `https://huggingface.co/${m.repo}/resolve/main/${m.file}`, name: BB_FILE, size: m.size, sha256: m.sha }); }
+  catch (e) { BB.dl = null; renderBB(); toast('No he podido empezar la descarga: ' + ((e && e.message) || ''), 4200); }
+}
+function bbOnDl(d) {
+  if (!d) return;
+  if (d.state === 'progress') { if (BB.dl) { BB.dl.done = d.done; if (d.total) BB.dl.total = d.total; renderBBProgress(); } return; }
+  const m = BB.dl && BB.dl.m; BB.dl = null;
+  if (d.state === 'ok') {
+    BB.st = { repo: m ? m.repo : '', file: m ? m.file : BB_FILE, size: d.size || (m && m.size) || 0, ts: Date.now() };
+    LS.set('bb', BB.st); BB.on = true; LS.set('bbOn', true); BB.fails = 0; BB.ready = null;
+    renderBB();
+    bbInit().then(() => bbSpeedTest()).then(() => { renderBB(); toast('Cerebro grande instalado'); haptic(12); novaSay(`Ya tengo el cerebro grande. Ahora puedo charlar contigo con mis propias palabras.`); }).catch(() => renderBB());
+    return;
+  }
+  if (d.state === 'error') toast(`La descarga se ha cortado (${d.error || 'sin conexión'}). Vuelve a tocar «Descargar» y seguirá donde se quedó.`, 5200);
+  renderBB();
+}
+async function bbRemove() {
+  try { await BB_NATIVE.remove({ name: BB_FILE }); } catch {}
+  BB.st = null; LS.set('bb', null); BB.ready = null; BB.speed = null; LS.set('bbSpeed', null); renderBB(); toast('Cerebro grande borrado');
+}
+const bbClean = s => String(s || '').replace(/<\|/g, '<').replace(/\s+/g, ' ').trim();
+function bbPrompt(raw) {
+  const sys = BB_PROMPT.system.replace('{NAME}', dj.name).replace('{PERSONA}', personaPrompt());
+  const t = current(), d = new Date(), days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  let wl = ''; try { wl = (weatherLine() || '').trim(); } catch {}
+  const recent = chatLog().slice(-7, -1).map(m => `${m.who === 'me' ? 'Usuario' : dj.name}: ${bbClean(m.text).slice(0, 200)}`).join('\n');
+  const user = `Contexto: ${days[d.getDay()]}, ${d.getHours()}:${pad(d.getMinutes())}. ${t ? `Suena «${bbClean(t.title)}» de ${bbClean(t.artist)}.` : 'No suena nada.'}${wl ? ' ' + wl : ''}\n${recent ? 'Lo último que habéis hablado:\n' + recent + '\n' : ''}Ahora el usuario dice: «${bbClean(raw).slice(0, 300)}»`;
+  return `<|im_start|>system\n${sys}<|im_end|>\n<|im_start|>user\n${user}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
+}
+function bbInit() {
+  if (BB.ready) return BB.ready;
+  BB.ready = (async () => {
+    const r = await BB_NATIVE.load({ name: BB_FILE, nCtx: 1536 });
+    if (r && r.threads) BB.threads = r.threads;
+    /* read Nova's instructions once now, so every answer only has to read what's new */
+    try { await BB_NATIVE.complete({ prompt: bbPrompt('hola'), maxTokens: 1, temperature: 0 }); } catch {}
+    renderBB();
+    return true;
+  })();
+  BB.ready.catch(() => { BB.fails++; BB.ready = null; renderBB(); });
+  return BB.ready;
+}
+function bbSpeed(info) {
+  try {
+    const i = typeof info === 'string' ? JSON.parse(info) : info; if (!i || !i.generated || !i.msGen) return;
+    const tps = i.generated / (i.msGen / 1000), prev = BB.speed && BB.speed.tps;
+    BB.speed = { tps: prev ? prev * 0.7 + tps * 0.3 : tps, n: ((BB.speed && BB.speed.n) || 0) + 1 };
+    if (BB.speed.n % 3 === 1) LS.set('bbSpeed', BB.speed);
+  } catch {}
+}
+async function bbComplete(prompt, { grammar, max = 110, temp = 0.5, timeout = 30000 } = {}) {
+  await bbInit();
+  let to;
+  const timer = new Promise((_, rej) => { to = setTimeout(() => { BB_NATIVE.cancel().catch(() => {}); rej(new Error('tiempo')); }, timeout); });
+  try {
+    const r = await Promise.race([BB_NATIVE.complete({ prompt, grammar, maxTokens: max, temperature: temp, topP: 0.9, seed: Math.floor(Math.random() * 1e9) }), timer]);
+    bbSpeed(r.info);
+    return r.text;
+  } finally { clearTimeout(to); }
+}
+async function bbSpeedTest() { await bbComplete(bbPrompt('Di hola en una frase.'), { grammar: BB_PROMPT.grammar, max: 40 }); LS.set('bbSpeed', BB.speed); }
+function bbParse(txt) { const o = {}; for (const line of String(txt || '').split('\n')) { const m = line.match(/^(accion|respuesta|detalle|oferta):\s?(.*)$/); if (m) o[m[1]] = m[2].trim(); } return o; }
+/* What Nova says out loud: no emojis, at most two sentences, and no figures she could have made up */
+function bbSafe(text, raw) {
+  let s = String(text || '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').replace(/\s+/g, ' ').trim();
+  const nums = new Set((String(raw) + ' ' + new Date().getHours()).match(/\d+/g) || []);
+  const parts = (s.match(/[^.!?…]+[.!?…]*/g) || [s]).map(x => x.trim()).filter(Boolean)
+    .filter(p => !(p.match(/\d+/g) || []).some(n => n.length >= 3 && !nums.has(n)));
+  s = parts.slice(0, 2).join(' ').slice(0, 220).trim();
+  return s.length >= 2 ? s : '';
+}
+/* Actions that change what's playing need a word that backs them up (the model may be wrong) */
+const BB_EVIDENCE = { saltar: /(otra|siguiente|pasa|salta|quita|cambia|next|no me gusta|aburr)/, pausa: /(para |^para$|pausa|deten|silencio|calla|espera|momento)/ };
+async function bbThink(raw, clean) {
+  if (!bbUsable()) return false;
+  try {
+    const o = bbParse(await bbComplete(bbPrompt(raw), { grammar: BB_PROMPT.grammar }));
+    const a = String(o.accion || '').trim(), q = ' ' + norm(raw) + ' ';
+    if (BB_EVIDENCE[a] && !BB_EVIDENCE[a].test(q)) return false;
+    return nbDoSmart({ accion: a, detalle: o.detalle, respuesta: bbSafe(o.respuesta, raw), oferta: bbSafe(o.oferta, raw) }, raw, clean);
+  } catch { return false; }
+}
+/* Settings card */
+function renderBBProgress() {
+  const d = BB.dl, el = $('#bbBar'); if (!d || !el) return;
+  const pct = d.total ? Math.min(100, Math.round(d.done / d.total * 100)) : 0;
+  el.style.width = pct + '%'; $('#bbPct').textContent = `${pct} % · ${Math.round(d.done / 1048576)} de ${Math.round(d.total / 1048576)} MB`;
+}
+async function renderBB() {
+  const box = $('#bbBox'); if (!box) return;
+  const credits = '<p class="note nv-credits">Modelo: Qwen3 1.7B (Alibaba, licencia Apache 2.0). Motor: llama.cpp (MIT).</p>';
+  if (BB.dl) {
+    box.innerHTML = `<div class="d-text"><b>${esc(BB.dl.label)}</b><span id="bbPct">0 %</span></div><div class="bar nv-bar"><i id="bbBar"></i></div><div class="row-wrap"><button class="btn small" data-bb="cancel">Pausar la descarga</button></div><p class="note">Son unos 1,1 GB: mejor con wifi. Si se corta o cierras la app, sigue donde se quedó.</p>`;
+    renderBBProgress(); return;
+  }
+  const s = BB.stat || await bbStatus();
+  if (!s) { box.innerHTML = `<div class="d-text"><b>Cerebro grande <span class="beta-tag">beta</span></b><span>Un modelo de lenguaje de verdad dentro del móvil, para charlar con Nova. ${NATIVE ? 'Esta compilación de la app no trae su motor.' : 'Funciona en la app de Android.'}</span></div>${credits}`; return; }
+  const ram = s.ramMb ? Math.round(s.ramMb / 1024) : 0;
+  if (!s.lib || !s.cpuOk) {
+    box.innerHTML = `<div class="d-text"><b>Cerebro grande <span class="beta-tag">beta</span></b><span>${!s.lib ? 'Esta versión de la app no trae el motor del cerebro grande.' : 'El procesador de este móvil no es compatible con el cerebro grande (hace falta uno ARM de 64 bits de los últimos años).'}</span></div>${credits}`;
+    return;
+  }
+  if (!BB.st) {
+    let part = 0; try { part = (await BB_NATIVE.fileInfo({ name: BB_FILE })).partSize || 0; } catch {}
+    box.innerHTML = `<div class="d-text"><b>Cerebro grande de ${esc(dj.name)} <span class="beta-tag">beta</span></b><span>Un modelo de lenguaje de verdad (Qwen3 1.7B) dentro de tu móvil: charla contigo con sus propias palabras, entiende peticiones raras y sabe de qué estabais hablando. No elige canciones ni da datos: eso lo siguen haciendo tu biblioteca y Wikipedia. Funciona sin internet una vez descargado.</span></div>
+      <div class="row-wrap"><button class="btn small primary" data-bb="get">${part ? `Seguir la descarga (${Math.round(part / 1048576)} MB ya bajados)` : 'Descargar (1,1 GB)'}</button></div>
+      <p class="note">Mejor con wifi.${ram && ram < 6 ? ` Tu móvil tiene ${ram} GB de memoria: puede ir lento, y conviene cerrar otras apps.` : ''} Va mejor junto con el cerebro de comprensión.</p>${credits}`;
+    return;
+  }
+  const sp = bbWordsLabel();
+  box.innerHTML = `<div class="d-text"><b>Cerebro grande de ${esc(dj.name)} <span class="beta-tag">beta</span></b><span>${BB.fails >= 3 ? '<b>no ha podido arrancar en este móvil</b>' : BB.ready ? 'listo' : 'se carga al usarlo'}<i id="bbSp" class="bb-sp">${sp}</i> · ${Math.round((BB.st.size || 1.1e9) / 1048576)} MB · sin internet</span></div>
+    <div class="row-wrap"><button class="toggle" id="tBB" aria-pressed="${BB.on}"><span class="sw"></span>Usar el cerebro grande</button><button class="btn small" data-bb="try">Charlar para probar</button><button class="btn small" data-bb="remove">Borrar</button></div>
+    <div id="bbTry" hidden><form class="row-wrap nb-form" id="bbForm"><input id="bbIn" type="text" maxlength="200" placeholder="Dile algo a ${esc(dj.name)}" autocomplete="off"><button class="btn small primary" type="submit">Enviar</button></form><div id="bbOut" class="nb-out"></div></div>
+    ${aiState === 'ready' ? '<p class="note">Tienes clave de Claude: en la conversación normal Nova usa Claude, que es más listo. Aquí puedes probar el cerebro grande.</p>' : ''}${credits}`;
+}
+async function bbTry(text) {
+  const out = $('#bbOut'); if (!out) return;
+  out.innerHTML = '<span class="note">Pensando…</span>';
+  const t0 = performance.now();
+  try {
+    const o = bbParse(await bbComplete(bbPrompt(text), { grammar: BB_PROMPT.grammar }));
+    const ms = Math.round(performance.now() - t0);
+    out.innerHTML = `<p><b>${esc(bbSafe(o.respuesta, text) || '…')}</b></p><p class="note">Acción: ${esc(o.accion || '?')}${o.detalle ? ' · ' + esc(o.detalle) : ''}${o.oferta ? ' · ofrece: ' + esc(o.oferta) : ''} · ${(ms / 1000).toFixed(1)} s</p>`;
+    renderBBSpeedOnly();
+  } catch (e) { out.innerHTML = `<span class="note">No ha podido responder: ${esc((e && e.message) || '')}</span>`; }
+}
+/* tokens per second → roughly words per second (a Spanish word is about 1.4 tokens) */
+const bbWordsLabel = () => BB.speed && BB.speed.tps ? ` · piensa a unas ${Math.max(1, Math.round(BB.speed.tps / 1.4))} palabras por segundo` : '';
+function renderBBSpeedOnly() { const sp = $('#bbSp'); if (sp) sp.textContent = bbWordsLabel(); }
+$('#bbBox').addEventListener('click', e => {
+  const b = e.target.closest('[data-bb],#tBB'); if (!b) return;
+  if (b.id === 'tBB') { BB.on = !BB.on; LS.set('bbOn', BB.on); setToggle(b, BB.on); toast(BB.on ? 'Nova usa su cerebro grande' : 'Cerebro grande apagado'); if (!BB.on) { BB_NATIVE.unload().catch(() => {}); BB.ready = null; } return; }
+  const a = b.dataset.bb;
+  if (a === 'get') { bbListen(); bbInstall(); }
+  else if (a === 'cancel') { BB_NATIVE.cancelDownload().catch(() => {}); }
+  else if (a === 'try') { const tr = $('#bbTry'); tr.hidden = !tr.hidden; if (!tr.hidden) { BB.fails = 0; bbInit().catch(() => {}); $('#bbIn').focus(); } }
+  else if (a === 'remove') { if (b.dataset.sure) bbRemove(); else { b.dataset.sure = '1'; b.textContent = '¿Seguro? Toca otra vez'; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Borrar'; }, 3000); } }
+});
+$('#bbBox').addEventListener('submit', e => { if (e.target.id !== 'bbForm') return; e.preventDefault(); const v = $('#bbIn').value.trim(); if (v) bbTry(v); });
+bbListen();
+renderBB();
 /* ---------- 3.0 · Nova remembers ----------
    Preferences you tell her ("no me pongas reguetón por la mañana"), the styles of your artists, memories,
    routines that start when you open the app, and a conversation screen with history. */
@@ -5248,7 +5670,7 @@ async function boot() {
   const hello = () => setBubble(`Hola, soy ${dj.name}. Es ${m.day} ${m.franja.phrase}.${weatherLine()} Pídeme algo, gira la ruleta o pon el modo radio y yo me encargo.`);
   hello();
   setView(location.hash.slice(1) || LOOK.start || 'inicio', false);
-  requestAnimationFrame(draw);
+  drawKick();
   setInterval(renderMoment, 20000);
   const [tracks, pls, clips, wish] = await Promise.all([idbAll('tracks'), idbAll('playlists'), idbAll('voice'), idbAll('wishlist')]);
   state.tracks.push(...tracks); state.playlists = pls; state.clips = clips; state.wishlist = wish;
@@ -5263,7 +5685,8 @@ async function boot() {
   introDone.then(() => { vizKick(); setTimeout(showNews, 700); renderNovaChips(); setTimeout(openGreeting, 1200); });
   bgFacts();
   introDone.then(() => setTimeout(() => { if (nvUsable()) nvInit().catch(() => {}); }, 3500));
-  introDone.then(() => setTimeout(() => { if (nbUsable()) nbInit().catch(() => {}); }, 6500));
+  introDone.then(() => setTimeout(() => { const go = () => setTimeout(() => { if (nbUsable()) nbInit().catch(() => {}); }, 1500); if (NV.ready) NV.ready.then(go, go); else go(); }, 6500));
+  introDone.then(() => setTimeout(() => { if (bbUsable()) bbInit().catch(() => {}); }, 20000));
   if (ONLINE && LS.get('city', null)) { const had = !!weatherNow(); loadWeather(false).then(w => { if (w && !had && !current()) hello(); }); setInterval(() => loadWeather(false), 30 * 60000); }
   if (NATIVE && APP_CFG.version) $('#setMeta').textContent = `sonido, aspecto, DJ y copias · versión ${APP_CFG.version}`;
   idle(() => trainBrain()); bgAnalysis(12000);
@@ -5283,7 +5706,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }

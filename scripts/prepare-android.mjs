@@ -122,6 +122,56 @@ const gradlePath = path.join(app, 'build.gradle');
 let gradle = fs.readFileSync(gradlePath, 'utf8');
 gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${build}`).replace(/versionName\s+"[^"]*"/, `versionName "${version}"`);
 
+// 4a) El cerebro grande de Nova (llama.cpp, solo móviles ARM de 64 bits). Necesita el código de llama.cpp
+//     (LLAMA_DIR, lo descarga el workflow). BIGBRAIN=0 es el respaldo: la app sin el cerebro grande.
+const llamaDir = process.env.LLAMA_DIR || '';
+const bigBrain = extras && process.env.BIGBRAIN !== '0' && llamaDir && fs.existsSync(path.join(llamaDir, 'CMakeLists.txt'));
+if (bigBrain) {
+  const cppDir = path.join(app, 'src', 'main', 'cpp');
+  fs.mkdirSync(cppDir, { recursive: true });
+  for (const f of fs.readdirSync(path.join(root, 'android-brain', 'cpp'))) fs.copyFileSync(path.join(root, 'android-brain', 'cpp', f), path.join(cppDir, f));
+  const novaDir = path.join(app, 'src', 'main', 'java', 'orbita', 'nova');
+  fs.mkdirSync(novaDir, { recursive: true });
+  fs.copyFileSync(path.join(root, 'android-brain', 'java', 'NovaLlm.java'), path.join(novaDir, 'NovaLlm.java'));
+  fs.writeFileSync(path.join(javaDir, 'NovaBrainPlugin.java'), fs.readFileSync(path.join(root, 'android-brain', 'NovaBrainPlugin.java'), 'utf8').replace(/__PACKAGE__/g, appId));
+  const ndk = process.env.ANDROID_NDK_LATEST_HOME || process.env.ANDROID_NDK_HOME || process.env.ANDROID_NDK_ROOT || '';
+  const q = v => JSON.stringify(v).replace(/\$/g, '\\$');
+  gradle += `
+android {
+    defaultConfig {
+        externalNativeBuild {
+            cmake {
+                arguments ${q('-DLLAMA_DIR=' + llamaDir)}, "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16", "-DCMAKE_BUILD_TYPE=Release"
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
+    }${ndk && fs.existsSync(ndk) ? `
+    ndkPath ${q(ndk)}` : ''}
+}
+`;
+  console.log('Cerebro grande: incluido (llama.cpp de ' + llamaDir + (ndk ? ', NDK ' + path.basename(ndk) : '') + ')');
+} else if (extras) console.log('Cerebro grande: no incluido' + (process.env.BIGBRAIN === '0' ? ' (compilación de respaldo)' : ' (falta LLAMA_DIR)'));
+
+// 4b) Motor nativo de la voz propia de Nova (ONNX Runtime para Android): habla antes y fuera del WebView.
+//     En el plan B (EXTRAS=0) no se incluye y la voz usa el motor web, como en la beta 2.
+if (extras && !gradle.includes('onnxruntime-android')) {
+  gradle = gradle.replace(/dependencies\s*\{/, m => `${m}\n    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'`);
+  gradle += `
+android {
+    defaultConfig {
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
+    }
+}
+`;
+}
+
 // 5) Firma: siempre la misma clave, para poder instalar las actualizaciones encima
 if (process.env.KEYSTORE_BASE64) {
   fs.writeFileSync(path.join(app, 'orbita.keystore'), Buffer.from(process.env.KEYSTORE_BASE64.replace(/\s+/g, ''), 'base64'));

@@ -1,3 +1,12 @@
+Órbita 3.1 · beta 1 (versión de prueba): el cerebro grande de Nova.
+
+- Cerebro grande (Ajustes › Tu DJ › Cerebro grande): un modelo de lenguaje de verdad, Qwen3 1.7B, que funciona dentro del móvil. Se descarga una vez (1,1 GB) y después va sin internet.
+- Nova charla contigo con sus propias palabras: cuéntale cómo te ha ido el día o pregúntale qué opina de lo que suena. Sabe qué está sonando, qué hora es y de qué estabais hablando.
+- Entiende peticiones raras y, si te nota cansado o triste, te ofrece música.
+- No elige canciones ni da datos: eso lo siguen haciendo tu biblioteca, lo que Nova ha aprendido de ti y Wikipedia.
+- Si la descarga se corta, sigue donde se quedó.
+- Sin descargar nada, Nova ya entiende «estoy reventado», «estoy triste» o «estoy contento» y te contesta.
+
 Órbita 3.0: Nova, más lista que nunca.
 
 - Nova recuerda lo que le dices: «no me pongas reguetón por la mañana», «me encanta el rap», «por la noche, cosas tranquilas». Lo cumple en la radio y en sus mezclas.
