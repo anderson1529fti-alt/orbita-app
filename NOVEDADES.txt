@@ -1,3 +1,27 @@
+Órbita 3.5: despertador con Nova, tu año en Órbita, el motor de sonido de Android (beta) y una bienvenida fácil.
+
+Despertador con Nova
+- Ajustes › Despertador: elige la hora, los días y con qué música (suave para despertar, tu mezcla del día, tus favoritas, una de tus listas o el modo radio).
+- Empieza muy bajito y sube poco a poco. Al rato, Nova te da los buenos días con la hora, el día y el tiempo que hace en tu ciudad.
+- Se ve a pantalla completa aunque el móvil esté bloqueado: «Posponer», «Ya me levanto» (la música sigue) o «Apagar la música». También desde el aviso.
+- Si por lo que sea no puede poner tu música, a los 40 segundos suena la alarma normal del móvil.
+- Pídeselo: «despiértame a las siete y media», «pon el despertador de lunes a viernes a las 7», «¿a qué hora me despiertas?», «quita la alarma».
+- Sigue programado aunque reinicies el móvil o actualices la app.
+
+Tu año en Órbita
+- En «Tú» (y, en diciembre, también en «Ahora»): tus horas de música, tu canción y tu artista del año, tu top 5, cuándo escuchas más, tus récords y qué tipo de oyente eres. Nova te lo cuenta tarjeta a tarjeta, con tus canciones del año sonando.
+- Al final, una imagen para compartir (WhatsApp, Instagram…) o guardar en la galería, y una lista con tus canciones del año.
+- Pídeselo: «enséñame el resumen de mi año».
+
+Motor de sonido de Android (beta)
+- Ajustes › Sonido › «Motor de sonido de Android»: tu música suena con el reproductor del propio móvil. Las canciones seguidas de un mismo disco van sin cortes.
+- Ecualizador, volumen igualado, sonido directo, visualizador, fundidos y pausas con llamadas o al quitar los auriculares funcionan igual.
+- Es una prueba: las mezclas de DJ llegan a este motor en la 3.6. Si algo falla tres veces, Órbita vuelve sola al motor de siempre.
+
+Primera vez fácil
+- Quien instala Órbita tiene una bienvenida de un minuto: su música (con el permiso), sus estilos, el nombre de su DJ y cuánto habla, su ciudad para el tiempo y su primera mezcla.
+- Puedes verla otra vez al final de Ajustes.
+
 Órbita 3.4: YouTube sin clave, ecualizador de 10 bandas, mezclas sin fin y una Nova más lista.
 
 YouTube y videoclips

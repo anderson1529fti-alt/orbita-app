@@ -162,6 +162,7 @@ async function blobFor(t) { if (t.demo && !memAudio.has(t.id)) await renderDemoT
    around the current one are kept in memory, so seeking is instant and memory stays low. */
 const devUrls = new Map(), devBlobs = new Map();
 async function deviceUrl(t) {
+  if (NA_ON) return t.uri;
   if (devUrls.has(t.id)) { const u = devUrls.get(t.id); devUrls.delete(t.id); devUrls.set(t.id, u); return u; }
   const direct = window.Capacitor.convertFileSrc(t.uri);
   if ((t.size || 0) > 150e6) return direct;
@@ -565,7 +566,107 @@ async function importOne(e, folderCover, opts) {
    · Direct sound: the element output goes to the speakers untouched.
    · Processed sound (equalizer, levelled volume, DJ mixes): deck → filters → gains → EQ → safety
      limiter → speakers. Mixes are scheduled on the audio clock, so they also work with the screen off. */
-const decks = [new Audio(), new Audio()];
+/* ---------- 3.5 · Android's own sound engine (beta) ----------
+   With «Motor de sonido de Android» on (Ajustes › Sonido), your songs are played by Android's decoder and a sound
+   engine of Órbita's own, outside the WebView: songs of the same album without a gap, less battery, and the phone's
+   music read straight from storage (never copied into memory). The equalizer, levelled volume and the limiter run
+   there too. DJ mixes with filters, echo and beat matching still need the WebView engine: with this one, songs
+   change with a fade. If the engine fails, Órbita goes back to the usual one by itself. */
+const NA_PLUGIN = capPlugin('NovaAudio');
+const NA_ON = !!NA_PLUGIN && LS.get('engine', 'web') === 'nativo' && !LS.get('engineBroken', false);
+const naPaths = new Map();   // blob: URL → file prepared for the engine
+/* What the engine can open: phone songs by their address; anything else, through a temporary file */
+async function naPath(v) {
+  if (/^(content|file):/.test(v) || v.startsWith('/')) return v;
+  if (naPaths.has(v)) return naPaths.get(v);
+  const blob = await (await fetch(v)).blob();
+  const name = 'c' + nvHash(v) + '.audio';
+  for (let o = 0, first = true; ; o += NV_CHUNK, first = false) {
+    const end = Math.min(blob.size, o + NV_CHUNK), done = end >= blob.size;
+    const r = await NA_PLUGIN.writeTemp({ name, data: await nvB64(blob.slice(o, end)), append: !first, done });
+    if (done) { naPaths.set(v, r.path); while (naPaths.size > 6) naPaths.delete(naPaths.keys().next().value); return r.path; }
+  }
+}
+/* One of the engine's two «decks», with the same buttons and signals as an audio player, so the whole app
+   (queue, fades, notification, widget, sleep timer, Nova) works with it as it is */
+class NativeDeck extends EventTarget {
+  constructor(slot) {
+    super();
+    this.slot = slot; this._src = ''; this.paused = true; this.preload = 'auto'; this.playbackRate = 1; this.preservesPitch = true;
+    this._gen = 0; this._t = 0; this._tAt = performance.now(); this._dur = NaN; this._vol = 1; this._sent = -1; this._volT = null;
+    this._native = null; this._loaded = Promise.resolve(null); this._startAt = 0; this._ended = false; this._gapless = null; this._playingSent = false;
+  }
+  get src() { return this._src; }
+  set src(v) {
+    v = String(v || ''); this._src = v; const my = ++this._gen;
+    this.paused = true; this._t = 0; this._tAt = performance.now(); this._dur = NaN; this._native = null; this._startAt = 0;
+    this._ended = false; this._gapless = null; this._playingSent = false; this.error = null;
+    if (!v) { NA_PLUGIN.stop({ slot: this.slot }).catch(() => {}); this._loaded = Promise.resolve(null); return; }
+    this._loaded = (async () => {
+      const path = await naPath(v);
+      if (my !== this._gen) return null;
+      this._native = path;
+      await NA_PLUGIN.load({ slot: this.slot, src: path, at: this._startAt || 0, play: false });
+      return my === this._gen ? path : null;
+    })();
+    this._loaded.catch(() => { if (my === this._gen) { this.error = { message: 'no se puede abrir' }; this._emit('error'); } });
+  }
+  getAttribute(n) { return n === 'src' ? (this._src || null) : null; }
+  removeAttribute(n) { if (n === 'src') this.src = ''; }
+  load() {}
+  get currentTime() {
+    const t = this._t + (!this.paused && this._playingSent ? (performance.now() - this._tAt) / 1000 : 0);
+    return isFinite(this._dur) ? Math.min(t, this._dur) : t;
+  }
+  set currentTime(v) {
+    v = Math.max(0, +v || 0); this._t = v; this._tAt = performance.now(); this._ended = false;
+    if (this._native) NA_PLUGIN.seek({ slot: this.slot, pos: v }).catch(() => {}); else this._startAt = v;
+  }
+  get duration() { return this._dur; }
+  get volume() { return this._vol; }
+  set volume(v) {
+    this._vol = Math.max(0, Math.min(1, +v || 0));
+    /* fades send many small changes: at most one message every 25 ms, always ending with the last value */
+    if (this._volT) return;
+    const send = () => { this._volT = null; if (Math.abs(this._vol - this._sent) < 0.002) return; this._sent = this._vol; NA_PLUGIN.setVolume({ slot: this.slot, v: this._vol }).catch(() => {}); this._volT = setTimeout(() => { this._volT = null; if (Math.abs(this._vol - this._sent) >= 0.002) send(); }, 25); };
+    send();
+  }
+  async play() {
+    if (!this._src) throw new Error('sin canción');
+    if (this._ended) this.currentTime = 0;
+    const my = this._gen;
+    if (this.paused) { this.paused = false; this._emit('play'); }
+    const p = await this._loaded;
+    if (my !== this._gen || this.paused) return;
+    if (!p) { this.paused = true; throw new Error('no se puede abrir'); }
+    await NA_PLUGIN.play({ slot: this.slot });
+  }
+  pause() {
+    if (this.paused) return;
+    this._t = this.currentTime; this._tAt = performance.now(); this.paused = true; this._playingSent = false;
+    NA_PLUGIN.pause({ slot: this.slot }).catch(() => {});
+    this._emit('pause');
+  }
+  _emit(type) { try { this.dispatchEvent(new Event(type)); } catch {} }
+  /* what the engine tells about this deck */
+  _on(e) {
+    if (e.type !== 'gapless' && e.src && this._native && e.src !== this._native) return;   // an old song of this deck
+    if (e.type === 'loaded') { if (e.dur > 0) { this._dur = e.dur; this._emit('loadedmetadata'); this._emit('durationchange'); } }
+    else if (e.type === 'pos') {
+      if (this.paused) return;
+      this._t = e.pos; this._tAt = performance.now(); if (e.dur > 0 && !isFinite(this._dur)) { this._dur = e.dur; this._emit('loadedmetadata'); }
+      if (!this._playingSent) { this._playingSent = true; this._emit('playing'); naOk(); }
+      this._emit('timeupdate');
+    } else if (e.type === 'seeked') { this._t = e.pos; this._tAt = performance.now(); this._emit('seeked'); }
+    else if (e.type === 'ended') { this._t = isFinite(this._dur) ? this._dur : this._t; this.paused = true; this._ended = true; this._playingSent = false; this._emit('pause'); this._emit('ended'); }
+    else if (e.type === 'gapless') {
+      /* the next song of the album is already playing, glued to the last one: the app only has to catch up */
+      this._native = e.src; this._gapless = e.src; this._src = e.src; this._t = e.pos || 0; this._tAt = performance.now(); this._dur = e.dur > 0 ? e.dur : NaN;
+      this._emit('ended');
+    } else if (e.type === 'error') { this.error = { message: e.msg || 'error' }; this.paused = true; this._playingSent = false; naFail(); this._emit('error'); }
+  }
+}
+const decks = NA_ON ? [new NativeDeck(0), new NativeDeck(1)] : [new Audio(), new Audio()];
 const netEl = new Audio(); netEl.preload = 'none';
 /* ---------- 3.2 · YouTube inside Órbita, without a key ----------
    A video (shared from the YouTube app, pasted, or a song's music video) joins the queue like any song: Nova introduces
@@ -771,7 +872,7 @@ const els = [decks[0], decks[1], netEl, ytEl];
 decks.forEach(d => { d.preload = 'auto'; try { d.preservesPitch = true; } catch {} });
 const clipEl = new Audio(); clipEl.preload = 'auto';
 let A = 0; const act = () => els[A];
-let baseVol = LS.get('vol', 80) / 100, duckF = 1, sleepF = 1; const deckF = [1, 1, 1, 1];
+let baseVol = LS.get('vol', 80) / 100, duckF = 1, sleepF = 1, alarmF = 1; const deckF = [1, 1, 1, 1];
 const AUD = {
   direct: LS.get('aDirect', false),
   eq: LS.get('eq', 'plano'), eqCustom: eqMigrate(LS.get('eqCustom', null)), eqOn: LS.get('eqOn', true),
@@ -836,7 +937,7 @@ const MIX_STYLES = {
   corte: { name: 'Corte seco', desc: 'Sin mezcla, pero quitando el silencio del final y del principio.' }
 };
 const eqActive = () => !AUD.direct && eqGains().some(v => v);
-const wantsGraph = () => !AUD.direct && (eqActive() || AUD.level || AUD.mix !== 'corte');
+const wantsGraph = () => !NA_ON && !AUD.direct && (eqActive() || AUD.level || AUD.mix !== 'corte');
 let actx = null, G = null, analyser = null, freq = null, tapSrc = null, ctxIdleT = null;
 function audioCtx() {
   if (actx) return actx;
@@ -895,10 +996,10 @@ function routeLimiter() {
   G.last.connect(want ? G.lim : G.post); G.limOn = want;
 }
 function applyVol() {
-  const v = baseVol * duckF * sleepF;
+  const v = baseVol * duckF * sleepF * alarmF;
   if (G) {
     const now = actx.currentTime;
-    G.master.gain.setTargetAtTime(clamp01(baseVol * sleepF), now, 0.012);
+    G.master.gain.setTargetAtTime(clamp01(baseVol * sleepF * alarmF), now, 0.012);
     for (const i of [0, 1]) { decks[i].volume = 1; G.dk[i].fade.gain.setTargetAtTime(clamp01(deckF[i]), now, 0.01); }
   } else for (const i of [0, 1]) decks[i].volume = clamp01(v * deckF[i]);
   netEl.volume = clamp01(v * deckF[2]);
@@ -907,6 +1008,7 @@ function applyVol() {
 }
 applyVol();
 function applyEq() {
+  if (NA_ON) { NA_PLUGIN.setEq({ gains: eqGains(), on: !AUD.direct && eqActive() }).catch(() => {}); NA_PLUGIN.setDirect({ on: AUD.direct }).catch(() => {}); return; }
   if (!G) return; const g = eqGains(), now = actx.currentTime, on = !AUD.direct;
   G.eq.forEach((b, i) => b.gain.setTargetAtTime(on ? g[i] : 0, now, 0.05));
   const boost = on ? eqPeakDb(g) : 0;
@@ -918,7 +1020,7 @@ function normGainFor(t) {
   if (!AUD.level || AUD.direct || !a || !isFinite(a.rms)) return 1;
   return Math.pow(10, Math.max(-9, Math.min(4, TARGET_DB - a.rms)) / 20);
 }
-function applyNorm(i, t, ramp = 0.4) { if (!G || i > 1) return; G.dk[i].nrm.gain.setTargetAtTime(normGainFor(t), actx.currentTime, Math.max(0.005, ramp / 3)); }
+function applyNorm(i, t, ramp = 0.4) { if (NA_ON && i < 2) { NA_PLUGIN.setNorm({ slot: i, g: normGainFor(t) }).catch(() => {}); return; } if (!G || i > 1) return; G.dk[i].nrm.gain.setTargetAtTime(normGainFor(t), actx.currentTime, Math.max(0.005, ramp / 3)); }
 function resetDeckFx(i) {
   if (i > 1) return;
   try { decks[i].playbackRate = 1; } catch {}
@@ -1149,6 +1251,7 @@ async function startOn(url, xf, isNet) {
   if (mixing) finishMix(true);
   disarmMix();
   const old = A, cur = els[old];
+  if (!isNet && cur._gapless && cur._gapless === url) { cur._gapless = null; return true; }
   const busy = !cur.paused && !!cur.getAttribute('src');
   const nw = isNet === 'yt' ? 3 : isNet ? 2 : (old >= 2 ? 0 : 1 - old);
   if (!isNet) ensureGraph();
@@ -1241,6 +1344,7 @@ function beginTrack(t, { talk = null, viaMix = false, silent = false } = {}) {
   if (typeof onTrackLyrics === 'function') onTrackLyrics(t);
 }
 async function prefetchNext() {
+  naSyncNext();
   const id = state.queue[state.qi + 1]; const t = id && trackById(id);
   if (t && !t.net) { try { await audioUrl(t); coverUrl(t, 'full'); setTimeout(() => scheduleAnalysis(t), 4000); } catch {} if (ONLINE) setTimeout(() => artistFact(t.artist), 2500); if (nvUsable()) setTimeout(() => { if (state.queue[state.qi + 1] === t.id) nvPrepareIntro(t); }, 7000); }
 }
@@ -1351,7 +1455,7 @@ function checkAutoMix(d) {
   if (sleepLeft() !== null && sleepLeft() < 25000) return;
   const t = current(); if (!t || t.net) return;
   const dur = d.duration; if (!isFinite(dur) || dur < 15) return;
-  if (!mixArm) { if (dur - d.currentTime > 32) return; const nx = nextForMix(); if (nx) armMix(t, nx); return; }
+  if (!mixArm) { if (dur - d.currentTime > 32) return; const nx = nextForMix(); if (nx && !naGapless(t, nx.t)) armMix(t, nx); return; }
   if (!mixArm.ready || mixArm.from !== A) return;
   if (mixArm.blind && d.currentTime < mixArm.plan.start - 1.5 && anaCache.has(t.id) && anaCache.has(mixArm.track.id)) {
     const arm = mixArm, plan = planMix(anaCache.get(t.id), anaCache.get(arm.track.id), dur);
@@ -1741,6 +1845,7 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-slee
 
 /* ---------- Now playing (full screen) ---------- */
 function renderQueue() {
+  naSyncNext();
   const box = $('#npQueue'); if (!box) return;
   const up = state.queue.slice(state.qi + 1, state.qi + 9).map((id, i) => [trackById(id), state.qi + 1 + i]).filter(x => x[0]);
   const upIc = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
@@ -1805,7 +1910,7 @@ function setBubble(text, who = '', cps = 45) {
   renderBubble();
 }
 function bubbleReveal(idx) { if (idx > bub.shown) { bub.shown = Math.min(bub.text.length, idx); renderBubble(); } }
-function bubbleFinish() { clearInterval(bub.iv); bub.shown = bub.text.length; renderBubble(); }
+function bubbleFinish() { naAfterTalk(); clearInterval(bub.iv); bub.shown = bub.text.length; renderBubble(); }
 
 const REGION = { ES:'España', MX:'México', US:'EE. UU.', AR:'Argentina', CO:'Colombia', CL:'Chile', PE:'Perú', VE:'Venezuela', '419':'Latinoamérica', CU:'Cuba', UY:'Uruguay', PR:'Puerto Rico', EC:'Ecuador', BO:'Bolivia', CR:'Costa Rica', DO:'Rep. Dominicana', GT:'Guatemala', HN:'Honduras', NI:'Nicaragua', PA:'Panamá', PY:'Paraguay', SV:'El Salvador', GQ:'Guinea Ecuatorial' };
 const LANGS = { es:'Español', en:'Inglés', pt:'Portugués', fr:'Francés', it:'Italiano', de:'Alemán', ca:'Catalán', gl:'Gallego', eu:'Euskera', ja:'Japonés', ko:'Coreano' };
@@ -1906,7 +2011,7 @@ function renderSound() {
   $('#mixLenBox').hidden = !['suave', 'auto'].includes(AUD.mix);
   $('#mixLenIn').value = AUD.mixLen; setRange($('#mixLenIn')); $('#mixLenVal').textContent = AUD.mixLen + ' s';
   renderEq();
-  setToggle($('#tLevel'), AUD.level); setToggle($('#tDirect'), AUD.direct);
+  setToggle($('#tLevel'), AUD.level); setToggle($('#tDirect'), AUD.direct); renderEngine();
   $('#soundBody').classList.toggle('off', AUD.direct);
   $('#soundNote').textContent = AUD.direct
     ? `Sonido directo: la música sale tal cual del archivo, sin ecualizador ni mezclas (entre canciones habrá un fundido).${G ? ' Del todo, la próxima vez que abras Órbita.' : ''}`
@@ -2017,16 +2122,100 @@ $('#eqSaveForm').addEventListener('submit', e => {
   const m = { id: uid('eq'), name, g: AUD.eqCustom.slice() }; list.push(m); LS.set('eqMine', list);
   $('#eqSaveIn').value = ''; AUD.eq = 'mine-' + m.id; LS.set('eq', AUD.eq); renderEq(); toast(`Guardado: «${name}»`); haptic(8);
 });
+/* The engine's own signals: where each deck is, the end of a song, focus (calls, other apps), headphones out */
+let naFocusPaused = false, naRefocus = false, naOwnTs = 0, naFails = 0;
+const naOwnAudio = () => $('#dj').classList.contains('speaking') || Date.now() - naOwnTs < 4000 || (A === 3 && !ytEl.paused) || (A === 2 && !netEl.paused) || !clipEl.paused;
+function naOk() { naFails = 0; }
+/* Three songs in a row that the engine can't play: back to the usual engine, by itself */
+function naFail() {
+  if (++naFails < 3) return;
+  LS.set('engineBroken', true); saveSession(true);
+  toast('El motor de sonido de Android ha fallado varias veces: vuelvo al de siempre.', 5000);
+  setTimeout(() => location.reload(), 2500);
+}
+if (NA_ON) {
+  try {
+    NA_PLUGIN.addListener('audio', e => {
+      if (!e) return;
+      if (e.type === 'focus') {
+        const v = +e.value;
+        if (v === -3) return;                                     // Android lowers the volume a moment by itself
+        if (v < 0) {
+          if (naOwnAudio()) { naRefocus = true; return; }        // it's Nova's voice or a video of Órbita itself
+          if (current() && A < 2 && !act().paused) { naFocusPaused = v === -2; fadePause(); }
+          return;
+        }
+        if (v === 1 && naFocusPaused) { naFocusPaused = false; if (current() && A < 2) resume(); }
+        return;
+      }
+      if (e.type === 'noisy') { if (current() && A < 2 && !act().paused) { fadePause(); toast('Auriculares desconectados: pausa'); } return; }
+      const d = decks[e.slot]; if (d && d._on) d._on(e);
+    });
+  } catch {}
+}
+/* After Nova speaks (her voice plays in the WebView), the engine takes the sound back */
+function naAfterTalk() { if (NA_ON && naRefocus && current() && A < 2 && !act().paused) { naRefocus = false; NA_PLUGIN.focus().catch(() => {}); } }
+/* The visualizer: the engine «listens» to what plays (no microphone) only while a visualizer is on screen */
+let naVizOn = false, naVizUse = 0;
+const naSpec = new Uint8Array(256), naWave = new Uint8Array(512).fill(128);
+const naAnalyser = {
+  fftSize: 512, frequencyBinCount: 256,
+  getByteFrequencyData(a) { naVizUse = Date.now(); if (!naVizOn) { naVizOn = true; NA_PLUGIN.viz({ on: true }).catch(() => {}); } a.set(naSpec.subarray(0, a.length)); },
+  getByteTimeDomainData(a) { a.set(naWave.subarray(0, a.length)); }
+};
+if (NA_ON) {
+  try {
+    NA_PLUGIN.addListener('spectrum', e => {
+      try { const s = atob(e.b); for (let i = 0; i < 256 && i < s.length; i++) naSpec[i] = s.charCodeAt(i); for (let i = 0; i < 512 && 256 + i < s.length; i++) naWave[i] = s.charCodeAt(256 + i); } catch {}
+    });
+  } catch {}
+  setInterval(() => { if (naVizOn && Date.now() - naVizUse > 1500) { naVizOn = false; NA_PLUGIN.viz({ on: false }).catch(() => {}); } }, 1000);
+}
+/* Songs of the same album, one after the other: glued, without a gap (and without a mix between them) */
+function naGapless(t, n) {
+  return NA_ON && !!t && !!n && t.dev && n.dev && !t.net && !n.net && state.repeat !== 'one' && !!norm(t.album || '') && norm(t.album || '') === norm(n.album || '') && artistKey(t.artist) === artistKey(n.artist);
+}
+function naSyncNext() {
+  if (!NA_ON || A > 1) return;
+  const t = current(), id = state.queue[state.qi + 1], n = id && trackById(id);
+  NA_PLUGIN.setNext({ slot: A, src: naGapless(t, n) ? n.uri : null }).catch(() => {});
+}
+function naInit() {
+  if (!NA_ON) return;
+  analyser = naAnalyser; freq = new Uint8Array(256);
+  applyEq();
+  NA_PLUGIN.status().then(s => { if (!s || !s.available) throw 0; }).catch(() => { LS.set('engineBroken', true); toast('El motor de sonido de Android no arranca en este móvil: uso el de siempre.', 5000); setTimeout(() => location.reload(), 2500); });
+}
+/* Ajustes › Sonido: the switch */
+function renderEngine() {
+  const row = $('#engineRow'); if (!row) return;
+  row.hidden = !NA_PLUGIN;
+  const want = LS.get('engine', 'web') === 'nativo' && !LS.get('engineBroken', false);
+  setToggle($('#tEngine'), want);
+  const pending = want !== NA_ON;
+  $('#engineNote').innerHTML = pending
+    ? `<b>Se aplica al reabrir Órbita.</b> <button class="btn small" id="engineNow" type="button">Aplicar ahora</button>`
+    : NA_ON ? 'Activado: canciones del mismo disco sin hueco. Las mezclas de DJ (filtro, eco y cuadrar el ritmo) aún no van con este motor: entre canciones hace fundidos.'
+    : LS.get('engineBroken', false) ? 'Se apagó solo porque falló varias veces en este móvil. Puedes volver a probarlo.'
+    : 'Beta: reproduce con el decodificador del propio móvil, fuera del WebView. Canciones del mismo disco sin hueco.';
+}
+$('#tEngine').onclick = () => {
+  const on = !(LS.get('engine', 'web') === 'nativo' && !LS.get('engineBroken', false));
+  LS.set('engine', on ? 'nativo' : 'web'); LS.set('engineBroken', false);
+  renderEngine(); toast(on ? 'Motor de sonido de Android: se aplica al reabrir' : 'Vuelves al motor de siempre al reabrir');
+};
+$('#engineRow').addEventListener('click', e => { if (e.target.id === 'engineNow') { saveSession(true); location.reload(); } });
 $('#tLevel').onclick = () => { AUD.level = !AUD.level; LS.set('aLevel', AUD.level); ensureGraph(); const t = current(); if (t && A < 2) applyNorm(A, t, 0.6); renderSound(); updateQuality(); toast(AUD.level ? 'Volumen igualado entre canciones' : 'Cada canción con su volumen original'); };
 $('#tDirect').onclick = () => {
   AUD.direct = !AUD.direct; LS.set('aDirect', AUD.direct); disarmMix();
-  if (G) { routeLimiter(); applyEq(); const t = current(); if (t && A < 2) applyNorm(A, t, 0.3); } else if (!AUD.direct) ensureGraph();
+  if (NA_ON) { applyEq(); const t = current(); if (t && A < 2) applyNorm(A, t, 0.3); }
+  else if (G) { routeLimiter(); applyEq(); const t = current(); if (t && A < 2) applyNorm(A, t, 0.3); } else if (!AUD.direct) ensureGraph();
   renderSound(); updateQuality();
 };
 
 var NV_STOP;
 function stopTalk() {
-  dj.talkGen++;
+  dj.talkGen++; naOwnTs = Date.now();
   if (NV_STOP) NV_STOP();
   try { if (nativeTTS) nativeTTS.stop().catch(() => {}); else if (dj.supported) speechSynthesis.cancel(); } catch {}
   if (!clipEl.paused) clipEl.pause();
@@ -2500,13 +2689,718 @@ function renderTu() {
   const dOrder = [1, 2, 3, 4, 5, 6, 0], dNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
   const ph = argmax(st.hours), pd = argmax(st.dows);
   const sk = st.all.filter(r => r.skips >= 2).sort((a, b) => b.skips - a.skips).slice(0, 4);
-  out.innerHTML = hero
+  out.innerHTML = recapCardHTML() + hero
     + `<div class="tu-grid"><section class="panel"><div class="stack"><h2>Tus canciones</h2>${topT ? `<ul class="tu-list">${topT}</ul>` : '<p class="note">Aún no hay canciones aquí.</p>'}</div></section>`
     + `<section class="panel"><div class="stack"><h2>Tus artistas</h2>${topA ? `<ul class="tu-list">${topA}</ul>` : '<p class="note">Sin artistas todavía.</p>'}</div></section></div>`
     + `<section class="panel"><div class="stack"><div class="row-wrap"><h2>Cuándo escuchas</h2><span class="spacer"></span><span class="note">Más ${esc(franjaOf(ph).phrase)}, sobre las ${ph}:00</span></div>${barsChart(st.hours, hrs, { tickEvery: 6, name: 'Hora' })}</div></section>`
     + `<section class="panel"><div class="stack"><div class="row-wrap"><h2>Tu semana</h2><span class="spacer"></span><span class="note">Tu día: ${esc(DAYS[pd])}</span></div>${barsChart(dOrder.map(i => st.dows[i]), dNames.map(n => n.slice(0, 3)), { bw: 16, gap: 22, maxW: 380, name: 'Día' })}</div></section>`
     + (sk.length ? `<section class="panel"><div class="stack"><h2>Las que te saltas</h2><p class="note">${esc(dj.name)} las pone menos en tus mezclas y en la radio. Si te vuelven a gustar, márcalas como favoritas.</p><ul class="tu-list">${sk.map(r => { const t = trackById(r.id); return `<li class="tu-row">${coverHTML(t || null)}<span class="row-text"><span class="t-title">${esc(r.title)}</span><span class="t-sub">${esc(r.artist)}</span></span><span class="mono tu-v">${r.skips} ${r.skips === 1 ? 'salto' : 'saltos'}</span></li>`; }).join('')}</ul></div></section>` : '');
   markPlaying();
+}
+/* ===== 3.5 · Tu año en Órbita: tu año en tarjetas, contado por la DJ, con una imagen para compartir ===== */
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const NOVA_SRC = new Set(['daily', 'mix', 'ai', 'nova', 'radio']);
+const dayIdx = ts => { const d = new Date(ts); return Math.round(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 864e5); };
+const fmtDia = ts => { const d = new Date(ts); return `${d.getDate()} de ${MESES[d.getMonth()]}`; };
+const nES = n => Math.round(n).toLocaleString('es-ES');
+function rcHours(s) {
+  if (s >= 36000) return [nES(s / 3600), 'horas'];
+  if (s >= 3600) { const h = Math.round(s / 360) / 10; return [h.toLocaleString('es-ES'), h === 1 ? 'hora' : 'horas']; }
+  const m = Math.max(1, Math.round(s / 60)); return [String(m), m === 1 ? 'minuto' : 'minutos'];
+}
+const rcHoursTxt = s => rcHours(s).join(' ');
+const spokenDur = s => { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} ${h === 1 ? 'hora' : 'horas'}${m ? ` y ${m} minutos` : ''}` : `${Math.max(1, m)} minutos`; };
+function recapStats(y) {
+  const key = 'rc:' + y + ':' + memEvents.length; if (memCache.has(key)) return memCache.get(key);
+  const a = new Date(y, 0, 1).getTime(), b = new Date(y + 1, 0, 1).getTime();
+  const tr = new Map(), ar = new Map(), months = new Array(12).fill(0), hours = new Array(24).fill(0), dows = new Array(7).fill(0), days = new Map(), perDay = new Map();
+  let sec = 0, plays = 0, radioSec = 0, novaSec = 0, first = null;
+  for (const e of memEvents) {
+    if (e.ts < a || e.ts >= b) continue;
+    sec += e.sec; months[new Date(e.ts).getMonth()] += e.sec; hours[e.hour] += e.sec; dows[e.dow] += e.sec;
+    const di = dayIdx(e.ts); let dd = days.get(di); if (!dd) days.set(di, dd = { sec: 0, ts: e.ts }); dd.sec += e.sec;
+    if (NOVA_SRC.has(e.src)) novaSec += e.sec;
+    const yt = String(e.id).startsWith('yt:');
+    if (e.net && !yt) { radioSec += e.sec; continue; }
+    const full = e.sec >= 30 || e.pct >= 0.5; if (full) plays++;
+    if (!first && full) first = e;
+    let r = tr.get(e.id); if (!r) tr.set(e.id, r = { id: e.id, title: e.title, artist: e.artist, sec: 0, plays: 0 });
+    r.sec += e.sec;
+    if (full) { r.plays++; const k = di + '|' + e.id; let pd = perDay.get(k); if (!pd) perDay.set(k, pd = { id: e.id, ts: e.ts, n: 0 }); pd.n++; }
+    const ak = artistKey(e.artist);
+    if (ak) { let x = ar.get(ak); if (!x) ar.set(ak, x = { key: ak, name: e.artist, sec: 0, plays: 0, songs: new Set() }); x.sec += e.sec; if (full) x.plays++; x.songs.add(e.id); }
+  }
+  const tracks = [...tr.values()].filter(r => r.plays > 0).sort((p, q) => q.plays - p.plays || q.sec - p.sec);
+  const artists = [...ar.values()].filter(x => x.plays > 0).sort((p, q) => q.sec - p.sec);
+  // the longest run of days in a row, and the day with most music
+  const keys = [...days.keys()].sort((p, q) => p - q); let best = { n: 0, from: 0, to: 0 }, run = 0, start = 0;
+  keys.forEach((k, i) => { if (i && k === keys[i - 1] + 1) run++; else { run = 1; start = k; } if (run > best.n) best = { n: run, from: days.get(start).ts, to: days.get(k).ts }; });
+  let bigDay = null; for (const d of days.values()) if (!bigDay || d.sec > bigDay.sec) bigDay = d;
+  let obs = null; for (const pd of perDay.values()) if (pd.n >= 3 && (!obs || pd.n > obs.n)) obs = pd;
+  const out = { y, sec, plays, radioSec, novaSec, tracks, artists, months, hours, dows, nDays: days.size, nSongs: tracks.length, nArtists: artists.length, streak: best, bigDay, obs, first, ok: plays >= 10 && sec >= 1800 };
+  memCache.set(key, out); return out;
+}
+/* Which year to show: this one, or last year during the first weeks of January */
+function recapYear() {
+  const d = new Date(), y = d.getFullYear();
+  return d.getMonth() === 0 && d.getDate() <= 20 && recapStats(y - 1).ok ? y - 1 : y;
+}
+function recapType(s) {
+  const tot = s.sec || 1, sum = (f, t) => s.hours.slice(f, t).reduce((p, q) => p + q, 0);
+  const night = (sum(0, 5) + s.hours[23]) / tot, morning = sum(6, 10) / tot, top = s.artists[0] ? s.artists[0].sec / tot : 0;
+  if (night > 0.3) return ['Alma nocturna', 'Tu música suena mejor cuando el resto duerme.'];
+  if (morning > 0.3) return ['Sol de mañana', 'Empiezas el día con banda sonora.'];
+  if (top > 0.35) return ['Corazón fiel', `Cuando algo te gusta, no lo sueltas. Y ${s.artists[0].name} lo sabe.`];
+  if (s.nArtists >= 15 && s.nArtists / Math.max(1, s.plays) > 0.4) return ['Espíritu explorador', 'Siempre a la caza de algo nuevo.'];
+  if (s.radioSec / tot > 0.35) return ['Alma de radio', 'Lo tuyo es dejarte sorprender por las emisoras.'];
+  if (s.novaSec / tot > 0.5) return ['En buenas manos', `Dejaste que ${dj.name} eligiera más de la mitad de lo que sonó.`];
+  return ['Todoterreno', 'Un poco de todo, a cualquier hora. Así da gusto pinchar.'];
+}
+const rcEquiv = sec => sec >= 86400 * 1.5 ? `Eso son ${(Math.round(sec / 8640) / 10).toLocaleString('es-ES')} días enteros sin parar.` : sec >= 86400 ? 'Eso es más de un día entero sin parar.' : sec >= 7200 ? `Como ver ${nES(sec / 6600)} películas seguidas.` : 'Y esto no ha hecho más que empezar.';
+const rcArtistOk = a => a && a !== 'Artista desconocido';
+const rcSong = (r, mid) => rcArtistOk(r.artist) ? `«${r.title}», de ${r.artist}${mid ? ',' : ''}` : `«${r.title}»`;
+const rcVeces = n => n === 1 ? 'una vez' : `${nES(n)} veces`;
+function rcCover(r, cls = '') {
+  const t = trackById(r.id), u = t && coverUrl(t, 'full');
+  return u ? `<span class="rc-cover ${cls}"><img src="${u}" alt="" decoding="async"></span>` : `<span class="rc-cover ${cls}"><span class="cover-ph" style="--h:${t ? phHue(t) : hashHue((r.artist || '') + r.title)}">${esc(((r.title || '♪').trim().charAt(0) || '♪').toUpperCase())}</span></span>`;
+}
+function recapSlides(s) {
+  const y = s.y, out = [], [hn, hu] = rcHours(s.sec), now = new Date();
+  out.push({ k: 'hola', h: 0, html: `<div class="eyebrow">Tu ${y}</div><h2 class="rc-h">Tu año en Órbita</h2><p class="rc-p">${esc(dj.name)} ha estado tomando nota. ¿Vemos lo que ha sonado?</p>`,
+    say: `Hola. He estado tomando nota de todo lo que has escuchado en ${y}. ¿Vemos tu año?` });
+  out.push({ k: 'tiempo', h: 40, html: `<div class="eyebrow">Has escuchado</div><div class="rc-big">${esc(hn)}<small>${esc(hu)} de música</small></div><p class="rc-p">${esc(rcEquiv(s.sec))}</p><div class="rc-pills"><span><b>${nES(s.plays)}</b> canciones</span><span><b>${nES(s.nSongs)}</b> distintas</span><span><b>${nES(s.nArtists)}</b> ${s.nArtists === 1 ? 'artista' : 'artistas'}</span></div>`,
+    say: `Has escuchado ${hn} ${hu} de música. ${rcEquiv(s.sec)}` });
+  const t1 = s.tracks[0];
+  if (t1) out.push({ k: 'cancion', h: 90, html: `${rcCover(t1, 'big')}<div class="eyebrow">Tu canción del año</div><h2 class="rc-h rc-title">${esc(t1.title)}</h2>${rcArtistOk(t1.artist) ? `<p class="rc-sub">${esc(t1.artist)}</p>` : ''}<p class="rc-p"><b>${esc(rcVeces(t1.plays))}</b>${trackById(t1.id) ? ` · <button class="btn small" data-rc="play-top">Ponla</button>` : ''}</p>`,
+    say: `Tu canción del año es ${rcSong(t1)}. La pusiste ${rcVeces(t1.plays)}.` });
+  if (s.tracks.length >= 3) {
+    const top = s.tracks.slice(0, 5);
+    out.push({ k: 'top5', h: 140, html: `<div class="eyebrow">Tu top ${top.length}</div><ol class="rc-list">${top.map((r, i) => `<li>${rcCover(r)}<span class="rc-n">${i + 1}</span><span class="rc-li"><b>${esc(r.title)}</b><span>${esc(rcArtistOk(r.artist) ? r.artist : '')}</span></span><span class="rc-x">${nES(r.plays)}</span></li>`).join('')}</ol>`,
+      say: `Detrás vienen ${rcSong(s.tracks[1], true)} y ${rcSong(s.tracks[2])}.` });
+  }
+  const a1 = s.artists.find(a => rcArtistOk(a.name));
+  if (a1) {
+    const rest = s.artists.filter(a => a !== a1 && rcArtistOk(a.name)).slice(0, 4), max = a1.sec || 1;
+    out.push({ k: 'artista', h: 200, html: `<div class="eyebrow">Tu artista del año</div><h2 class="rc-h rc-title">${esc(a1.name)}</h2><p class="rc-p">${esc(rcHoursTxt(a1.sec))} con su música · ${nES(a1.songs.size)} ${a1.songs.size === 1 ? 'canción' : 'canciones'}</p>${rest.length ? `<ol class="rc-bars-list" start="2">${rest.map(a => `<li><span>${esc(a.name)}</span><i style="width:${Math.max(6, a.sec / max * 100).toFixed(1)}%"></i></li>`).join('')}</ol>` : ''}`,
+      say: `Tu artista del año es ${a1.name}. Le dedicaste ${rcHoursTxt(a1.sec)}.` });
+  }
+  const pm = argmax(s.months), ph = argmax(s.hours), pd = argmax(s.dows), fr = franjaOf(ph).phrase, mmax = Math.max(...s.months) || 1;
+  out.push({ k: 'cuando', h: 260, html: `<div class="eyebrow">Cuándo suena tu música</div><div class="rc-facts"><div><span>Tu mes</span><b>${esc(cap(MESES[pm]))}</b></div><div><span>Tu momento</span><b>${esc(cap(fr))}</b><small>sobre las ${ph}:00</small></div><div><span>Tu día</span><b>${esc(cap(DAYS[pd]))}</b></div></div><div class="rc-months" aria-hidden="true">${s.months.map((v, i) => `<i class="${i === pm ? 'on' : ''}" style="height:${Math.max(4, v / mmax * 100).toFixed(1)}%"><em>${MESES[i].charAt(0).toUpperCase()}</em></i>`).join('')}</div>`,
+    say: `Tu mes fue ${MESES[pm]}. Escuchas sobre todo ${fr}, y tu día es el ${DAYS[pd]}.` });
+  const rec = [], recSay = [];
+  if (s.streak.n >= 2) { rec.push(`<div><span>Tu mejor racha</span><b>${nES(s.streak.n)} días seguidos</b><small>del ${esc(fmtDia(s.streak.from))} al ${esc(fmtDia(s.streak.to))}</small></div>`); recSay.push(`Tu mejor racha fue de ${s.streak.n} días seguidos con música.`); }
+  if (s.bigDay && s.bigDay.sec >= 1800) { rec.push(`<div><span>Tu gran día</span><b>${esc(cap(fmtDia(s.bigDay.ts)))}</b><small>${esc(fmtLong(s.bigDay.sec))} de música</small></div>`); recSay.push(`Y el ${fmtDia(s.bigDay.ts)} fue tu gran día: ${spokenDur(s.bigDay.sec)} de música.`); }
+  if (s.obs) { const r = s.tracks.find(x => x.id === s.obs.id); if (r) { rec.push(`<div><span>En bucle</span><b>«${esc(r.title)}»</b><small>${nES(s.obs.n)} veces el ${esc(fmtDia(s.obs.ts))}</small></div>`); recSay.push(`El ${fmtDia(s.obs.ts)} pusiste ${rcSong(r, true)} ${s.obs.n} veces. Te entiendo.`); } }
+  if (rec.length) out.push({ k: 'records', h: 310, html: `<div class="eyebrow">Tus récords</div><div class="rc-facts">${rec.join('')}</div>`, say: recSay.join(' ') });
+  if (s.novaSec / (s.sec || 1) >= 0.1) {
+    const pct = Math.round(s.novaSec / s.sec * 100);
+    out.push({ k: 'nova', h: 330, html: `<div class="eyebrow">Tu DJ</div><div class="rc-big">${pct}<small>% lo eligió ${esc(dj.name)}</small></div><p class="rc-p">${esc(rcHoursTxt(s.novaSec))} de mezclas, radio y tu mezcla del día.${s.radioSec >= 600 ? ` Y ${esc(rcHoursTxt(s.radioSec))} de emisoras.` : ''}</p>`,
+      say: `Una cosa más: el ${pct} por ciento de lo que sonó lo elegí yo. Me lo pasé genial pinchando para ti.` });
+  }
+  const [tl, td] = recapType(s);
+  out.push({ k: 'tipo', h: 20, html: `<div class="eyebrow">Este año has sido</div><h2 class="rc-h rc-grad">${esc(tl)}</h2><p class="rc-p">${esc(td)}</p>`, say: `Este año has sido… ${tl}. ${td}` });
+  const later = y === now.getFullYear() && now.getMonth() < 11;
+  out.push({ k: 'fin', h: 0, last: true, html: `<div class="rc-card-wrap"><div class="rc-card-ph" id="rcCardBox"><span class="note">Preparando tu imagen…</span></div></div><div class="rc-btns"><button class="btn primary" data-rc="share">Compartir</button><button class="btn" data-rc="save">Guardar imagen</button></div><div class="rc-btns"><button class="btn small" data-rc="listen">Escuchar tu ${y}</button><button class="btn small" data-rc="close">Cerrar</button></div>`,
+    say: later ? 'Gracias por dejarme ser tu DJ. Y lo que queda de año, a seguir sumando.' : `Gracias por dejarme ser tu DJ. ¡A por un ${y + 1} con más música!` });
+  return out;
+}
+
+const RC = { s: null, slides: [], i: 0, gen: 0, t0: 0, dur: 0, spoken: true, paused: false, pausedAt: 0, raf: 0, voice: LS.get('recapVoice', true), img: null, started: false };
+const rcVoiceOn = () => RC.voice && dj.voiceOn;
+function recapCardHTML() {
+  const y = recapYear(), s = recapStats(y); if (!s.ok) return '';
+  const prev = recapStats(y - 1);
+  return `<section class="panel glow rc-entry"><div class="rc-entry-t"><div class="eyebrow">Resumen del año</div><h2>Tu ${y} en Órbita</h2><p class="note">${esc(rcHoursTxt(s.sec))} de música, tu canción y tu artista del año, tus récords… contado por ${esc(dj.name)}.</p></div><div class="rc-entry-b"><button class="btn primary" data-rc-open="${y}">Ver tu año</button>${prev.ok ? `<button class="btn small" data-rc-open="${y - 1}">Ver ${y - 1}</button>` : ''}</div></section>`;
+}
+function openRecap(y) {
+  y = y || recapYear(); const s = recapStats(y);
+  if (!s.ok) { novaSay(`Todavía no tengo bastante para tu resumen de ${y}. Escucha un poco más y te lo preparo.`); return; }
+  if (!$('#chat').hidden) closeChat();
+  RC.s = s; RC.slides = recapSlides(s); RC.img = null; RC.paused = false; RC.started = false;
+  $('#rcBars').innerHTML = RC.slides.map(() => '<i><b></b></i>').join('');
+  setToggleVoice(); $('#recap').hidden = false; document.body.classList.add('rc-open');
+  if (STANDALONE) { try { history.pushState({ recap: 1 }, '', location.hash || '#' + state.view); } catch {} }
+  LS.set('recapSeen', y); recapHint();
+  // music under the recap: if nothing is playing, your songs of the year
+  const playing = current() && !act().paused;
+  if (!playing) { const ids = s.tracks.map(r => r.id).filter(id => trackById(id)).slice(0, 30); if (ids.length) { RC.started = true; playQueue(ids, 0, { source: 'library' }); } }
+  setTimeout(() => rcShow(0), RC.started ? 700 : 150);
+  cancelAnimationFrame(RC.raf); RC.raf = requestAnimationFrame(rcTick);
+}
+function closeRecap(fromPop) {
+  if ($('#recap').hidden) return;
+  $('#recap').hidden = true; document.body.classList.remove('rc-open'); RC.gen++; cancelAnimationFrame(RC.raf); stopTalk();
+  if (STANDALONE && !fromPop && history.state && history.state.recap) { try { popSkip = true; history.back(); } catch {} }
+  if (state.view === 'tu') renderTu();
+}
+function setToggleVoice() { const b = $('#rcVoice'); b.setAttribute('aria-pressed', String(rcVoiceOn())); b.disabled = !dj.voiceOn; b.title = dj.voiceOn ? (rcVoiceOn() ? 'Silenciar a ' + dj.name : 'Que hable ' + dj.name) : 'La voz de la DJ está apagada en Ajustes'; }
+function rcShow(i) {
+  if ($('#recap').hidden) return;
+  i = Math.max(0, Math.min(RC.slides.length - 1, i)); RC.i = i; const g = ++RC.gen, sl = RC.slides[i];
+  const st = $('#rcStage'); st.innerHTML = `<div class="rc-slide rc-${sl.k}">${sl.html}</div>`;
+  $('#recap').style.setProperty('--rc-h', sl.h);
+  $$('#rcBars i').forEach((b, k) => { b.firstChild.style.width = k < i ? '100%' : '0%'; });
+  RC.t0 = performance.now(); RC.pausedAt = RC.paused ? RC.t0 : 0; RC.dur = Math.min(16000, Math.max(6500, 1500 + (sl.say || '').length * 62));
+  stopTalk(); RC.spoken = true;
+  if (rcVoiceOn() && sl.say) {
+    RC.spoken = false; RC.say0 = performance.now();
+    Promise.resolve(djTalk(sl.say, 'test', { forceTTS: true })).catch(() => {}).then(() => { if (g === RC.gen) RC.spoken = true; });
+  } else setBubble(sl.say || '');
+  if (sl.k === 'fin') rcPrepareCard(g);
+}
+function rcTick(now) {
+  if ($('#recap').hidden) return;
+  RC.raf = requestAnimationFrame(rcTick);
+  const sl = RC.slides[RC.i]; if (!sl || RC.paused) return;
+  const f = Math.min(1, (now - RC.t0) / RC.dur), bar = $$('#rcBars i')[RC.i];
+  if (bar) bar.firstChild.style.width = (sl.last ? 100 : f * 100).toFixed(2) + '%';
+  // never stuck on a voice that doesn't finish: 12 s after the time it should have taken, go on
+  if (!RC.spoken && now - RC.t0 > RC.dur + 12000) RC.spoken = true;
+  if (f >= 1 && RC.spoken && !sl.last) rcShow(RC.i + 1);
+}
+function rcPause(on) {
+  if (RC.paused === on) return; RC.paused = on; const now = performance.now();
+  if (on) RC.pausedAt = now; else { RC.t0 += now - (RC.pausedAt || now); RC.pausedAt = 0; }
+  $('#recap').classList.toggle('paused', on);
+}
+/* The shareable picture: 1080 × 1920, the size of a story */
+function rcRound(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function rcFit(c, text, maxW) {
+  text = String(text || ''); if (c.measureText(text).width <= maxW) return text;
+  let lo = 0, hi = text.length; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (c.measureText(text.slice(0, m) + '…').width <= maxW) lo = m; else hi = m - 1; }
+  return text.slice(0, lo).trimEnd() + '…';
+}
+function rcWrap(c, text, maxW, lines) {
+  const words = String(text || '').split(/\s+/).filter(Boolean), out = []; let cur = '';
+  for (let i = 0; i < words.length; i++) {
+    const tryL = cur ? cur + ' ' + words[i] : words[i];
+    if (c.measureText(tryL).width <= maxW || !cur) cur = tryL;
+    else { out.push(cur); cur = words[i]; if (out.length === lines - 1) { cur = words.slice(i).join(' '); break; } }
+  }
+  if (cur) out.push(cur);
+  return out.slice(0, lines).map((l, i, a) => i === a.length - 1 ? rcFit(c, l, maxW) : l);
+}
+async function recapImage(s) {
+  const W = 1080, H = 1920, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const c = cv.getContext('2d');
+  const root = getComputedStyle(document.documentElement), hue = parseFloat(root.getPropertyValue('--accent-h')) || 6, sat = Math.max(0.2, parseFloat(root.getPropertyValue('--sat')) || 1);
+  const A1 = `hsl(${hue},${96 * sat}%,64%)`, A2 = `hsl(${hue - 45},${92 * sat}%,66%)`, A3 = `hsl(${hue + 150},${85 * sat}%,58%)`;
+  await Promise.all(['900 150px Unbounded', '700 52px Unbounded', '800 40px Figtree', '600 36px Figtree', '600 26px "IBM Plex Mono"'].map(f => document.fonts.load(f).catch(() => {})));
+  c.fillStyle = '#06050b'; c.fillRect(0, 0, W, H);
+  const glow = (x, y, r, col) => { const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, col); g.addColorStop(1, 'rgba(6,5,11,0)'); c.fillStyle = g; c.fillRect(0, 0, W, H); };
+  c.globalAlpha = 0.55; glow(980, 180, 820, A1); c.globalAlpha = 0.4; glow(60, 1500, 900, A2); c.globalAlpha = 0.22; glow(900, 1700, 600, A3); c.globalAlpha = 1;
+  const M = 84, grad = (x0, x1) => { const g = c.createLinearGradient(x0, 0, x1, 0); g.addColorStop(0, A1); g.addColorStop(1, A2); return g; };
+  const ls = v => { try { c.letterSpacing = v; } catch {} };
+  c.textBaseline = 'alphabetic';
+  c.fillStyle = 'rgba(247,242,255,.72)'; c.font = '600 28px "IBM Plex Mono"'; ls('6px'); c.fillText('ÓRBITA · TU MÚSICA, TU DJ', M, 150); ls('0px');
+  c.font = '900 168px Unbounded'; c.fillStyle = grad(M, M + 800); c.fillText(`Mi ${s.y}`, M - 6, 330);
+  c.fillStyle = '#f7f2ff'; c.font = '700 56px Figtree'; c.fillText('en Órbita', M, 408);
+  // time
+  const [hn, hu] = rcHours(s.sec);
+  c.font = '900 200px Unbounded'; c.fillStyle = '#f7f2ff'; c.fillText(hn, M - 8, 650);
+  const hw = c.measureText(hn).width; c.font = '800 50px Figtree'; c.fillStyle = A1;
+  const unitX = M + hw + 26; if (unitX + c.measureText(hu).width < W - M) { c.fillText(hu, unitX, 586); c.fillStyle = 'rgba(247,242,255,.8)'; c.fillText('de música', unitX, 646); }
+  else { c.fillText(`${hu} de música`, M, 720); }
+  c.font = '600 38px Figtree'; c.fillStyle = 'rgba(247,242,255,.66)'; c.fillText(`${nES(s.plays)} canciones · ${nES(s.nArtists)} ${s.nArtists === 1 ? 'artista' : 'artistas'} · ${nES(s.nDays)} días con música`, M, 770);
+  // song of the year
+  const t1 = s.tracks[0];
+  if (t1) {
+    const y0 = 830, h0 = 300; rcRound(c, M, y0, W - 2 * M, h0, 36); c.fillStyle = 'rgba(255,255,255,.07)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 2; c.stroke();
+    const cs = 236, cx = M + 32, cy = y0 + 32, t = trackById(t1.id), u = t && coverUrl(t, 'full');
+    c.save(); rcRound(c, cx, cy, cs, cs, 26); c.clip();
+    let drew = false;
+    if (u) { try { const im = new Image(); im.src = u; await im.decode(); const sc = Math.max(cs / im.naturalWidth, cs / im.naturalHeight), w = im.naturalWidth * sc, h = im.naturalHeight * sc; c.drawImage(im, cx + (cs - w) / 2, cy + (cs - h) / 2, w, h); drew = true; } catch {} }
+    if (!drew) { const ph = t ? phHue(t) : hashHue((t1.artist || '') + t1.title), g = c.createLinearGradient(cx, cy, cx + cs, cy + cs); g.addColorStop(0, `hsl(${ph},70%,55%)`); g.addColorStop(1, `hsl(${ph + 50},70%,30%)`); c.fillStyle = g; c.fillRect(cx, cy, cs, cs); c.fillStyle = 'rgba(255,255,255,.9)'; c.font = '900 120px Unbounded'; c.textAlign = 'center'; c.fillText(((t1.title || '♪').trim().charAt(0) || '♪').toUpperCase(), cx + cs / 2, cy + cs / 2 + 44); c.textAlign = 'left'; }
+    c.restore();
+    const tx = cx + cs + 36, tw = W - M - 32 - tx;
+    c.font = '600 26px "IBM Plex Mono"'; ls('4px'); c.fillStyle = A1; c.fillText('CANCIÓN DEL AÑO', tx, cy + 34); ls('0px');
+    c.font = '700 50px Unbounded'; c.fillStyle = '#f7f2ff'; const tl = rcWrap(c, t1.title, tw, 2); tl.forEach((l, i) => c.fillText(l, tx, cy + 104 + i * 62));
+    let yy = cy + 104 + tl.length * 62;
+    if (rcArtistOk(t1.artist)) { c.font = '600 36px Figtree'; c.fillStyle = 'rgba(247,242,255,.72)'; c.fillText(rcFit(c, t1.artist, tw), tx, yy); yy += 52; }
+    c.font = '800 34px Figtree'; c.fillStyle = A2; c.fillText(rcVeces(t1.plays), tx, Math.min(yy, cy + cs - 4));
+  }
+  // top 5 and artists
+  const colW = (W - 2 * M - 40) / 2, y1 = 1210;
+  const col = (x, head, rows) => {
+    c.font = '600 26px "IBM Plex Mono"'; ls('4px'); c.fillStyle = 'rgba(247,242,255,.6)'; c.fillText(head, x, y1); ls('0px');
+    rows.forEach((r, i) => { const yy = y1 + 74 + i * 66; c.font = '900 34px Unbounded'; c.fillStyle = i ? 'rgba(247,242,255,.5)' : A1; c.fillText(String(i + 1), x, yy); c.font = '700 36px Figtree'; c.fillStyle = '#f7f2ff'; c.fillText(rcFit(c, r, colW - 56), x + 52, yy); });
+  };
+  col(M, 'MIS CANCIONES', s.tracks.slice(0, 5).map(r => r.title));
+  col(M + colW + 40, 'MIS ARTISTAS', s.artists.filter(a => rcArtistOk(a.name)).slice(0, 5).map(a => a.name));
+  // what kind of listener
+  const [tl] = recapType(s), y2 = 1600;
+  rcRound(c, M, y2, W - 2 * M, 170, 36); c.fillStyle = 'rgba(255,255,255,.07)'; c.fill();
+  c.font = '600 26px "IBM Plex Mono"'; ls('4px'); c.fillStyle = 'rgba(247,242,255,.6)'; c.fillText('ESTE AÑO HE SIDO', M + 36, y2 + 56); ls('0px');
+  c.font = '900 62px Unbounded'; c.fillStyle = grad(M + 36, M + 700); c.fillText(rcFit(c, tl, W - 2 * M - 72), M + 32, y2 + 130);
+  const pd = argmax(s.dows), ph = argmax(s.hours);
+  c.font = '600 32px Figtree'; c.fillStyle = 'rgba(247,242,255,.7)';
+  c.fillText(rcFit(c, [cap(franjaOf(ph).phrase), 'los ' + DAYS[pd] + (/s$/.test(DAYS[pd]) ? '' : 's'), s.streak.n >= 2 ? `racha de ${s.streak.n} días` : ''].filter(Boolean).join(' · '), W - 2 * M), M, 1830);
+  c.font = '600 24px "IBM Plex Mono"'; c.fillStyle = 'rgba(247,242,255,.45)'; ls('3px'); c.fillText(`DJ: ${dj.name.toUpperCase()}`, M, 1880); ls('0px');
+  return cv;
+}
+async function rcPrepareCard(g) {
+  try {
+    if (!RC.img) { const cv = await recapImage(RC.s); RC.img = await new Promise(res => cv.toBlob(b => res(b), 'image/jpeg', 0.92)); RC.imgUrl && URL.revokeObjectURL(RC.imgUrl); RC.imgUrl = URL.createObjectURL(RC.img); }
+    if (g !== RC.gen) return; const box = $('#rcCardBox'); if (box) box.outerHTML = `<img class="rc-card" id="rcCardBox" src="${RC.imgUrl}" alt="Tu ${RC.s.y} en Órbita: tu tiempo, tu canción, tu top 5 y tus artistas">`;
+  } catch (e) { const box = $('#rcCardBox'); if (box && g === RC.gen) box.innerHTML = '<span class="note">No he podido dibujar la imagen.</span>'; }
+}
+const blobB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(b); });
+function webDownload(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); }
+async function rcShare(save) {
+  if (!RC.img) await rcPrepareCard(RC.gen); if (!RC.img) return;
+  const s = RC.s, name = `orbita-${s.y}.jpg`, t1 = s.tracks[0];
+  const text = `Mi ${s.y} en Órbita: ${rcHoursTxt(s.sec)} de música${t1 ? `. Mi canción del año: «${t1.title}»${rcArtistOk(t1.artist) ? `, de ${t1.artist}` : ''}` : ''}.`;
+  rcPause(true);
+  try {
+    if (nativeLib) {
+      const data = await blobB64(RC.img);
+      if (save) { const r = await nativeLib.saveImage({ name, data, mime: 'image/jpeg' }); toast(`Imagen guardada en ${(r && r.where) || 'la galería'}`, 4200); }
+      else await nativeLib.shareFile({ name, data, mime: 'image/jpeg', text, title: `Tu ${s.y} en Órbita` });
+      return;
+    }
+    const file = new File([RC.img], name, { type: 'image/jpeg' });
+    if (!save && navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text }); return; }
+    webDownload(RC.img, name); toast(save ? 'Imagen descargada' : 'Imagen descargada: compártela desde tus descargas', 3800);
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    toast(/not implemented|no implementado|UNIMPLEMENTED/i.test(String(e && (e.code || e.message))) ? 'Esta versión de la app no puede compartir imágenes' : (save ? 'No he podido guardar la imagen' : 'No he podido compartir la imagen'), 3800);
+  }
+}
+$('#recap').addEventListener('click', e => {
+  const b = e.target.closest('[data-rc]');
+  if (b) {
+    const a = b.dataset.rc;
+    if (a === 'close') closeRecap();
+    else if (a === 'share') rcShare(false);
+    else if (a === 'save') rcShare(true);
+    else if (a === 'listen') { const ids = RC.s.tracks.map(r => r.id).filter(id => trackById(id)).slice(0, 50); if (!ids.length) { toast('Esas canciones ya no están en tu biblioteca'); return; }
+      const name = `Tu ${RC.s.y}`, old = state.playlists.find(p => p.name === name && p.source === 'recap'), p = old || { id: uid('p'), name, createdAt: Date.now(), source: 'recap' };
+      Object.assign(p, { description: `Las ${ids.length} canciones que más escuchaste en ${RC.s.y}.`, trackIds: ids }); if (!old) state.playlists.push(p); idbPut('playlists', p); renderLists();
+      closeRecap(); playQueue(ids, 0, { source: 'library' }); toast(`Suena «${name}» · guardada en Mis listas`, 3600); }
+    else if (a === 'play-top') { const id = RC.s.tracks[0] && RC.s.tracks[0].id; if (id && trackById(id)) { const t = current(); if (!t || t.id !== id) playQueue([id, ...RC.s.tracks.slice(1, 30).map(r => r.id).filter(x => trackById(x))], 0, { source: 'library' }); else if (act().paused) togglePlay(); } }
+    return;
+  }
+});
+(() => {
+  let downAt = 0, held = false, ht = 0;
+  const zone = $('#rcTap');
+  zone.addEventListener('pointerdown', () => { downAt = performance.now(); held = false; clearTimeout(ht); ht = setTimeout(() => { held = true; rcPause(true); }, 280); });
+  const up = e => {
+    clearTimeout(ht); if (!downAt) return; downAt = 0;
+    if (held) { held = false; rcPause(false); return; }
+    const r = zone.getBoundingClientRect(), x = (e.clientX - r.left) / r.width;
+    rcPause(false); const ni = RC.i + (x < 0.3 ? -1 : 1);
+    if (ni < RC.slides.length) rcShow(ni);
+  };
+  zone.addEventListener('pointerup', up);
+  zone.addEventListener('pointercancel', () => { clearTimeout(ht); downAt = 0; if (held) { held = false; rcPause(false); } });
+  zone.addEventListener('contextmenu', e => e.preventDefault());
+})();
+$('#rcClose').onclick = () => closeRecap();
+$('#rcVoice').onclick = () => { RC.voice = !RC.voice; LS.set('recapVoice', RC.voice); setToggleVoice(); if (!rcVoiceOn()) { stopTalk(); RC.spoken = true; } };
+document.addEventListener('click', e => { const b = e.target.closest('[data-rc-open]'); if (b) openRecap(+b.dataset.rcOpen || 0); });
+document.addEventListener('keydown', e => {
+  if ($('#recap').hidden) return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); e.stopImmediatePropagation(); rcShow(RC.i + 1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopImmediatePropagation(); rcShow(RC.i - 1); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeRecap(); }
+  else if (e.code === 'Space' && !(e.target.closest && e.target.closest('button'))) { e.preventDefault(); e.stopImmediatePropagation(); rcPause(!RC.paused); }
+}, true);
+document.addEventListener('visibilitychange', () => { if (document.hidden && !$('#recap').hidden) rcPause(true); });
+/* In December (and early January), once a year: «your recap is ready» */
+function recapHint() {
+  const d = new Date(), y = recapYear(), s = recapStats(y);
+  const season = d.getMonth() === 11 || (d.getMonth() === 0 && d.getDate() <= 20);
+  const box = $('#rcHint'); if (!box) return;
+  box.hidden = !(season && s.ok && LS.get('recapSeen', 0) !== y && LS.get('recapHintOff', 0) !== y);
+  if (!box.hidden) $('#rcHintText').textContent = `${rcHoursTxt(s.sec)} de música, tu canción del año y mucho más. ${dj.name} te lo cuenta.`;
+  if (!box.hidden) $('#rcHintHead').textContent = `Tu ${y} en Órbita ya está listo`;
+}
+$('#rcHintLater').onclick = () => { LS.set('recapHintOff', recapYear()); recapHint(); };
+/* ===== 3.5 · Primera vez fácil: la bienvenida para quien acaba de instalar Órbita ===== */
+const OB = { fresh: false, step: 0, genres: new Set(), energy: '', gen: 0, again: false, scanning: false };
+const OB_STEPS = ['hola', 'musica', 'gustos', 'dj', 'listo'];
+const OB_AV = '<div class="dj-avatar onb-av" aria-hidden="true"><span class="ring"></span><span class="core"></span><span class="bars"><i></i><i></i><i></i><i></i><i></i></span></div>';
+/* Someone who has just installed the app: nothing heard, nothing saved, never seen the news of a version */
+function obIsFresh() { return !LS.get('onboarded', false) && !LS.get('newsSeen', '') && !memEvents.length && !state.tracks.some(t => !t.demo); }
+function openOnboarding(again) {
+  OB.step = 0; OB.again = !!again; OB.genres = new Set(prefList().filter(p => p.kind === 'boost' && p.target && p.target.type === 'genre' && /^Bienvenida/.test(p.said || '')).map(p => p.target.value)); OB.energy = '';
+  if (!$('#chat').hidden) closeChat();
+  LS.set('devWelcomeDone', true); try { renderDevice(); } catch {}
+  // the news of this version are for people who update, not for someone who has just arrived
+  const mm = String(APP_CFG.version || '').split('.').slice(0, 2).join('.'); if (mm && !again) LS.set('newsSeen', mm);
+  $('#onb').hidden = false; document.body.classList.add('rc-open');
+  if (STANDALONE) { try { history.pushState({ onb: 1 }, '', location.hash || '#' + state.view); } catch {} }
+  obShow(0);
+}
+function closeOnboarding(fromPop) {
+  if ($('#onb').hidden) return;
+  $('#onb').hidden = true; document.body.classList.remove('rc-open'); OB.gen++; LS.set('onboarded', true); stopTalk();
+  if (STANDALONE && !fromPop && history.state && history.state.onb) { try { popSkip = true; history.back(); } catch {} }
+}
+function obCount() {
+  const dev = state.tracks.filter(t => t.dev), arts = new Set(dev.map(t => artistKey(t.artist)).filter(Boolean));
+  return { songs: dev.length, artists: arts.size };
+}
+function obMusicResult() {
+  const st = devLib.state, c = obCount();
+  if (OB.scanning) return '<p class="onb-res"><span class="spin" aria-hidden="true"></span><span>Buscando tu música…</span></p>';
+  if (st === 'granted') return c.songs ? `<p class="onb-res ok"><span>He encontrado <b>${nES(c.songs)} ${c.songs === 1 ? 'canción' : 'canciones'}</b> de ${nES(c.artists)} ${c.artists === 1 ? 'artista' : 'artistas'}.</span></p>`
+    : '<p class="onb-res"><span>No he encontrado canciones en el móvil. Puedes añadirlas desde Biblioteca, y mientras tanto escuchar la radio o vídeos de YouTube.</span></p>';
+  if (st === 'denied') return '<p class="onb-res"><span>Sin permiso no puedo ver tu música. Puedes dármelo cuando quieras en Ajustes del móvil › Apps › Órbita › Permisos › Música y audio.</span></p>';
+  return '';
+}
+function obGenres() {
+  const n = new Map(); for (const t of state.tracks) if (t.dev) for (const g of trackGenres(t)) n.set(g, (n.get(g) || 0) + 1);
+  return GENRES.map(([g], i) => [g, n.get(g) || 0, i]).sort((a, b) => b[1] - a[1] || a[2] - b[2]).map(x => x[0]);
+}
+function obStepHTML(k) {
+  const of = i => `<div class="eyebrow">Paso ${i} de 4</div>`, next = (label = 'Siguiente') => `<button class="btn primary big" data-ob="next">${label}</button>`;
+  if (k === 'hola') return `${OB_AV}<div class="eyebrow">Bienvenida</div><h2 class="rc-h" id="onbHead">Hola, soy ${esc(dj.name)}</h2><p class="rc-p">Soy tu DJ. Pongo tu música, la mezclo sin cortes y te hablo entre canciones, como en la radio. En un minuto lo dejamos listo.</p><div class="onb-btns">${next('Empezar')}</div>`;
+  if (k === 'musica') {
+    const head = `${of(1)}<h2 class="rc-h" id="onbHead">Tu música</h2>`;
+    if (!nativeLib) return `${head}<p class="rc-p">Añade tus canciones desde Biblioteca: arrástralas aquí o elígelas de una carpeta. Mientras tanto tienes unas pistas de prueba y la radio.</p><div class="onb-btns">${next()}</div>`;
+    const st = devLib.state;
+    return `${head}<p class="rc-p">Pongo las canciones que ya tienes en el móvil, directamente: sin copiarlas ni ocupar espacio. Para verlas, Android te pedirá permiso.</p><div id="onbMusic">${obMusicResult()}</div><div class="onb-btns">${st === 'granted' || st === 'denied' ? next() : `<button class="btn primary big" data-ob="perm"${OB.scanning ? ' disabled' : ''}>Dar acceso a mi música</button><button class="btn" data-ob="next">Ahora no</button>`}</div>`;
+  }
+  if (k === 'gustos') return `${of(2)}<h2 class="rc-h" id="onbHead">¿Qué te gusta?</h2><p class="rc-p">Elige los estilos que más escuchas. Los tendré en cuenta en tus mezclas y en la radio.</p><div class="onb-chips" role="group" aria-label="Estilos que te gustan">${obGenres().map(g => `<button type="button" class="chip" data-ob-g="${esc(g)}" aria-pressed="${OB.genres.has(g)}">${esc(cap(g))}</button>`).join('')}</div><div class="onb-row"><span class="lbl">¿Y cómo te gusta?</span><div class="seg" role="group" aria-label="Energía"><button type="button" data-ob-e="calma" aria-pressed="${OB.energy === 'calma'}">Tranquila</button><button type="button" data-ob-e="" aria-pressed="${OB.energy === ''}">De todo</button><button type="button" data-ob-e="energia" aria-pressed="${OB.energy === 'energia'}">Con energía</button></div></div><div class="onb-btns">${next()}</div>`;
+  if (k === 'dj') {
+    const f = !dj.intros ? 'nunca' : dj.freq, c = LS.get('city', null);
+    return `${of(3)}<h2 class="rc-h" id="onbHead">Tu DJ</h2><label class="onb-field"><span>¿Cómo quieres llamarme?</span><input id="onbName" maxlength="20" value="${esc(dj.name)}" autocomplete="off" enterkeyhint="next"></label><div class="onb-row"><span class="lbl">¿Cuánto hablo entre canciones?</span><div class="seg" role="group" aria-label="Cuánto habla la DJ">${[['siempre', 'En cada una'], ['aveces', 'A veces'], ['inicio', 'Al empezar'], ['nunca', 'Nada']].map(([v, l]) => `<button type="button" data-ob-f="${v}" aria-pressed="${f === v}">${l}</button>`).join('')}</div></div><label class="onb-field"><span>Tu ciudad <small>(opcional, para decirte qué tiempo hace)</small></span><input id="onbCity" placeholder="${c ? esc(c.name) : 'Por ejemplo, Sevilla'}" autocomplete="address-level2" enterkeyhint="done"></label><div class="onb-btns">${next()}</div>`;
+  }
+  const c = obCount(), gs = [...OB.genres].slice(0, 3);
+  const what = (c.songs ? `Tengo tus ${nES(c.songs)} canciones` : 'Todo preparado') + (gs.length ? ` y sé que te ${gs.length === 1 ? 'gusta' : 'gustan'} ${listJoin(gs)}.` : '.');
+  const canMix = poolTracks().length >= 2;
+  return `${OB_AV}${of(4)}<h2 class="rc-h" id="onbHead">Todo listo</h2><p class="rc-p">${esc(what)}</p><ul class="onb-tips"><li>Pídeme lo que quieras: «ponme algo para correr», «música para cenar».</li><li>Gira la ruleta si no sabes qué escuchar.</li><li>En «Tú» verás lo que escuchas y, a final de año, tu resumen.</li></ul><div class="onb-btns">${canMix ? '<button class="btn primary big" data-ob="mix">Ponme mi primera mezcla</button>' : '<button class="btn primary big" data-ob="lib">Añadir mi música</button>'}<button class="btn" data-ob="done">Explorar la app</button></div>`;
+}
+const listJoin = a => a.length < 2 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' y ' + a[a.length - 1];
+function obShow(i, quiet) {
+  OB.step = Math.max(0, Math.min(OB_STEPS.length - 1, i)); const k = OB_STEPS[OB.step], g = ++OB.gen;
+  $('#onbStage').innerHTML = `<div class="onb-step onb-${k}">${obStepHTML(k)}</div>`;
+  $('#onbDots').innerHTML = OB_STEPS.map((_, n) => `<i class="${n === OB.step ? 'on' : n < OB.step ? 'done' : ''}"></i>`).join('');
+  $('#onb').style.setProperty('--rc-h', [0, 60, 150, 230, 310][OB.step]);
+  const f = $('#onbStage [data-ob="next"], #onbStage [data-ob="perm"], #onbStage [data-ob="mix"], #onbStage [data-ob="lib"]'); if (f) setTimeout(() => { if (g === OB.gen) try { f.focus({ preventScroll: true }); } catch {} }, 60);
+  if (quiet) return;
+  const say = { hola: `¡Hola! Soy ${dj.name}, tu DJ. En un minuto lo dejamos todo listo.`, musica: nativeLib ? 'Primero, tu música. Dame permiso y la busco en tu móvil, sin copiar nada.' : 'Primero, tu música. Añádela desde Biblioteca cuando quieras.', gustos: '¿Qué estilos te gustan? Elige los que quieras.', dj: '¿Cómo quieres que me llame? ¿Y cuánto hablo entre canciones?', listo: 'Todo listo. ¿Te pongo tu primera mezcla?' }[k];
+  stopTalk(); if (dj.voiceOn) djTalk(say, 'test', { forceTTS: true }); else setBubble(say);
+}
+async function obPerm() {
+  if (OB.scanning) return; OB.scanning = true; obShow(OB.step, true);
+  try { await connectDevice(); } catch {}
+  OB.scanning = false; if ($('#onb').hidden || OB_STEPS[OB.step] !== 'musica') return;
+  obShow(OB.step, true);
+  const c = obCount(), st = devLib.state;
+  const line = st === 'granted' ? (c.songs ? `¡Genial! He encontrado ${c.songs} canciones.` : 'No he encontrado canciones en el móvil, pero no pasa nada.') : 'Vale, sin tu música por ahora. Puedes darme permiso más tarde.';
+  stopTalk(); if (dj.voiceOn) djTalk(line, 'test', { forceTTS: true });
+}
+function obSaveTastes() {
+  const keep = prefList().filter(p => !/^Bienvenida/.test(p.said || ''));
+  const add = [...OB.genres].map((g, i) => ({ id: 'p' + Date.now() + i, kind: 'boost', target: { type: 'genre', value: g, name: g }, when: null, said: `Bienvenida: me gusta ${g}` }));
+  savePrefs(keep.concat(add));
+}
+function obSaveDj() {
+  const n = (($('#onbName') || {}).value || '').replace(/[<>]/g, '').trim().slice(0, 20);
+  if (n && n !== dj.name) { dj.name = n; LS.set('djName', n); applyDjName(); try { renderDjPersona(); } catch {} }
+  const city = (($('#onbCity') || {}).value || '').trim();
+  if (city && ONLINE) obCity(city);
+}
+async function obCity(name) {
+  try {
+    const j = await netJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=es&format=json`, { timeout: 9000 });
+    const r = j && j.results && j.results[0]; if (!r) { toast(`No encuentro «${name}». Puedes ponerla luego en Ajustes.`, 3600); return; }
+    LS.set('city', { name: r.name, lat: r.latitude, lon: r.longitude, country: r.country || '' }); LS.set('wx', null);
+    try { renderCity(); } catch {} loadWeather(true);
+  } catch {}
+}
+function obSetFreq(v) {
+  if (v === 'nunca') { dj.intros = false; LS.set('intros', false); }
+  else { dj.intros = true; LS.set('intros', true); dj.freq = v; LS.set('djFreq', v); }
+  try { setToggle($('#tIntros'), dj.intros); renderDjPersona(); } catch {}
+}
+function obFirstMix() {
+  const gs = [...OB.genres].slice(0, 3);
+  const req = (gs.length ? listJoin(gs) : 'una mezcla variada para empezar') + (OB.energy === 'calma' ? ', tranquila' : OB.energy === 'energia' ? ', con energía' : '');
+  closeOnboarding(); setView('inicio');
+  setTimeout(() => mixFromChat(req), 250);
+}
+$('#onb').addEventListener('click', e => {
+  const g = e.target.closest('[data-ob-g]');
+  if (g) { const v = g.dataset.obG; OB.genres.has(v) ? OB.genres.delete(v) : OB.genres.add(v); g.setAttribute('aria-pressed', String(OB.genres.has(v))); return; }
+  const en = e.target.closest('[data-ob-e]');
+  if (en) { OB.energy = en.dataset.obE; $$('#onbStage [data-ob-e]').forEach(x => x.setAttribute('aria-pressed', String(x === en))); return; }
+  const fq = e.target.closest('[data-ob-f]');
+  if (fq) { obSetFreq(fq.dataset.obF); $$('#onbStage [data-ob-f]').forEach(x => x.setAttribute('aria-pressed', String(x === fq))); return; }
+  const b = e.target.closest('[data-ob]'); if (!b) return;
+  const a = b.dataset.ob, k = OB_STEPS[OB.step];
+  if (a === 'next') { if (k === 'gustos') obSaveTastes(); if (k === 'dj') obSaveDj(); obShow(OB.step + 1); }
+  else if (a === 'perm') obPerm();
+  else if (a === 'mix') obFirstMix();
+  else if (a === 'lib') { closeOnboarding(); setView('biblioteca'); }
+  else if (a === 'done') { closeOnboarding(); setView('inicio'); }
+});
+$('#onb').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches && e.target.matches('#onbName, #onbCity')) { e.preventDefault(); if (e.target.id === 'onbName') $('#onbCity').focus(); else $('#onbStage [data-ob="next"]').click(); } });
+$('#onbSkip').onclick = () => { if (OB_STEPS[OB.step] === 'gustos') obSaveTastes(); if (OB_STEPS[OB.step] === 'dj') obSaveDj(); closeOnboarding(); };
+$('#obAgain').onclick = () => openOnboarding(true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#onb').hidden) { e.preventDefault(); e.stopImmediatePropagation(); closeOnboarding(); } }, true);
+/* ===== 3.5 · Despertador con Nova: tu música subiendo poco a poco, la hora y el tiempo, a pantalla completa ===== */
+const AL_PLUGIN = capPlugin('NovaAlarm');
+const AL_DAYS = [[1, 'L', 'lunes'], [2, 'M', 'martes'], [3, 'X', 'miércoles'], [4, 'J', 'jueves'], [5, 'V', 'viernes'], [6, 'S', 'sábado'], [0, 'D', 'domingo']];
+const AL_MUSIC = [['suave', 'Suave para despertar'], ['daily', 'Tu mezcla del día'], ['favs', 'Tus favoritas'], ['radio', 'Modo radio']];
+const ALM = {
+  cfg: Object.assign({ on: false, h: 7, m: 30, days: [1, 2, 3, 4, 5], vol: 60, snooze: 10, music: 'suave', talk: true }, LS.get('alarm', {})),
+  st: null, ring: 0, kind: '', active: false, test: false, acked: false, timers: [], ivs: [], clockIv: 0
+};
+const pad2 = n => String(n).padStart(2, '0');
+const alHM = (h, m) => `${h}:${pad2(m)}`;
+/* «las siete y media», «la una en punto», «las ocho menos cuarto» */
+function horaHablada(d = new Date()) {
+  let h = d.getHours(), m = d.getMinutes(), menos = false;
+  if (m > 35) { h = (h + 1) % 24; m = 60 - m; menos = true; }
+  const h12 = h % 12 || 12, art = h12 === 1 ? 'la una' : `las ${h12}`;
+  const tail = m === 0 ? ' en punto' : m === 15 ? (menos ? ' menos cuarto' : ' y cuarto') : m === 30 ? ' y media' : menos ? ` menos ${m}` : ` y ${m}`;
+  return { verb: h12 === 1 ? 'Es' : 'Son', text: art + tail };
+}
+/* When it will ring next (the same rule as the phone's side) */
+function alarmNext(cfg = ALM.cfg, now = Date.now()) {
+  if (!cfg.on) return -1;
+  const d = new Date(now);
+  for (let i = 0; i < 9; i++) {
+    const c = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, cfg.h, cfg.m, 0, 0);
+    if (c.getTime() > now + 1000 && (!cfg.days.length || cfg.days.includes(c.getDay()))) return c.getTime();
+  }
+  return -1;
+}
+function alarmWhen(ts) {
+  if (ts <= 0) return '';
+  const d = new Date(ts), now = new Date(), day = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 864e5);
+  const dia = day === 0 ? 'hoy' : day === 1 ? 'mañana' : day < 7 ? `el ${DAYS[d.getDay()]}` : `el ${d.getDate()} de ${MESES[d.getMonth()]}`;
+  const left = ts - Date.now(), h = Math.floor(left / 3600e3), mi = Math.round((left % 3600e3) / 60000);
+  return `${dia} a las ${alHM(d.getHours(), d.getMinutes())}${left < 24 * 3600e3 ? ` (dentro de ${h ? h + ' h ' : ''}${mi} min)` : ''}`;
+}
+function alarmDaysText(days) {
+  const s = [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
+  if (!s.length) return 'Solo una vez';
+  if (s.length === 7) return 'Todos los días';
+  if (s.join() === '1,2,3,4,5') return 'De lunes a viernes';
+  if (s.join() === '6,0') return 'Los fines de semana';
+  return 'Los ' + listJoin(s.map(d => AL_DAYS.find(x => x[0] === d)[2]));
+}
+function alarmSave(quiet) {
+  LS.set('alarm', ALM.cfg); renderAlarm();
+  if (!AL_PLUGIN) return Promise.resolve(null);
+  const c = ALM.cfg;
+  return AL_PLUGIN.set({ on: c.on, hour: c.h, minute: c.m, days: c.days, snoozeMin: c.snooze, volume: Math.round(c.vol) })
+    .then(st => { ALM.st = st; renderAlarm(); if (!quiet && c.on) alarmCheckPerms(true); return st; })
+    .catch(() => { if (!quiet) toast('No he podido programar el despertador'); return null; });
+}
+async function alarmCheckPerms(ask) {
+  if (!AL_PLUGIN) return;
+  try {
+    let st = await AL_PLUGIN.get();
+    if (ask && !st.notif) { st = await AL_PLUGIN.requestNotif().catch(() => st); }
+    ALM.st = st; renderAlarm();
+  } catch {}
+}
+function renderAlarm() {
+  const c = ALM.cfg, st = ALM.st, next = c.on ? (st && st.on && st.next > 0 ? st.next : alarmNext(c)) : -1;
+  const pill = $('#alarmPill');
+  if (pill) { pill.hidden = !c.on || next <= 0; if (!pill.hidden) { const d = new Date(next); $('#alarmPillTxt').textContent = alHM(d.getHours(), d.getMinutes()); pill.setAttribute('aria-label', 'Despertador: ' + alarmWhen(next)); } }
+  if (!$('#alarmPanel')) return;
+  setToggle($('#tAlarm'), c.on); setToggle($('#tAlarmTalk'), c.talk);
+  const tv = alHM(pad2(c.h), c.m); if ($('#alarmTime').value !== tv && document.activeElement !== $('#alarmTime')) $('#alarmTime').value = tv;
+  $('#alarmTimeBtn').textContent = alHM(c.h, c.m);
+  $$('#alarmDays [data-day]').forEach(b => b.setAttribute('aria-pressed', String(c.days.includes(+b.dataset.day))));
+  $('#alarmDaysNote').textContent = alarmDaysText(c.days) + (c.days.length ? '' : ': luego se apaga solo');
+  const lists = state.playlists.filter(p => p.trackIds && p.trackIds.length);
+  $('#alarmMusic').innerHTML = AL_MUSIC.map(([k, l]) => `<button type="button" class="chip" data-alm="${k}" aria-pressed="${c.music === k}">${l}</button>`).join('')
+    + (lists.length ? `<select id="alarmList" class="al-list${c.music.startsWith('list:') ? ' on' : ''}" aria-label="Una de tus listas"><option value="">Una de tus listas…</option>${lists.map(p => `<option value="${esc(p.id)}"${c.music === 'list:' + p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>` : '');
+  $('#alarmVol').value = c.vol; setRange($('#alarmVol')); $('#alarmVolVal').textContent = c.vol + ' %';
+  $$('#alarmSnooze [data-sn]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.sn === c.snooze)));
+  $('#alarmNote').textContent = !NATIVE ? 'El despertador funciona en la app de Android. Aquí puedes probar cómo suena.'
+    : !AL_PLUGIN ? 'Esta compilación de la app no trae el despertador. Puedes probar cómo suena.'
+    : c.on && next > 0 ? `Sonará ${alarmWhen(next)}.` : `${dj.name} te despierta con tu música, subiendo poco a poco, y te dice la hora y el tiempo.`;
+  const w = [];
+  if (AL_PLUGIN && st && c.on) {
+    if (!st.notif) w.push(['notif', 'Las notificaciones de Órbita están desactivadas: sin ellas el despertador no se ve con el móvil bloqueado.', 'Activarlas']);
+    if (!st.exact) w.push(['exact', 'Android no deja a Órbita poner alarmas exactas: podría sonar unos minutos tarde.', 'Permitir']);
+    if (!st.fullScreen) w.push(['fullscreen', 'Falta el permiso de pantalla completa: con el móvil bloqueado solo verás un aviso.', 'Permitir']);
+  }
+  $('#alarmWarn').hidden = !w.length;
+  $('#alarmWarn').innerHTML = w.map(([k, t, b]) => `<div class="al-w"><span>${t}</span><button class="btn small" data-al-fix="${k}">${b}</button></div>`).join('');
+}
+function alarmMusicText() {
+  const c = ALM.cfg.music;
+  if (c.startsWith('list:')) { const pl = state.playlists.find(p => p.id === c.slice(5)); return pl ? `tu lista «${pl.name}»` : 'música suave'; }
+  return { suave: 'música suave', daily: 'tu mezcla del día', favs: 'tus favoritas', radio: 'el modo radio' }[c] || 'tu música';
+}
+/* The music to wake up with */
+function alarmPick() {
+  const c = ALM.cfg, pool = poolTracks().filter(t => !t.net), own = pool.filter(t => !t.demo), base = own.length >= 6 ? own : pool;
+  if (c.music === 'radio' && base.length >= 2) return { radio: true };
+  if (c.music === 'daily') { const d = buildDaily(); if (d && d.ids && d.ids.length) return { ids: d.ids.filter(id => trackById(id)), name: d.name }; }
+  if (c.music === 'favs') { const f = base.filter(liked); if (f.length >= 2) return { ids: shuffleArr(f.map(t => t.id)), name: 'Tus favoritas' }; }
+  if (c.music.startsWith('list:')) { const pl = state.playlists.find(p => p.id === c.music.slice(5)), ids = pl && pl.trackIds.filter(id => trackById(id)); if (ids && ids.length) return { ids, name: pl.name }; }
+  // «Suave para despertar»: songs you know well, from the calmest to a bit livelier
+  const st = memStats(60), rec = new Map(st.all.map(r => [r.id, r]));
+  const sc = base.filter(t => !prefBlocked(t)).map(t => { const r = rec.get(t.id), a = anaCache.get(t.id); return { t, s: Math.log1p(r ? r.plays : 0) + (liked(t) ? 1 : 0) - (skipProne(t) ? 1.2 : 0) + Math.random() * 0.7, e: a && typeof a.energy === 'number' ? a.energy : 0.5 }; })
+    .sort((a, b) => b.s - a.s).slice(0, 24).sort((a, b) => a.e - b.e);
+  return sc.length ? { ids: sc.map(x => x.t.id), name: 'Para despertar' } : null;
+}
+function alarmTimer(fn, ms) { const t = setTimeout(fn, ms); ALM.timers.push(t); return t; }
+function alarmEvery(fn, ms) { const t = setInterval(fn, ms); ALM.ivs.push(t); return t; }
+function alarmClear() { ALM.timers.forEach(clearTimeout); ALM.ivs.forEach(clearInterval); ALM.timers = []; ALM.ivs = []; }
+function alarmGreeting(kind) {
+  const d = new Date(), h = d.getHours(), hh = horaHablada(d), t = current(), dow = d.getDay();
+  const hola = h >= 5 && h < 13 ? 'Buenos días' : h >= 13 && h < 21 ? 'Buenas tardes' : 'Buenas noches';
+  const day = `Hoy es ${DAYS[dow]}, ${d.getDate()} de ${MESES[d.getMonth()]}.`;
+  const close = dow === 5 ? '¡Por fin es viernes!' : dow === 6 || dow === 0 ? 'Es fin de semana: sin prisas.' : pick(['Despacito, que la música ya está aquí.', '¡Arriba, que hoy va a ser un buen día!', 'Tómate tu tiempo: yo me encargo de la música.', 'Venga, que hoy es tu día.']);
+  if (kind === 'snooze') return `Venga, ahora sí. ${hh.verb} ${hh.text}. ${close}`;
+  return `${hola}. ${hh.verb} ${hh.text}. ${day}${weatherLine()} ${t ? `Te despierto con ${nameOf(t)}. ` : ''}${close}`.replace(/\s+/g, ' ').trim();
+}
+function alarmScreenTick() {
+  const d = new Date(), el = $('#alTime'); if (!el) return;
+  el.textContent = alHM(d.getHours(), d.getMinutes());
+  $('#alDate').textContent = `${cap(DAYS[d.getDay()])}, ${d.getDate()} de ${MESES[d.getMonth()]}`;
+  const w = weatherNow(); $('#alWx').textContent = w ? `${w.city} · ${w.temp} °C · ${wxDesc(w.code)[0]}` : '';
+  const t = current(); $('#alSong').innerHTML = t && ALM.acked ? `${coverHTML(t)}<span class="row-text"><span class="t-title">${esc(t.title)}</span><span class="t-sub">${esc(t.artist)}</span></span>` : `<span class="note">${ALM.acked ? '' : 'Poniendo tu música…'}</span>`;
+  $('#alSnooze').textContent = `Posponer ${ALM.cfg.snooze} min`;
+}
+function alarmShowScreen() {
+  if (!$('#onb').hidden) closeOnboarding(); if (!$('#recap').hidden) closeRecap(); if (!$('#chat').hidden) closeChat(); if (!$('#np').hidden) closeNP();
+  $('#newsOverlay').hidden = true;
+  $('#alarmScr').hidden = false; document.body.classList.add('rc-open');
+  if (STANDALONE && !(history.state && history.state.alarm)) { try { history.pushState({ alarm: 1 }, '', location.hash || '#' + state.view); } catch {} }
+  alarmScreenTick(); clearInterval(ALM.clockIv); ALM.clockIv = setInterval(alarmScreenTick, 5000);
+  setTimeout(() => { try { $('#alUp').focus({ preventScroll: true }); } catch {} }, 80);
+}
+function alarmHideScreen() {
+  $('#alarmScr').hidden = true; document.body.classList.remove('rc-open'); clearInterval(ALM.clockIv);
+  if (STANDALONE && history.state && history.state.alarm) { try { popSkip = true; history.back(); } catch {} }
+}
+/* It's time: the screen, the music (very low, then up), Nova's good morning */
+function alarmWake(ring, kind = 'alarm', test = false) {
+  if (ALM.active && ALM.ring === ring) { alarmShowScreen(); return; }
+  alarmClear(); ALM.active = true; ALM.ring = ring; ALM.kind = kind; ALM.test = test; ALM.acked = false;
+  // a one-off alarm switches itself off once it has rung (the phone does the same)
+  if (!test && kind === 'alarm' && !ALM.cfg.days.length && ALM.cfg.on) { ALM.cfg.on = false; LS.set('alarm', ALM.cfg); renderAlarm(); }
+  alarmShowScreen();
+  if (AL_PLUGIN && !test) AL_PLUGIN.wake({ volume: Math.round(ALM.cfg.vol) }).catch(() => {});
+  if (ONLINE && LS.get('city', null)) loadWeather(false).then(() => alarmScreenTick()).catch(() => {});
+  const p = alarmPick();
+  if (!p) { alarmNoMusic(); return; }
+  alarmF = 0.1; applyVol();
+  if (p.radio) { if (!state.radio) $('#btnRadio').click(); else if (act().paused) togglePlay(); }
+  else playQueue(p.ids, 0, { source: 'library' });
+  // from very low to your volume in about 50 seconds (even in loudness: ×10 in level)
+  const t0 = Date.now();
+  alarmEvery(() => { const f = Math.min(1, (Date.now() - t0) / 50000); alarmF = 0.1 * Math.pow(10, f); applyVol(); if (f >= 1) { alarmF = 1; applyVol(); } }, 400);
+  // it really sounds: tell the phone (no backup alarm)
+  const ackIv = alarmEvery(() => {
+    const d = act(), t = current();
+    if (d && !d.paused && d.currentTime > 0.6 && t) { clearInterval(ackIv); ALM.acked = true; alarmScreenTick(); if (AL_PLUGIN && !test) AL_PLUGIN.ack({ ring, title: t.title }).catch(() => {}); }
+  }, 700);
+  alarmTimer(() => { if (ALM.active && !ALM.acked) alarmNoMusic(); }, 20000);
+  if (ALM.cfg.talk) alarmTimer(() => { if (ALM.active) djTalk(alarmGreeting(kind), 'test', { forceTTS: true }); }, kind === 'snooze' ? 5000 : test ? 6000 : 13000);
+  // half an hour and nobody has touched it: off
+  alarmTimer(() => { if (ALM.active) alarmEnd('off', false, true); }, 30 * 60000);
+}
+function alarmNoMusic() {
+  if (AL_PLUGIN && !ALM.test) AL_PLUGIN.ring({ ring: ALM.ring }).catch(() => {});
+  $('#alSong').innerHTML = '<span class="note">No he podido poner tu música: suena la alarma del móvil.</span>';
+}
+/* Snooze, «Ya me levanto» (the music goes on) or off. fromPhone: the button was pressed in the notification */
+async function alarmEnd(how, fromPhone, auto) {
+  if (!ALM.active) { alarmHideScreen(); return; }
+  ALM.active = false; alarmClear(); stopTalk(); alarmHideScreen();
+  const test = ALM.test;
+  if (how === 'up') {
+    alarmF = 1; applyVol();
+    if (AL_PLUGIN && !test && !fromPhone) AL_PLUGIN.stop({ keep: true }).catch(() => {});
+    if (ALM.cfg.talk) djTalk(pick(['¡Genial! Que tengas un gran día.', 'Perfecto. La música sigue, tú a lo tuyo.', '¡Así me gusta! Sigo pinchando para ti.']), 'test', { forceTTS: true });
+    return;
+  }
+  // fade out and pause
+  const f0 = alarmF; for (let k = 1; k <= 8; k++) { await new Promise(r => setTimeout(r, 170)); alarmF = f0 * (1 - k / 8); applyVol(); }
+  if (current() && !act().paused) await fadePause();
+  alarmF = 1; applyVol();
+  if (how === 'snooze') {
+    let at = Date.now() + ALM.cfg.snooze * 60000;
+    if (AL_PLUGIN && !test && !fromPhone) { try { const r = await AL_PLUGIN.snooze(); if (r && r.at) at = r.at; ALM.st = r; } catch {} }
+    else if (fromPhone && fromPhone > 1e12) at = fromPhone;
+    const d = new Date(at); toast(`${test ? 'Prueba: te despertaría' : 'Te despierto'} a las ${alHM(d.getHours(), d.getMinutes())}`, 3600);
+  } else {
+    if (AL_PLUGIN && !test && !fromPhone) AL_PLUGIN.stop({ keep: false }).then(st => { ALM.st = st; renderAlarm(); }).catch(() => {});
+    if (auto) toast('Despertador apagado: media hora sin tocarlo');
+  }
+  renderAlarm();
+}
+if (AL_PLUGIN) {
+  try {
+    AL_PLUGIN.addListener('alarm', e => {
+      if (!e) return;
+      if (e.type === 'fire' || e.type === 'open') alarmWake(+e.ring || Date.now(), e.kind || 'alarm');
+      else if (e.type === 'snooze') alarmEnd('snooze', +e.ring || 2);
+      else if (e.type === 'stop') alarmEnd('off', 2);
+    });
+  } catch {}
+}
+/* At start: the settings from the phone (a one-off alarm switches itself off) and an alarm ringing right now */
+async function alarmBoot() {
+  renderAlarm();
+  if (!AL_PLUGIN) return;
+  try {
+    const st = await AL_PLUGIN.get(); ALM.st = st;
+    if (!st.on && ALM.cfg.on && st.ringAt) { ALM.cfg.on = false; LS.set('alarm', ALM.cfg); }
+    else if (ALM.cfg.on && !st.on && !st.ringAt) alarmSave(true);
+    renderAlarm();
+    if (st.ringState === 1 && Date.now() - st.ringAt < 15 * 60000) alarmWake(st.ringAt, st.ringKind || 'alarm');
+  } catch {}
+}
+const alarmBusy = () => ALM.active;
+/* Ajustes */
+$('#tAlarm').onclick = () => { ALM.cfg.on = !ALM.cfg.on; alarmSave(false).then(() => { if (ALM.cfg.on) toast(`Despertador: ${alarmWhen(alarmNext())}`, 3200); }); };
+function alarmPickTime() {
+  const inp = $('#alarmTime');
+  try { if (typeof inp.showPicker === 'function') { inp.showPicker(); return; } } catch {}
+  inp.classList.add('show'); inp.tabIndex = 0; inp.focus();
+}
+$('#alarmTimeBtn').onclick = alarmPickTime; $('#alarmTimeEdit').onclick = alarmPickTime;
+$('#alarmTime').addEventListener('change', e => { const [h, m] = String(e.target.value || '').split(':').map(Number); if (isNaN(h) || isNaN(m)) return; ALM.cfg.h = h; ALM.cfg.m = m; ALM.cfg.on = true; alarmSave(false); });
+$('#alarmDays').addEventListener('click', e => { const b = e.target.closest('[data-day]'); if (!b) return; const d = +b.dataset.day, s = new Set(ALM.cfg.days); s.has(d) ? s.delete(d) : s.add(d); ALM.cfg.days = [...s]; alarmSave(true); });
+$('#alarmMusic').addEventListener('click', e => { const b = e.target.closest('[data-alm]'); if (!b) return; ALM.cfg.music = b.dataset.alm; LS.set('alarm', ALM.cfg); renderAlarm(); });
+$('#alarmMusic').addEventListener('change', e => { if (e.target.id !== 'alarmList') return; ALM.cfg.music = e.target.value ? 'list:' + e.target.value : 'suave'; LS.set('alarm', ALM.cfg); renderAlarm(); });
+$('#alarmVol').addEventListener('input', e => { ALM.cfg.vol = +e.target.value; setRange(e.target); $('#alarmVolVal').textContent = ALM.cfg.vol + ' %'; });
+$('#alarmVol').addEventListener('change', () => alarmSave(true));
+$('#tAlarmTalk').onclick = () => { ALM.cfg.talk = !ALM.cfg.talk; LS.set('alarm', ALM.cfg); renderAlarm(); };
+$('#alarmSnooze').addEventListener('click', e => { const b = e.target.closest('[data-sn]'); if (!b) return; ALM.cfg.snooze = +b.dataset.sn; alarmSave(true); });
+$('#alarmWarn').addEventListener('click', e => { const b = e.target.closest('[data-al-fix]'); if (!b || !AL_PLUGIN) return; const k = b.dataset.alFix; if (k === 'notif') AL_PLUGIN.requestNotif().then(st => { ALM.st = st; renderAlarm(); if (!st.notif) AL_PLUGIN.openSettings({ what: 'notif' }); }).catch(() => {}); else AL_PLUGIN.openSettings({ what: k }).catch(() => {}); });
+$('#alarmTest').onclick = () => alarmWake(Date.now(), 'alarm', true);
+$('#alarmPill').onclick = () => { setView('ajustes'); setTimeout(() => $('#alarmPanel').scrollIntoView({ block: 'start', behavior: 'smooth' }), 60); };
+$('#alSnooze').onclick = () => alarmEnd('snooze');
+$('#alUp').onclick = () => alarmEnd('up');
+$('#alOff').onclick = () => alarmEnd('off');
+document.addEventListener('visibilitychange', () => { if (!document.hidden && AL_PLUGIN && state.view === 'ajustes') alarmCheckPerms(false); });
+/* By voice: «despiértame a las 7 y media», «pon el despertador de lunes a viernes a las 7», «quita la alarma», «¿a qué hora me despiertas?» */
+function alarmCommand(q) {
+  if (/(quita|apaga|desactiva|cancela|borra)( el| la)? (despertador|alarma)|no me despiertes/.test(q)) {
+    if (!ALM.cfg.on) { novaSay('No tienes ningún despertador puesto.'); return true; }
+    ALM.cfg.on = false; alarmSave(true); novaSay('Hecho: despertador apagado.'); return true;
+  }
+  if (/(a que hora|cuando) (me despiertas|suena (el despertador|la alarma))|tengo (alarma|despertador)|(esta|tengo) puesto el despertador/.test(q)) {
+    const n = alarmNext(); novaSay(ALM.cfg.on && n > 0 ? `Te despierto ${alarmWhen(n)}. ${alarmDaysText(ALM.cfg.days)}.` : 'No tienes ningún despertador puesto. Dime, por ejemplo, «despiértame a las siete y media».'); return true;
+  }
+  if (!/(despiertame|despiertanos|despertador|alarma|levantame)/.test(q)) return false;
+  const m = q.match(/(?:a las|a la|para las|para la|sobre las|las) (\d{1,2})(?:(?: y |:| )(\d{1,2}|media|cuarto)| menos (cuarto|\d{1,2}))?(?: (?:de la|por la) (manana|tarde|noche|madrugada))?/);
+  if (!m) { if (/(despiertame|pon(me)? (el|un|una) (despertador|alarma))/.test(q)) { novaSay('¿A qué hora? Dime, por ejemplo, «despiértame a las siete y media».'); return true; } return false; }
+  let h = +m[1], mi = m[2] === 'media' ? 30 : m[2] === 'cuarto' ? 15 : m[2] ? +m[2] : 0;
+  if (m[3]) { h = h - 1; mi = m[3] === 'cuarto' ? 45 : 60 - +m[3]; }
+  if ((m[4] === 'tarde' || m[4] === 'noche') && h < 12) h += 12;
+  if (h < 0) h += 24; if (h > 23 || mi > 59) { novaSay('Esa hora no la entiendo. Prueba con «a las siete y media».'); return true; }
+  const days = /todos los dias|cada dia|siempre/.test(q) ? [0, 1, 2, 3, 4, 5, 6] : /entre semana|de lunes a viernes|los dias de diario|los laborables/.test(q) ? [1, 2, 3, 4, 5] : /fin(es)? de semana|el finde|los findes/.test(q) ? [6, 0] : [];
+  Object.assign(ALM.cfg, { on: true, h, m: mi, days });
+  alarmSave(false);
+  const n = alarmNext();
+  novaSay(`Hecho: te despierto ${alarmWhen(n).replace(/ \(dentro de.*\)$/, '')}${days.length ? ` (${alarmDaysText(days).toLowerCase()})` : ''} con ${alarmMusicText()}.${!NATIVE || !AL_PLUGIN ? ' Ojo: el despertador solo suena en la app de Android.' : ''}`);
+  return true;
 }
 /* Chart tooltips: tap or hover a bar, or focus it with the keyboard */
 function chartTip(e) {
@@ -4044,7 +4938,7 @@ function setView(v, push = true) {
   if (v === 'tu') renderTu();
   if (v === 'inicio') { renderForYou(); setTimeout(vizKick, 30); }
   if (v === 'listas') renderNovaLists();
-  if (v === 'ajustes') { renderSound(); renderThemes(); renderLook(); renderDjPersona(); renderVoices(); renderVoiceStyle(); updateStorage(); renderPerms(); renderBackup(); }
+  if (v === 'ajustes') { renderAlarm(); if (AL_PLUGIN) alarmCheckPerms(false); renderSound(); renderThemes(); renderLook(); renderDjPersona(); renderVoices(); renderVoiceStyle(); updateStorage(); renderPerms(); renderBackup(); }
 }
 $$('.tab').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
 document.addEventListener('click', e => { const g = e.target.closest('[data-goto]'); if (g) setView(g.dataset.goto); });
@@ -4053,6 +4947,9 @@ window.addEventListener('hashchange', () => setView(location.hash.slice(1), fals
 let popSkip = false;
 window.addEventListener('popstate', () => {
   if (popSkip) { popSkip = false; return; }
+  if (!$('#alarmScr').hidden) { try { history.pushState({ alarm: 1 }, '', location.hash || '#' + state.view); } catch {} return; }
+  if (!$('#recap').hidden) { closeRecap(true); return; }
+  if (!$('#onb').hidden) { if (OB.step > 0) { obShow(OB.step - 1, true); try { history.pushState({ onb: 1 }, '', location.hash || '#' + state.view); } catch {} } else closeOnboarding(true); return; }
   if (!$('#chat').hidden) { closeChat(true); return; }
   if (!$('#vizFull').hidden) { closeVizFull(true); return; }
   if (!$('#ytOverlay').hidden) { closeYT(true); return; }
@@ -4599,6 +5496,12 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '3.5': [
+    '<b>Despertador con Nova</b> (Ajustes › Despertador): te despierta con tu música, empezando muy bajito y subiendo poco a poco, y te dice la hora, el día y el tiempo. Se ve aunque el móvil esté bloqueado y, si algo falla, suena la alarma del móvil. También se lo puedes pedir: «despiértame a las siete y media».',
+    '<b>Tu año en Órbita</b> (en «Tú»): tus horas de música, tu canción y tu artista del año, tus récords y qué tipo de oyente eres, contado por Nova en tarjetas. Al final, una imagen para compartir.',
+    '<b>Motor de sonido de Android</b> (beta, Ajustes › Sonido): tu música suena con el reproductor del propio móvil, y las canciones seguidas de un mismo disco van sin cortes. Es una prueba: las mezclas de DJ llegarán a este motor en la 3.6. Si notas algo raro, apágalo y vuelve el de siempre.',
+    '<b>Primera vez fácil</b>: quien instala Órbita tiene una bienvenida de un minuto (su música, sus estilos, cómo quiere a su DJ y su primera mezcla). Puedes verla otra vez al final de Ajustes.'
+  ],
   '3.4': [
     '<b>Nova, más lista</b>: si no está segura de lo que le pides, te pregunta («¿Paso a la siguiente?»). Si le dices que sí, lo hace y aprende la frase para la próxima vez.',
     'Recuerda lo que acabas de pedirle: «hazme otra», «que sea sin fin», «más de este artista».',
@@ -4658,12 +5561,15 @@ function showNews() {
   LS.set('newsSeen', mm);
   $('#newsVer').textContent = `Versión ${v} instalada`;
   $('#newsList').innerHTML = NEWS[mm].map(x => `<li>${x}</li>`).join('');
+  const nb = $('#newsOverlay [data-news="viz"], #newsOverlay [data-news="alarm"]');
+  if (nb) { const al = mm === '3.5' && typeof AL_PLUGIN !== 'undefined' && !!AL_PLUGIN; nb.dataset.news = al ? 'alarm' : 'viz'; nb.textContent = al ? 'Poner el despertador' : 'Ver el visualizador'; }
   $('#newsOverlay').hidden = false;
 }
 $('#newsOverlay').addEventListener('click', e => {
   const b = e.target.closest('[data-news]');
   if (e.target.id === 'newsOverlay' || (b && b.dataset.news === 'close')) { $('#newsOverlay').hidden = true; return; }
   if (b && b.dataset.news === 'viz') { $('#newsOverlay').hidden = true; openVizFull(); }
+  if (b && b.dataset.news === 'alarm') { $('#newsOverlay').hidden = true; setView('ajustes'); setTimeout(() => $('#alarmPanel').scrollIntoView({ block: 'start', behavior: 'smooth' }), 80); }
 });
 $('#npBan').onclick = () => banTrack(current());
 /* ---------- 2.3 · Nova te escucha ----------
@@ -4729,6 +5635,7 @@ function novaRun(raw, viaBrain) {
   if (!viaBrain && nbFollow(q)) return;
   if (!q) { if (/^[\s¡!,.]*(hola|buenas|buenos)/i.test(raw)) nbChat('c_saludo'); else novaSay('Dime, te escucho.'); return; }
   const is = re => re.test(q);
+  if (alarmCommand(q)) return;
   if (is(/^(ayuda|que puedes hacer|que sabes hacer|que te puedo pedir)$/)) { novaSay('Puedes pedirme cosas como: más movida, más tranquila, sáltate esta, ¿por qué esta?, más como esta, ¿quién canta?, háblame del artista, apágate en treinta minutos, o una mezcla: algo para entrenar. Y enseñarme lo que te gusta: no me pongas reguetón por la mañana, me encanta el rap, cada noche ponme algo tranquilo, ¿qué recuerdas de mí?' + (nbUsable() ? ' Y con mi cerebro nuevo entiendo también lo que me digas con tus palabras.' : '')); return; }
   if (is(/(resumen|como ha ido|que tal ha ido) (de )?(mi|la|esta) semana/)) { novaSay(weekSummary() || 'Esta semana aún has escuchado poco para hacer un resumen.'); return; }
   if (is(/^(que hora es|dime la hora)$/)) { const d = new Date(); novaSay(`Son las ${d.getHours()} y ${pad(d.getMinutes())}.`); return; }
@@ -4757,6 +5664,7 @@ function novaRun(raw, viaBrain) {
   if (is(/(al (acabar|terminar)|cuando (acabe|termine)) (esta|la cancion)/)) { setSleep('track'); return; }
   if (is(/^(pon |ensename |muestrame |abre )?(la )?letra$|karaoke/)) { if (t) { openNP(); setLyricsOpen(true); } return; }
   if (is(/visualizador|^(pon )?(el )?visual$/)) { openVizFull(); return; }
+  if (is(/(resumen|repaso) (de mi|del|de este|de tu|de todo el) ano|(mi|tu) ano en orbita|(^| )wrapped$|que (he|e) escuchado este ano/)) { openRecap(0); return; }
   if (memoryCommand(q, raw)) return;
   const qn = q.match(/^(despues|luego|a continuacion) pon (.+)$|^pon (.+) (despues|luego|a continuacion|la siguiente)$/);
   if (qn && t) { queueNextByName(qn[2] || qn[3]); return; }
@@ -6414,7 +7322,7 @@ function runIntro() {
 async function boot() {
   const introDone = runIntro();
   applyLook(); setAnim(state.anim); setHeroMode(state.heroMode);
-  renderMoment(); renderAppVer(); renderChips(); addDemoEntries(); renderSearch(); renderAll(); updateTicker(); applyDjName(); renderVoiceStyle(); renderSound();
+  naInit(); renderMoment(); renderAppVer(); renderChips(); addDemoEntries(); renderSearch(); renderAll(); updateTicker(); applyDjName(); renderVoiceStyle(); renderSound();
   const m = getMoment();
   const hello = () => setBubble(`Hola, soy ${dj.name}. Es ${m.day} ${m.franja.phrase}.${weatherLine()} Pídeme algo, gira la ruleta o pon el modo radio y yo me encargo.`);
   hello();
@@ -6424,14 +7332,16 @@ async function boot() {
   const [tracks, pls, clips, wish] = await Promise.all([idbAll('tracks'), idbAll('playlists'), idbAll('voice'), idbAll('wishlist')]);
   state.tracks.push(...tracks); state.playlists = pls; state.clips = clips; state.wishlist = wish;
   await loadMemory(); state.ready = true;
+  OB.fresh = obIsFresh(); if (!OB.fresh) LS.set('onboarded', true);
+  alarmBoot();
   idbAll('analysis').then(list => { for (const a of list) { const t = trackById(a.id); if (t && a.v === ANA_V && (!t.size || !a.size || a.size === t.size)) anaCache.set(a.id, a); } });
   if (!current()) resumeSession(false);
-  renderAll(); applyDjName();
+  renderAll(); applyDjName(); recapHint();
   if (dj.who === 'nova' || state.clips.length) hello();
   if (state.view === 'tu') renderTu();
   /* First real render is on screen: the intro can leave now */
   requestAnimationFrame(() => { if (window.ORBITA_INTRO) window.ORBITA_INTRO.ready(); });
-  introDone.then(() => { vizKick(); setTimeout(showNews, 700); renderNovaChips(); setTimeout(openGreeting, 1200); });
+  introDone.then(() => { vizKick(); if (alarmBusy()) {} else if (OB.fresh) setTimeout(() => { if (!alarmBusy()) openOnboarding(false); }, 450); else { setTimeout(() => { if (!alarmBusy()) showNews(); }, 700); setTimeout(() => { if (!alarmBusy()) openGreeting(); }, 1200); } renderNovaChips(); });
   bgFacts();
   introDone.then(() => setTimeout(() => { if (nvUsable()) nvInit().catch(() => {}); }, 3500));
   introDone.then(() => setTimeout(() => { const go = () => setTimeout(() => { if (nbUsable()) nbInit().catch(() => {}); }, 1500); if (NV.ready) NV.ready.then(go, go); else go(); }, 6500));
@@ -6444,7 +7354,7 @@ async function boot() {
     if (nativeLib) {
       const st = await devStatus(); renderDevice();
       if (st === 'granted') introDone.then(() => setTimeout(() => syncDevice(false), 120));
-      else if (!LS.get('devWelcomeDone', false)) introDone.then(() => setTimeout(() => { LS.set('devWelcomeDone', true); connectDevice(); }, 700));
+      else if (!LS.get('devWelcomeDone', false) && !OB.fresh) introDone.then(() => setTimeout(() => { LS.set('devWelcomeDone', true); connectDevice(); }, 700));
       document.addEventListener('visibilitychange', () => { if (!document.hidden && devLib.state === 'granted' && Date.now() - devLib.lastScan > 60000) syncDevice(false); });
       pushWidget();
     }
@@ -6455,7 +7365,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, naSyncNext, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }

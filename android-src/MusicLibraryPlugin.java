@@ -368,6 +368,115 @@ public class MusicLibraryPlugin extends Plugin {
         }
     }
 
+    /** 3.5: guarda una imagen (en base64) en la galería, en Imágenes › Orbita. */
+    @PluginMethod
+    public void saveImage(PluginCall call) {
+        final String name = safeName(call.getString("name", "orbita.png"));
+        final String mime = call.getString("mime", "image/png");
+        final byte[] bytes;
+        try {
+            bytes = Base64.decode(call.getString("data", ""), Base64.DEFAULT);
+        } catch (IllegalArgumentException e) {
+            call.reject("La imagen no es válida", "BAD_DATA");
+            return;
+        }
+        try {
+            JSObject r = new JSObject();
+            if (Build.VERSION.SDK_INT >= 29) {
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+                v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Orbita");
+                Uri uri = getContext().getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+                if (uri == null) throw new Exception("insert");
+                OutputStream os = getContext().getContentResolver().openOutputStream(uri);
+                if (os == null) throw new Exception("open");
+                try {
+                    os.write(bytes);
+                } finally {
+                    os.close();
+                }
+                r.put("where", "Galería › Orbita");
+            } else {
+                File dir = getContext().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+                if (dir == null) dir = getContext().getFilesDir();
+                if (!dir.exists()) dir.mkdirs();
+                File f = new File(dir, name);
+                FileOutputStream fos = new FileOutputStream(f);
+                try {
+                    fos.write(bytes);
+                } finally {
+                    fos.close();
+                }
+                r.put("where", f.getAbsolutePath());
+            }
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("No he podido guardar la imagen: " + e.getMessage(), "SAVE_FAILED");
+        }
+    }
+
+    /** 3.5: comparte un archivo (en base64) con otras apps: WhatsApp, Instagram, Telegram… */
+    @PluginMethod
+    public void shareFile(PluginCall call) {
+        final String name = safeName(call.getString("name", "orbita.png"));
+        final String mime = call.getString("mime", "image/png");
+        final String text = call.getString("text", "");
+        final String title = call.getString("title", "Compartir");
+        if (getActivity() == null) {
+            call.reject("La app no está en pantalla", "NO_ACTIVITY");
+            return;
+        }
+        try {
+            byte[] bytes = Base64.decode(call.getString("data", ""), Base64.DEFAULT);
+            File dir = new File(getContext().getCacheDir(), "compartir");
+            if (!dir.exists()) dir.mkdirs();
+            File[] old = dir.listFiles();
+            if (old != null) for (File o : old) if (System.currentTimeMillis() - o.lastModified() > 3600_000L) o.delete();
+            File f = new File(dir, name);
+            FileOutputStream fos = new FileOutputStream(f);
+            try {
+                fos.write(bytes);
+            } finally {
+                fos.close();
+            }
+            Uri uri;
+            try {
+                uri = androidx.core.content.FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", f);
+            } catch (Throwable noProvider) {
+                // sin FileProvider: la copia de la galería también vale para compartir
+                if (Build.VERSION.SDK_INT < 29) throw new Exception("sin FileProvider");
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+                v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Orbita");
+                uri = getContext().getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+                if (uri == null) throw new Exception("insert");
+                OutputStream os = getContext().getContentResolver().openOutputStream(uri);
+                if (os == null) throw new Exception("open");
+                try {
+                    os.write(bytes);
+                } finally {
+                    os.close();
+                }
+            }
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType(mime);
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            if (!text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
+            send.setClipData(android.content.ClipData.newRawUri(name, uri));
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Intent chooser = Intent.createChooser(send, title);
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getActivity().startActivity(chooser);
+            JSObject r = new JSObject();
+            r.put("ok", true);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("No he podido compartir: " + e.getMessage(), "SHARE_FAILED");
+        }
+    }
+
     private static String safeName(String n) {
         String s = n == null ? "" : n.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
         if (s.isEmpty()) s = "orbita";

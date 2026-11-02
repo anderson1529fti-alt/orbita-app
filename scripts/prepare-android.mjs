@@ -95,6 +95,29 @@ if (extras) {
     </application>`);
   }
 }
+// El despertador con Nova (3.5). ALARM=0 es un respaldo del workflow: la app sin él.
+const alarm = extras && process.env.ALARM !== '0' && fs.existsSync(path.join(root, 'android-alarm'));
+if (alarm) {
+  for (const p of ['android.permission.USE_EXACT_ALARM', 'android.permission.USE_FULL_SCREEN_INTENT', 'android.permission.POST_NOTIFICATIONS', 'android.permission.RECEIVE_BOOT_COMPLETED', 'android.permission.VIBRATE']) {
+    if (!manifest.includes(`"${p}"`)) manifest = manifest.replace('</manifest>', `    <uses-permission android:name="${p}" />\n</manifest>`);
+  }
+  if (!manifest.includes('"android.permission.SCHEDULE_EXACT_ALARM"')) {
+    manifest = manifest.replace('</manifest>', '    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />\n</manifest>');
+  }
+  if (!manifest.includes('.NovaAlarmReceiver')) {
+    manifest = manifest.replace('</application>', `    <receiver android:name=".NovaAlarmReceiver" android:exported="false" />
+        <receiver android:name=".NovaAlarmBoot" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+    </application>`);
+  }
+}
 fs.writeFileSync(manifestPath, manifest);
 
 // 3b) Módulo nativo: música del móvil (MediaStore, sin copiarla), widget, copias de seguridad y compartir
@@ -110,6 +133,24 @@ for (const dir of javaFrom) {
   }
 }
 if (extras) copyDir(path.join(root, 'android-extras', 'res'), res);
+
+// 3c) El motor de sonido de Android (3.5, beta). NATIVEAUDIO=0 es un respaldo del workflow: la app sin él.
+const nativeAudio = extras && process.env.NATIVEAUDIO !== '0' && fs.existsSync(path.join(root, 'android-audio'));
+if (nativeAudio) {
+  for (const f of fs.readdirSync(path.join(root, 'android-audio')).filter(f => f.endsWith('.java'))) {
+    fs.writeFileSync(path.join(javaDir, f), fs.readFileSync(path.join(root, 'android-audio', f), 'utf8').replace(/__PACKAGE__/g, appId));
+  }
+  console.log('Motor de sonido de Android: incluido');
+} else if (extras) console.log('Motor de sonido de Android: no incluido' + (process.env.NATIVEAUDIO === '0' ? ' (compilación de respaldo)' : ''));
+
+// 3d) El despertador con Nova (3.5): su código, su icono del aviso (los permisos y receptores ya están en el manifiesto)
+if (alarm) {
+  for (const f of fs.readdirSync(path.join(root, 'android-alarm')).filter(f => f.endsWith('.java'))) {
+    fs.writeFileSync(path.join(javaDir, f), fs.readFileSync(path.join(root, 'android-alarm', f), 'utf8').replace(/__PACKAGE__/g, appId));
+  }
+  if (fs.existsSync(path.join(root, 'android-alarm', 'res'))) copyDir(path.join(root, 'android-alarm', 'res'), res);
+  console.log('Despertador: incluido');
+} else if (extras) console.log('Despertador: no incluido' + (process.env.ALARM === '0' ? ' (compilación de respaldo)' : ''));
 
 // 4) Versión: <mayor>.<menor>.<número de compilación>
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
