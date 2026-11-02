@@ -87,10 +87,33 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
 
+      # Plan A2: si lo nuevo de Android de la 3.5 (el motor de sonido y el despertador) no compila, se vuelve a
+      # compilar sin ello. El cerebro grande y todo lo demás siguen dentro.
+      - name: Compilar sin el motor de sonido ni el despertador (plan A2)
+        id: build15
+        if: steps.build.outcome == 'failure'
+        continue-on-error: true
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          NATIVEAUDIO: '0'
+          ALARM: '0'
+        run: |
+          echo "::warning::La compilación completa falló; se publica la versión sin el motor de sonido de Android ni el despertador."
+          rm -rf android
+          npx cap add android
+          node scripts/prepare-android.mjs
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
       # Plan B: si el cerebro grande no compila, se vuelve a compilar sin él (todo lo demás sigue igual).
       - name: Compilar sin el cerebro grande (plan B)
         id: build2
-        if: steps.build.outcome == 'failure'
+        if: steps.build.outcome == 'failure' && steps.build15.outcome == 'failure'
         continue-on-error: true
         env:
           BUILD_NUMBER: ${{ github.run_number }}
@@ -111,7 +134,7 @@ jobs:
       # Plan C: si aun así algo del lado de Android no compila, se vuelve a compilar sin el widget
       # ni «Compartir con Órbita». La app y todo lo demás de la versión se publican igual.
       - name: Compilar sin el widget (plan C)
-        if: steps.build.outcome == 'failure' && steps.build2.outcome == 'failure'
+        if: steps.build.outcome == 'failure' && steps.build15.outcome == 'failure' && steps.build2.outcome == 'failure'
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           REPO: ${{ github.repository }}
