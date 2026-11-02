@@ -96,7 +96,7 @@ const VSTYLES = [
 const state = {
   tracks: [], playlists: [], clips: [], wishlist: [], view: 'inicio',
   queue: [], qi: -1, source: 'library', shuffle: LS.get('shuffle', false), repeat: LS.get('repeat', 'off'),
-  mood: LS.get('mood', 'auto'), len: LS.get('len', 10), filter: 'all', search: '',
+  mood: LS.get('mood', 'auto'), len: (v => ['60m', 'inf'].includes(v) ? v : [10, 20, 30, 50].includes(+v) ? +v : +v > 10 ? 20 : 10)(LS.get('len', 10)), filter: 'all', search: '',
   hideDemos: LS.get('hideDemos', false), history: LS.get('history', []),
   mix: null, busy: false, demoStats: LS.get('demoStats', {}), radio: false,
   intros: {}, pendingTalk: null, xfade: LS.get('xfade', 3), net: null,
@@ -774,21 +774,58 @@ let A = 0; const act = () => els[A];
 let baseVol = LS.get('vol', 80) / 100, duckF = 1, sleepF = 1; const deckF = [1, 1, 1, 1];
 const AUD = {
   direct: LS.get('aDirect', false),
-  eq: LS.get('eq', 'plano'), eqCustom: LS.get('eqCustom', [0, 0, 0, 0, 0]),
+  eq: LS.get('eq', 'plano'), eqCustom: eqMigrate(LS.get('eqCustom', null)), eqOn: LS.get('eqOn', true),
   level: LS.get('aLevel', true),
   mix: LS.get('mixStyle', LS.get('xfade', 3) === 0 ? 'corte' : 'auto'),
   mixLen: LS.get('mixLen', 8)
 };
-const EQ_BANDS = [60, 250, 1000, 4000, 12000];
-const EQ_LABELS = ['60 Hz', '250 Hz', '1 kHz', '4 kHz', '12 kHz'];
+/* 3.3 · Equalizer with 10 bands (31 Hz – 16 kHz), like a hi-fi graphic equalizer */
+const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const EQ_LABELS = ['31', '62', '125', '250', '500', '1K', '2K', '4K', '8K', '16K'];
 const EQ_PRESETS = {
-  plano: { name: 'Plano', g: [0, 0, 0, 0, 0] }, graves: { name: 'Más graves', g: [6, 3, 0, 0, 0] },
-  reggaeton: { name: 'Reguetón', g: [6, 2, -1, 1, 2] }, electronica: { name: 'Electrónica', g: [5, 3, 0, 1, 4] },
-  pop: { name: 'Pop', g: [2, 1, -1, 2, 3] }, rock: { name: 'Rock', g: [4, 2, -1, 2, 4] },
-  voces: { name: 'Voces', g: [-2, -1, 3, 3, 1] }, acustico: { name: 'Acústico', g: [2, 1, 1, 2, 2] },
-  auriculares: { name: 'Auriculares', g: [3, 1, 0, 1, -1] }, noche: { name: 'Noche', g: [-1, 0, 0, -2, -4] },
-  custom: { name: 'A mi gusto', g: null }
+  plano: { name: 'Normal', g: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+  graves: { name: 'Aumento de graves', g: [6, 5, 4, 2, 0, 0, 0, 0, 0, 0] },
+  voces: { name: 'Aumento de voz', g: [-2, -2, -1, 0, 2, 3, 3, 2, 1, 0] },
+  agudos: { name: 'Aumento de agudos', g: [0, 0, 0, 0, 0, 1, 2, 2, 3, 5] },
+  pop: { name: 'Pop', g: [-1, 1, 3, 3, 2, 0, -1, -1, 0, 1] },
+  rock: { name: 'Rock', g: [4, 3, 2, 0, -1, -1, 1, 2, 3, 4] },
+  reggaeton: { name: 'Reguetón', g: [6, 5, 3, 1, 0, -1, 0, 1, 2, 2] },
+  hiphop: { name: 'Hip hop', g: [5, 4, 2, 1, -1, -1, 1, 0, 1, 2] },
+  electronica: { name: 'Electrónica', g: [5, 4, 2, 0, -1, 0, 1, 2, 4, 4] },
+  latina: { name: 'Latina', g: [3, 2, 1, 0, -1, 0, 1, 3, 3, 2] },
+  acustico: { name: 'Acústico', g: [2, 2, 1, 1, 1, 1, 2, 2, 2, 1] },
+  clasica: { name: 'Clásica', g: [3, 2, 1, 0, 0, 0, -1, 0, 2, 3] },
+  jazz: { name: 'Jazz', g: [3, 2, 1, 2, -1, -1, 0, 1, 2, 3] },
+  auriculares: { name: 'Auriculares', g: [3, 2, 1, 0, 0, 0, 1, 1, 0, -1] },
+  altavoz: { name: 'Altavoz del móvil', g: [-6, -4, -1, 1, 1, 1, 2, 2, 1, 0] },
+  noche: { name: 'Noche (suave)', g: [-1, -1, 0, 0, 0, 0, -1, -2, -3, -4] },
+  custom: { name: 'Personalizado', g: null }
 };
+/* The four big buttons (like a phone's sound settings); the rest are styles */
+const EQ_CARDS = ['custom', 'graves', 'voces', 'agudos'];
+const EQ_ICON = {
+  custom: '<path d="M4 12v2M8 9v8M12 5v14M16 8v9M20 11v3"/>',
+  graves: '<rect x="7" y="3" width="10" height="13" rx="2"/><circle cx="12" cy="11" r="2.5"/><path d="M4 18c2.5 2.5 13.5 2.5 16 0"/>',
+  voces: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  agudos: '<rect x="8" y="5" width="8" height="14" rx="2"/><circle cx="12" cy="14" r="2"/><path d="M4 8a10 10 0 0 0 0 8M20 8a10 10 0 0 1 0 8"/>'
+};
+/* An equalizer saved before 3.3 (5 bands) is carried over to the 10 bands, following the same curve */
+function eqMigrate(v) {
+  if (Array.isArray(v) && v.length === 10) return v.map(x => Math.max(-12, Math.min(12, Math.round(+x || 0))));
+  if (!Array.isArray(v) || v.length !== 5) return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const of = [60, 250, 1000, 4000, 12000], nf = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000], L = Math.log2;
+  return nf.map(f => {
+    if (f <= of[0]) return +v[0] || 0;
+    if (f >= of[4]) return +v[4] || 0;
+    let i = 0; while (f > of[i + 1]) i++;
+    const k = (L(f) - L(of[i])) / (L(of[i + 1]) - L(of[i]));
+    return Math.round((+v[i] || 0) + ((+v[i + 1] || 0) - (+v[i] || 0)) * k);
+  });
+}
+const eqMine = () => LS.get('eqMine', []);
+const eqPreset = id => EQ_PRESETS[id] || (String(id).startsWith('mine-') ? (() => { const m = eqMine().find(x => 'mine-' + x.id === id); return m ? { name: m.name, g: eqMigrate(m.g) } : null; })() : null);
+const eqGains = () => !AUD.eqOn ? EQ_PRESETS.plano.g : AUD.eq === 'custom' ? AUD.eqCustom : (eqPreset(AUD.eq) || EQ_PRESETS.plano).g;
+const eqName = () => (eqPreset(AUD.eq) || EQ_PRESETS.plano).name;
 const MIX_ORDER = ['auto', 'dj', 'filtro', 'suave', 'eco', 'corte'];
 const MIX_STYLES = {
   auto: { name: 'Automática', desc: 'Nova elige en cada cambio: mezcla de DJ si el ritmo encaja, filtro si las dos tienen golpe y un fundido largo si no. Siempre 6 s o más.' },
@@ -798,7 +835,6 @@ const MIX_STYLES = {
   filtro: { name: 'Filtro', desc: 'La canción se va apagando hacia los graves mientras la siguiente entra desde los agudos, cuadrado al compás.' },
   corte: { name: 'Corte seco', desc: 'Sin mezcla, pero quitando el silencio del final y del principio.' }
 };
-const eqGains = () => AUD.eq === 'custom' ? AUD.eqCustom : (EQ_PRESETS[AUD.eq] || EQ_PRESETS.plano).g;
 const eqActive = () => !AUD.direct && eqGains().some(v => v);
 const wantsGraph = () => !AUD.direct && (eqActive() || AUD.level || AUD.mix !== 'corte');
 let actx = null, G = null, analyser = null, freq = null, tapSrc = null, ctxIdleT = null;
@@ -827,8 +863,8 @@ function ensureGraph() {
   try {
     const nyq = c.sampleRate / 2;
     const pre = c.createGain(), post = c.createGain(), master = c.createGain();
-    const eq = EQ_BANDS.map((f, i) => { const b = c.createBiquadFilter(); b.type = i === 0 ? 'lowshelf' : i === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking'; b.frequency.value = f; b.Q.value = 0.9; b.gain.value = 0; return b; });
-    const lim = c.createDynamicsCompressor(); lim.threshold.value = -1; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.12;
+    const eq = EQ_BANDS.map((f, i) => { const b = c.createBiquadFilter(); b.type = i === 0 ? 'lowshelf' : i === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking'; b.frequency.value = f; b.Q.value = 1.41; b.gain.value = 0; return b; });
+    const lim = c.createDynamicsCompressor(); lim.threshold.value = -1; lim.knee.value = 1.5; lim.ratio.value = 20; lim.attack.value = 0.003; lim.release.value = 0.22;
     const an = c.createAnalyser(); an.fftSize = 512; an.smoothingTimeConstant = 0.8;
     let n = pre; for (const b of eq) { n.connect(b); n = b; }
     const duck = c.createGain(); duck.gain.value = Math.max(0.0001, duckF);
@@ -873,8 +909,8 @@ applyVol();
 function applyEq() {
   if (!G) return; const g = eqGains(), now = actx.currentTime, on = !AUD.direct;
   G.eq.forEach((b, i) => b.gain.setTargetAtTime(on ? g[i] : 0, now, 0.05));
-  const boost = on ? Math.max(0, ...g) : 0;
-  G.pre.gain.setTargetAtTime(Math.pow(10, -boost * 0.7 / 20), now, 0.05);
+  const boost = on ? eqPeakDb(g) : 0;
+  G.pre.gain.setTargetAtTime(Math.pow(10, -boost * 0.85 / 20), now, 0.05);
 }
 const TARGET_DB = -15;
 function normGainFor(t) {
@@ -946,7 +982,7 @@ function tapAnalyser(d) {
 }
 function soundLabel() {
   const parts = [];
-  if (G && !AUD.direct) { if (eqActive()) parts.push('ecualizador «' + (EQ_PRESETS[AUD.eq]?.name || '') + '»'); if (AUD.level) parts.push('volumen igualado'); }
+  if (G && !AUD.direct) { if (eqActive()) parts.push('ecualizador «' + eqName() + '»'); if (AUD.level) parts.push('volumen igualado'); }
   return parts;
 }
 
@@ -1154,7 +1190,7 @@ function playQueue(ids, start = 0, opts = {}) {
   let q = ids.slice(); let i = Math.max(0, Math.min(start, q.length - 1));
   if (state.shuffle && !['radio', 'online', 'daily'].includes(opts.source)) { const first = q[i]; q = [first, ...shuffleArr(q.filter((_, k) => k !== i))]; i = 0; }
   markManual();
-  state.queue = q; state.qi = i; state.source = opts.source || 'library';
+  state.queue = q; state.qi = i; state.source = opts.source || 'library'; state.mixEndless = null;
   state.intros = opts.intros || {};
   state.pendingTalk = opts.talk ? (typeof opts.talk === 'object' ? opts.talk : { text: opts.talk, kind: opts.talkKind || 'saludo' }) : null;
   if (state.source !== 'radio' && state.radio) setRadio(false, true);
@@ -1226,6 +1262,7 @@ function next(auto) {
     state.queue = state.queue.slice(0, state.qi + 1).concat(radioNext(sk, 6));
   }
   if (state.source === 'radio' && state.qi + 2 >= state.queue.length) state.queue.push(...radioBatch(state.queue.slice(-3)));
+  if (state.mixEndless && state.qi + 2 >= state.queue.length) { const more = mixRefill(); if (more.length) { state.queue.push(...more); renderQueue(); } }
   const xf = auto ? 0 : (d.paused ? 0 : MANUAL_XF);
   if (state.qi + 1 < state.queue.length) { state.qi++; loadCurrent(true, xf); }
   else if (state.repeat === 'all' || !auto) { state.qi = 0; loadCurrent(true, xf); }
@@ -1246,6 +1283,7 @@ function nextForMix() {
   let i = state.qi + 1;
   if (i >= state.queue.length) {
     if (state.source === 'radio') state.queue.push(...radioBatch(state.queue.slice(-3)));
+    else if (state.mixEndless) { const more = mixRefill(); if (more.length) { state.queue.push(...more); renderQueue(); } else return null; }
     else if (state.repeat === 'all' && state.queue.length > 1) i = 0; else return null;
   }
   const t = trackById(state.queue[i]); return t && !t.net ? { t, i } : null;
@@ -1858,22 +1896,13 @@ function setMixStyle(v) {
   if (wantsGraph()) ensureGraph();
   $('#mixSel').value = v; renderSound();
 }
-function setEq(id) {
-  if (!EQ_PRESETS[id]) id = 'plano';
-  if (id === 'custom' && AUD.eq !== 'custom') AUD.eqCustom = eqGains().slice();
-  AUD.eq = id; LS.set('eq', id); LS.set('eqCustom', AUD.eqCustom);
-  ensureGraph(); applyEq(); renderSound(); updateQuality();
-}
 function renderSound() {
   if (!$('#mixChips')) return;
   $('#mixChips').innerHTML = MIX_ORDER.map(id => [id, MIX_STYLES[id]]).map(([id, s]) => `<button class="chip" data-mix="${id}" aria-pressed="${AUD.mix === id}">${esc(s.name)}</button>`).join('');
   $('#mixDesc').textContent = MIX_STYLES[AUD.mix].desc;
   $('#mixLenBox').hidden = !['suave', 'auto'].includes(AUD.mix);
   $('#mixLenIn').value = AUD.mixLen; setRange($('#mixLenIn')); $('#mixLenVal').textContent = AUD.mixLen + ' s';
-  $('#eqChips').innerHTML = Object.entries(EQ_PRESETS).map(([id, p]) => `<button class="chip" data-eq="${id}" aria-pressed="${AUD.eq === id}">${esc(p.name)}</button>`).join('');
-  const g = eqGains();
-  $('#eqBands').innerHTML = EQ_BANDS.map((f, i) => `<label class="eqband"><span class="mono">${EQ_LABELS[i]}</span><input class="range" type="range" min="-12" max="12" step="1" value="${g[i]}" data-band="${i}" aria-label="Banda de ${EQ_LABELS[i]}"><span class="mono" data-bandval="${i}">${g[i] > 0 ? '+' : ''}${g[i]} dB</span></label>`).join('');
-  $$('#eqBands .range').forEach(setRange);
+  renderEq();
   setToggle($('#tLevel'), AUD.level); setToggle($('#tDirect'), AUD.direct);
   $('#soundBody').classList.toggle('off', AUD.direct);
   $('#soundNote').textContent = AUD.direct
@@ -1885,13 +1914,105 @@ $('#mixSel').innerHTML = MIX_ORDER.map(id => [id, MIX_STYLES[id]]).map(([id, s])
 $('#mixSel').value = AUD.mix;
 $('#mixSel').addEventListener('change', e => { setMixStyle(e.target.value); toast(`Entre canciones: ${MIX_STYLES[AUD.mix].name.toLowerCase()}`); });
 $('#mixLenIn').addEventListener('input', e => { AUD.mixLen = +e.target.value; LS.set('mixLen', AUD.mixLen); setRange(e.target); $('#mixLenVal').textContent = AUD.mixLen + ' s'; disarmMix(); });
-$('#eqChips').addEventListener('click', e => { const b = e.target.closest('[data-eq]'); if (b) setEq(b.dataset.eq); });
-$('#eqBands').addEventListener('input', e => {
-  const r = e.target.closest('[data-band]'); if (!r) return;
-  if (AUD.eq !== 'custom') { AUD.eqCustom = eqGains().slice(); AUD.eq = 'custom'; LS.set('eq', 'custom'); $$('#eqChips .chip').forEach(c => c.setAttribute('aria-pressed', c.dataset.eq === 'custom')); }
-  const i = +r.dataset.band, v = +r.value; AUD.eqCustom[i] = v; LS.set('eqCustom', AUD.eqCustom);
-  setRange(r); $(`[data-bandval="${i}"]`).textContent = `${v > 0 ? '+' : ''}${v} dB`;
-  ensureGraph(); applyEq(); updateQuality();
+/* How loud the equalizer makes the loudest frequency: the music is lowered by almost that much first, so boosting
+   never distorts (the safety limiter catches the little that's left) */
+let eqProbe = null, eqFreqs = null;
+function eqPeakDb(g) {
+  const plain = Math.max(0, ...g);
+  if (!actx || typeof actx.createBiquadFilter !== 'function') return plain;
+  try {
+    if (!eqProbe) {
+      eqProbe = EQ_BANDS.map((f, i) => { const b = actx.createBiquadFilter(); b.type = i === 0 ? 'lowshelf' : i === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking'; b.frequency.value = f; b.Q.value = 1.41; return b; });
+      eqFreqs = new Float32Array(96).map((_, k) => 20 * Math.pow(1000, k / 95));
+    }
+    const mag = new Float32Array(96).fill(1), tmp = new Float32Array(96), ph = new Float32Array(96);
+    eqProbe.forEach((b, i) => { b.gain.value = g[i] || 0; b.getFrequencyResponse(eqFreqs, tmp, ph); for (let k = 0; k < 96; k++) mag[k] *= tmp[k]; });
+    let mx = 0; for (let k = 0; k < 96; k++) if (mag[k] > mx) mx = mag[k];
+    const db = 20 * Math.log10(mx || 1);
+    return isFinite(db) ? Math.max(0, db) : plain;
+  } catch { return plain; }
+}
+function setEq(id) {
+  if (!eqPreset(id)) id = 'plano';
+  if (id === 'custom' && AUD.eq !== 'custom') AUD.eqCustom = eqGains().slice();
+  AUD.eq = id; LS.set('eq', id); LS.set('eqCustom', AUD.eqCustom);
+  if (!AUD.eqOn) { AUD.eqOn = true; LS.set('eqOn', true); }
+  ensureGraph(); applyEq(); renderEq(); updateQuality();
+}
+function setEqOn(on) { AUD.eqOn = !!on; LS.set('eqOn', AUD.eqOn); ensureGraph(); applyEq(); renderEq(); updateQuality(); }
+let eqT = null;
+function eqApplySoon() { if (eqT) return; eqT = requestAnimationFrame(() => { eqT = null; ensureGraph(); applyEq(); updateQuality(); }); }
+const eqFmt = v => (v > 0 ? '+' : '') + v;
+function renderEq() {
+  const box = $('#eqPanel'); if (!box) return;
+  setToggle($('#tEq'), AUD.eqOn);
+  box.classList.toggle('off', !AUD.eqOn);
+  const g = eqGains();
+  $('#eqBands').innerHTML = EQ_BANDS.map((f, i) => `<div class="eqcol"><span class="eqval mono" data-bandval="${i}">${eqFmt(g[i])}</span><div class="eqtrack" role="slider" tabindex="0" aria-orientation="vertical" aria-valuemin="-12" aria-valuemax="12" aria-valuenow="${g[i]}" aria-valuetext="${eqFmt(g[i])} dB" aria-label="Banda de ${EQ_LABELS[i]} Hz" data-band="${i}"><i class="eqfill"></i><b class="eqknob"></b></div><span class="eqf mono">${EQ_LABELS[i]}</span></div>`).join('');
+  $$('#eqBands .eqtrack').forEach(eqPaint);
+  const sel = AUD.eq;
+  $('#eqCards').innerHTML = EQ_CARDS.map(id => `<button class="eqcard" data-eq="${id}" aria-pressed="${sel === id}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${EQ_ICON[id]}</svg><b>${esc(EQ_PRESETS[id].name)}</b></button>`).join('');
+  const styles = Object.keys(EQ_PRESETS).filter(id => !EQ_CARDS.includes(id));
+  const mine = eqMine();
+  $('#eqChips').innerHTML = styles.map(id => `<button class="chip" data-eq="${id}" aria-pressed="${sel === id}">${esc(EQ_PRESETS[id].name)}</button>`).join('')
+    + mine.map(m => `<span class="chip eqmine" aria-pressed="${sel === 'mine-' + m.id}"><button data-eq="mine-${esc(m.id)}">${esc(m.name)}</button><button class="eqdel" data-eqdel="${esc(m.id)}" aria-label="Borrar «${esc(m.name)}»">×</button></span>`).join('');
+  $('#eqSaveRow').hidden = !(AUD.eqOn && sel === 'custom' && AUD.eqCustom.some(v => v));
+  $('#eqName').textContent = AUD.eqOn ? eqName() : 'Apagado';
+}
+function eqPaint(tr) {
+  const v = +tr.getAttribute('aria-valuenow') || 0, p = (12 - v) / 24 * 100;
+  tr.style.setProperty('--p', p + '%');
+  const fill = tr.firstElementChild;
+  fill.style.top = Math.min(50, p) + '%'; fill.style.height = Math.abs(p - 50) + '%';
+}
+function eqSetBand(tr, v) {
+  v = Math.max(-12, Math.min(12, Math.round(v)));
+  const i = +tr.dataset.band;
+  if (AUD.eq !== 'custom' || !AUD.eqOn) {
+    AUD.eqCustom = eqGains().slice(); AUD.eq = 'custom'; LS.set('eq', 'custom');
+    if (!AUD.eqOn) { AUD.eqOn = true; LS.set('eqOn', true); setToggle($('#tEq'), true); $('#eqPanel').classList.remove('off'); }
+    $$('#eqPanel [data-eq]').forEach(c => { const host = c.closest('.eqmine') || c; host.setAttribute('aria-pressed', c.dataset.eq === 'custom'); });
+    $('#eqName').textContent = eqName();
+  }
+  if (AUD.eqCustom[i] === v) return;
+  AUD.eqCustom[i] = v; LS.set('eqCustom', AUD.eqCustom);
+  tr.setAttribute('aria-valuenow', v); tr.setAttribute('aria-valuetext', eqFmt(v) + ' dB'); eqPaint(tr);
+  $(`[data-bandval="${i}"]`).textContent = eqFmt(v);
+  $('#eqSaveRow').hidden = !AUD.eqCustom.some(x => x);
+  eqApplySoon();
+}
+/* Dragging a band (up and down), arrows on the keyboard, double tap puts it back to 0 */
+let eqDrag = null;
+$('#eqBands').addEventListener('pointerdown', e => {
+  const tr = e.target.closest('.eqtrack'); if (!tr) return;
+  e.preventDefault(); eqDrag = tr; try { tr.setPointerCapture(e.pointerId); } catch {}
+  tr.classList.add('drag'); eqFromY(tr, e.clientY);
+});
+$('#eqBands').addEventListener('pointermove', e => { if (eqDrag) eqFromY(eqDrag, e.clientY); });
+const eqEnd = () => { if (eqDrag) { eqDrag.classList.remove('drag'); eqDrag = null; } };
+$('#eqBands').addEventListener('pointerup', eqEnd); $('#eqBands').addEventListener('pointercancel', eqEnd);
+function eqFromY(tr, y) { const r = tr.getBoundingClientRect(); if (!r.height) return; eqSetBand(tr, 12 - ((y - r.top) / r.height) * 24); }
+$('#eqBands').addEventListener('dblclick', e => { const tr = e.target.closest('.eqtrack'); if (tr) eqSetBand(tr, 0); });
+$('#eqBands').addEventListener('keydown', e => {
+  const tr = e.target.closest('.eqtrack'); if (!tr) return;
+  const v = +tr.getAttribute('aria-valuenow') || 0;
+  const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 3, PageDown: -3 }[e.key];
+  if (d) { e.preventDefault(); eqSetBand(tr, v + d); } else if (e.key === 'Home') { e.preventDefault(); eqSetBand(tr, 12); } else if (e.key === 'End') { e.preventDefault(); eqSetBand(tr, -12); } else if (e.key === '0') eqSetBand(tr, 0);
+});
+$('#eqPanel').addEventListener('click', e => {
+  const del = e.target.closest('[data-eqdel]');
+  if (del) { const id = del.dataset.eqdel; LS.set('eqMine', eqMine().filter(m => m.id !== id)); if (AUD.eq === 'mine-' + id) { AUD.eqCustom = eqGains().slice(); AUD.eq = 'custom'; LS.set('eq', 'custom'); } renderEq(); toast('Ajuste borrado'); return; }
+  const b = e.target.closest('[data-eq]'); if (b) setEq(b.dataset.eq);
+});
+$('#tEq').onclick = () => { setEqOn(!AUD.eqOn); toast(AUD.eqOn ? `Ecualizador: ${eqName()}` : 'Ecualizador apagado'); };
+$('#eqReset').onclick = () => { AUD.eqCustom = EQ_PRESETS.plano.g.slice(); AUD.eq = 'custom'; LS.set('eq', 'custom'); LS.set('eqCustom', AUD.eqCustom); ensureGraph(); applyEq(); renderEq(); updateQuality(); };
+$('#eqSaveForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('#eqSaveIn').value.trim().slice(0, 24); if (!name) { $('#eqSaveIn').focus(); return; }
+  const list = eqMine().filter(m => norm(m.name) !== norm(name));
+  if (list.length >= 8) { toast('Puedes guardar hasta 8 ajustes tuyos: borra alguno antes.'); return; }
+  const m = { id: uid('eq'), name, g: AUD.eqCustom.slice() }; list.push(m); LS.set('eqMine', list);
+  $('#eqSaveIn').value = ''; AUD.eq = 'mine-' + m.id; LS.set('eq', AUD.eq); renderEq(); toast(`Guardado: «${name}»`); haptic(8);
 });
 $('#tLevel').onclick = () => { AUD.level = !AUD.level; LS.set('aLevel', AUD.level); ensureGraph(); const t = current(); if (t && A < 2) applyNorm(A, t, 0.6); renderSound(); updateQuality(); toast(AUD.level ? 'Volumen igualado entre canciones' : 'Cada canción con su volumen original'); };
 $('#tDirect').onclick = () => {
@@ -2686,11 +2807,11 @@ function unbanTrack(id) { BRAIN.ban.delete(id); LS.set('banned', [...BRAIN.ban])
 function moreLikeThis() {
   const t = current(); if (!t || t.net) { toast('Pon una canción de tu biblioteca primero'); return; }
   const sims = similarTo(t, 15).map(x => x.id); if (!sims.length) { toast('Aún no conozco bien tu música: escucha unas cuantas canciones más'); return; }
-  state.queue = state.queue.slice(0, state.qi + 1).concat(sims); state.source = 'mix'; state.intros = {};
+  state.queue = state.queue.slice(0, state.qi + 1).concat(sims); state.source = 'mix'; state.intros = {}; state.mixEndless = { like: t.id };
   if (state.radio) setRadio(false, true);
   prefetchNext(); renderQueue();
   const line = pick([`A partir de ahora, canciones que suenan como ${t.title}.`, `Marchando más música en la onda de ${t.title}.`, `Si te gusta esta, lo que viene te va a encantar.`]);
-  djTalk(line, 'siguiente'); toast('Cola cambiada: canciones parecidas a esta');
+  djTalk(line, 'siguiente'); toast('Cola cambiada: canciones parecidas a esta, sin fin');
 }
 /* Requests without AI: words and synonyms turned into a selection of your music */
 const INTENTS = [
@@ -2714,7 +2835,9 @@ function parseRequest(text, pool) {
   if (/nuev|no he escuchado|descubr|sin escuchar|recien/.test(q)) out.fresh = true;
   if (/olvidad|antigu|hace tiempo|viejas|clasicos mios|redescubr/.test(q)) out.forgotten = true;
   const num = q.match(/(\d{1,3})\s*(canciones|temas|cancion)/); if (num) out.count = Math.min(60, +num[1]);
-  const mins = q.match(/(\d{1,3})\s*(min|minutos)/) || (/una hora/.test(q) ? [0, 60] : /media hora/.test(q) ? [0, 30] : null); if (mins) out.minutes = +mins[1] * (/hora/.test(mins[2] || '') ? 60 : 1);
+  { const W = { una: 1, un: 1, dos: 2, tres: 3, cuatro: 4 }, hm = q.match(/ (\d{1,2}|una|un|dos|tres|cuatro) (horas?|h) /), mm = q.match(/(\d{1,3})\s*(min|minutos) /);
+    if (hm) out.minutes = (W[hm[1]] || +hm[1]) * 60 + (/ y media /.test(q) ? 30 : 0); else if (/ hora y media /.test(q)) out.minutes = 90; else if (mm) out.minutes = +mm[1]; else if (/ media hora /.test(q)) out.minutes = 30;
+    if (out.minutes) out.minutes = Math.min(300, out.minutes); }
   const artists = [...new Set(pool.map(t => t.artist).filter(a => artistKey(a) && artistKey(a).length >= 3))];
   for (const a of artists) {
     const k = artistKey(a); const i = q.indexOf(' ' + k + ' '); if (i < 0) continue;
@@ -2870,7 +2993,7 @@ Responde solo con JSON con esta forma:
 {"nombre":"título creativo de máximo 5 palabras","descripcion":"una frase","saludo":"1 o 2 frases de locutora presentando la mezcla y la primera canción","canciones":[{"id":"...","motivo":"máximo 8 palabras","intro":"frase de locutora de máximo 14 palabras para presentar esta canción"}],"descubrir":[{"titulo":"...","artista":"...","motivo":"máximo 10 palabras"}]}
 En "descubrir" pon 3 canciones reales que NO estén en la biblioteca y encajen con la mezcla.`;
 }
-function localMix(pool, m, mood, scenario, n) {
+function localMix(pool, m, mood, scenario, n, minutes = 0) {
   const now = Date.now();
   let sel = pool;
   if (mood === 'nostalgia') { const f = pool.filter(t => plays(t) >= 2 && t.lastPlayed && now - t.lastPlayed > 14 * 864e5); if (f.length >= Math.min(4, n)) sel = f; }
@@ -2878,7 +3001,10 @@ function localMix(pool, m, mood, scenario, n) {
   const target = t0 === null ? null : Math.max(0.05, Math.min(0.95, t0 + (mood === 'auto' ? weatherBias() : 0)));
   const recent = new Set(state.history.slice(0, 5));
   const ranked = brainRank(sel, current(), { target, exclude: recent, explore: 0.6 }).map(x => x.t);
-  const ids = arrangeArc((ranked.length >= n ? ranked : brainRank(sel, current(), { target, explore: 0.6 }).map(x => x.t)).slice(0, n), 'mix' + now).map(t => t.id);
+  const ordered = ranked.length >= n || minutes ? ranked : brainRank(sel, current(), { target, explore: 0.6 }).map(x => x.t);
+  let chosen = ordered.slice(0, n);
+  if (minutes) { chosen = []; let tot = 0; for (const t of ordered) { if (tot >= minutes * 60) break; chosen.push(t); tot += t.duration || 200; } }
+  const ids = arrangeArc(chosen, 'mix' + now).map(t => t.id);
   const names = scenario ? [cap(scenario)] : [`${pick(['Sesión','Ruta','Mezcla','Vuelta'])} de ${m.day} ${m.franja.phrase}`, `${cap(m.day)} en órbita`, mood === 'auto' ? `Cara B ${m.franja.phrase}` : `Modo ${moodLabel(mood).toLowerCase()}`];
   const first = trackById(ids[0]);
   return { source: 'local', name: pick(names), desc: `Elegida por ${dj.name} en tu móvil, con lo que ha aprendido de lo que escuchas y saltas.`, greeting: first ? `Te he preparado una mezcla para este ${m.day}. Abrimos con ${nameOf(first)}.` : '', ids, why: {}, intros: {}, discover: [], moment: m.label, mood, scenario };
@@ -2891,7 +3017,11 @@ async function createMix({ surprise = false, request = '', autoplay = false, hin
   const scenario = surprise ? pick(SCENARIOS) : null;
   const mood = surprise ? pick(MOODS.slice(1)).id : request ? moodFromText(request) : state.mood;
   if (surprise) { state.mood = mood; LS.set('mood', mood); renderChips(); }
-  const n = Math.min(state.len, pool.length);
+  /* how much music: a number of songs, an hour, or endless (Nova keeps adding more in the same mood) */
+  const reqN = request ? ' ' + norm(request) + ' ' : '';
+  const endless = state.len === 'inf' || /sin fin|infinit|sin parar|todo el rato|toda la (noche|tarde|manana)/.test(reqN);
+  const minutes = state.len === '60m' && !request ? 60 : 0;
+  const n = Math.min(endless ? 25 : state.len === '60m' ? 18 : (+state.len || 10), pool.length);
   state.busy = true; setBusy(true);
   let mix = null, note = '';
   if (aiState === 'ready') {
@@ -2916,7 +3046,8 @@ async function createMix({ surprise = false, request = '', autoplay = false, hin
     }
     mixCtl = null;
   }
-  if (!mix) { mix = request ? intentMix(hint ? request + ' ' + hint : request, pool, n, m) : localMix(pool, m, mood, scenario, n); if (request) mix.request = request; if (note) mix.note = note + (mix.note ? ' ' + mix.note : ''); }
+  if (!mix) { mix = request ? intentMix(hint ? request + ' ' + hint : request, pool, n, m) : localMix(pool, m, mood, scenario, n, minutes); if (request) mix.request = request; if (note) mix.note = note + (mix.note ? ' ' + mix.note : ''); }
+  if (endless) { mix.endless = true; mix.refill = request ? { text: hint ? request + ' ' + hint : request } : { mood }; mix.desc = (mix.desc ? mix.desc + ' ' : '') + 'Sin fin: cuando se vaya acabando, Nova añade más canciones en la misma onda.'; }
   state.mix = mix; state.busy = false; setBusy(false); renderMix();
   if (autoplay) playMix(0);
   else setBubble(mix.greeting || `Lista: ${mix.name}. Dale a reproducir cuando quieras.`);
@@ -2926,6 +3057,22 @@ function playMix(i) {
   const t = trackById(mx.ids[i]);
   const talk = i === 0 ? (mx.greeting || (t ? introFor(t) : null)) : null;
   playQueue(mx.ids, i, { source: 'mix', intros: mx.intros, talk, talkKind: 'saludo' });
+  state.mixEndless = mx.endless ? mx.refill || {} : null;
+}
+/* Endless mixes: more songs in the same mood before the queue runs out (never the ones that just played) */
+function mixRefill() {
+  const e = state.mixEndless; if (!e || state.source !== 'mix') return [];
+  const pool = poolTracks(); if (pool.length < 3) return [];
+  let cands = [];
+  try {
+    if (e.like) { const seed = trackById(e.like) || current(); cands = seed && !seed.net ? similarTo(seed, 40).map(t => t.id) : []; }
+    else if (e.text) cands = intentMix(e.text, pool, 40, getMoment()).ids || [];
+    else cands = localMix(pool, getMoment(), e.mood || 'auto', null, 40).ids || [];
+  } catch { cands = []; }
+  const recent = new Set(state.queue.slice(-Math.min(60, Math.max(8, Math.floor(pool.length * 0.6)))));
+  let ids = cands.filter(id => trackById(id) && !recent.has(id));
+  if (ids.length < 3) { const last = new Set(state.queue.slice(-5)); ids = cands.filter(id => trackById(id) && !last.has(id)); }
+  return [...new Set(ids)].slice(0, 10);
 }
 function setBusy(b) { ['#btnMix', '#btnSurprise', '#djSend', '#btnRoulette'].forEach(s => { $(s).disabled = b; }); }
 function renderThinking(scenario, request) {
@@ -3915,10 +4062,10 @@ window.addEventListener('popstate', () => {
 
 function renderChips() {
   $('#moodChips').innerHTML = MOODS.map(m => `<button class="chip" data-mood="${m.id}" aria-pressed="${state.mood === m.id}">${m.label}</button>`).join('');
-  $$('#lenSeg button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.len === state.len));
+  $$('#lenSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.len === String(state.len)));
 }
 $('#moodChips').addEventListener('click', e => { const b = e.target.closest('[data-mood]'); if (!b) return; state.mood = b.dataset.mood; LS.set('mood', state.mood); renderChips(); });
-$('#lenSeg').addEventListener('click', e => { const b = e.target.closest('[data-len]'); if (!b) return; state.len = +b.dataset.len; LS.set('len', state.len); renderChips(); });
+$('#lenSeg').addEventListener('click', e => { const b = e.target.closest('[data-len]'); if (!b) return; state.len = /^\d+$/.test(b.dataset.len) ? +b.dataset.len : b.dataset.len; LS.set('len', state.len); renderChips(); });
 $('#btnMix').onclick = () => createMix();
 $('#btnSurprise').onclick = () => createMix({ surprise: true });
 $('#ideas').innerHTML = shuffleArr(IDEAS).slice(0, 4).map(s => `<button class="idea" data-idea="${esc(s)}">${esc(s)}</button>`).join('');
@@ -4449,6 +4596,12 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '3.3': [
+    '<b>Ecualizador de 10 bandas</b> (Ajustes › Sonido): arrastra cada banda, usa los botones grandes (graves, voz, agudos) o un estilo (pop, reguetón, rock…), y guarda tus propios ajustes con nombre.',
+    '<b>Sonido más limpio</b>: al subir bandas, Órbita baja antes el volumen justo para que nunca distorsione, y el limitador es más suave.',
+    '<b>Mezclas más largas</b>: de 10 a 50 canciones, de una hora o <b>sin fin</b> (Nova va añadiendo más en la misma onda). También se lo puedes pedir: «dos horas de reguetón», «música sin fin para entrenar».',
+    '«Más como esta» ya no se acaba: sigue poniendo canciones parecidas a la que elegiste.'
+  ],
   '3.2': [
     '<b>YouTube sin clave</b>: comparte un vídeo o una lista desde la app de YouTube (Compartir › Órbita) o pega el enlace en Buscar › YouTube. Entra en tu cola, Nova lo presenta y después sigue tu música.',
     'El vídeo se ve en grande en «Ahora suena» y en pequeño encima del reproductor mientras usas la app. Los botones de Órbita lo manejan como a una canción.',
@@ -6236,7 +6389,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }

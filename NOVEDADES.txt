@@ -1,3 +1,11 @@
+Órbita 3.3 · beta 1 (versión de prueba): mejor sonido y mezclas más largas.
+
+- Ecualizador de 10 bandas (Ajustes › Sonido): arrastra cada banda, usa los botones grandes (graves, voz, agudos) o un estilo (pop, rock, reguetón, hip hop, electrónica, latina, clásica, jazz, altavoz del móvil…) y guarda tus propios ajustes con nombre.
+- Sonido más limpio: al subir bandas, Órbita baja antes el volumen justo para que nunca distorsione, y el limitador es más suave.
+- Mezclas de 10, 20, 30 o 50 canciones, de una hora, o sin fin: Nova va añadiendo más canciones en la misma onda.
+- Pídelo con tus palabras: «dos horas de reguetón», «hora y media para estudiar», «música sin fin para entrenar».
+- «Más como esta» ya no se acaba: sigue poniendo canciones parecidas a la que elegiste.
+
 Órbita 3.2 · beta 1 (versión de prueba): YouTube sin clave y videoclips.
 
 - YouTube sin clave: comparte un vídeo o una lista desde la app de YouTube (Compartir › Órbita) o pega el enlace en Buscar › YouTube. Entra en tu cola, Nova lo presenta y después sigue tu música.
