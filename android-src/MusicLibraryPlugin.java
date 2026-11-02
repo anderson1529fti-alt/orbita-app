@@ -85,6 +85,8 @@ public class MusicLibraryPlugin extends Plugin {
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang);
         i.putExtra(RecognizerIntent.EXTRA_PROMPT, call.getString("prompt", "Dile algo a Nova"));
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+        // 3.4: sin internet, con el reconocedor del propio móvil (necesita el idioma descargado para usar sin conexión)
+        if (Boolean.TRUE.equals(call.getBoolean("offline", false))) i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         try {
             startActivityForResult(call, i, "onSpeechResult");
         } catch (Exception e) {
@@ -103,6 +105,7 @@ public class MusicLibraryPlugin extends Plugin {
         }
         JSObject ret = new JSObject();
         ret.put("matches", list);
+        ret.put("code", result.getResultCode());
         call.resolve(ret);
     }
 
