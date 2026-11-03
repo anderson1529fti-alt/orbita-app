@@ -1,4 +1,4 @@
-Órbita 3.5: despertador con Nova, tu año en Órbita, el motor de sonido de Android (beta) y una bienvenida fácil.
+Órbita 3.5: despertador con Nova, tu año en Órbita, el motor de sonido de Android con mezclas de DJ, cambios de canción más finos y una bienvenida fácil.
 
 Despertador con Nova
 - Ajustes › Despertador: elige la hora, los días y con qué música (suave para despertar, tu mezcla del día, tus favoritas, una de tus listas o el modo radio).
