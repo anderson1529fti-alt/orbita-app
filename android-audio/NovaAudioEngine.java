@@ -102,6 +102,8 @@ public final class NovaAudioEngine {
     public void setVolume(int slot, float v) { slots[slot].volume = clamp(v, 0f, 1f); }
     public void setNorm(int slot, float g) { slots[slot].norm = clamp(g, 0f, 4f); }
     public void setNext(int slot, String src) { slots[slot].setNext(src); }
+    /** 3.5b2: las siguientes canciones en orden; el motor las encadena solo aunque la app esté dormida. */
+    public void setQueue(int slot, java.util.List<String> srcs) { slots[slot].setQueue(srcs); }
     public void setMaster(float v) { master = clamp(v, 0f, 1f); }
     public void setDirect(boolean d) { direct = d; }
     public void setViz(boolean on) { viz = on; }
@@ -204,6 +206,8 @@ public final class NovaAudioEngine {
         volatile int seekReq, seekDone;
         volatile double seekTo;
         volatile String nextSrc;
+        // las que vienen después de nextSrc (cola de segundo plano)
+        final ArrayDeque<String> upcoming = new ArrayDeque<>();
         // cambios de canción sin hueco: en qué trama del anillo empieza la siguiente
         final ArrayDeque<long[]> marks = new ArrayDeque<>();
         final ArrayDeque<Object[]> markInfo = new ArrayDeque<>();
@@ -215,6 +219,7 @@ public final class NovaAudioEngine {
             stopFeeder();
             src = s; durUs = 0; playedFrames = 0; baseSec = Math.max(0, startAt);
             eof = false; failed = false; endedSent = false; nextSrc = null;
+            synchronized (upcoming) { upcoming.clear(); }
             synchronized (marks) { marks.clear(); markInfo.clear(); }
             ring = new Ring(rate * 2);
             seekTo = startAt; seekDone = seekReq; if (startAt > 0) seekReq++;
@@ -244,9 +249,16 @@ public final class NovaAudioEngine {
         void seek(double pos) {
             if (src == null) return;
             /* si ya se estaba preparando la siguiente del disco, se vuelve a abrir esta */
-            String nx = null;
-            synchronized (marks) { if (!markInfo.isEmpty()) nx = (String) markInfo.peek()[0]; }
-            if (nx != null) { boolean p = playing; String s = src; load(s, pos, p); nextSrc = nx; return; }
+            /* si ya se estaban preparando las siguientes, se vuelve a abrir esta y se conservan todas, en orden */
+            ArrayDeque<String> rest = new ArrayDeque<>();
+            synchronized (marks) { for (Object[] info : markInfo) rest.add((String) info[0]); }
+            if (!rest.isEmpty()) {
+                boolean p = playing; String s = src;
+                synchronized (upcoming) { if (nextSrc != null) rest.add(nextSrc); rest.addAll(upcoming); }
+                load(s, pos, p);
+                synchronized (upcoming) { nextSrc = rest.poll(); upcoming.addAll(rest); }
+                return;
+            }
             synchronized (this) {
                 seekTo = Math.max(0, pos); seekReq++;
                 baseSec = seekTo; playedFrames = 0; eof = false; endedSent = false;
@@ -255,7 +267,17 @@ public final class NovaAudioEngine {
             }
         }
 
-        void setNext(String s) { nextSrc = s; }
+        void setNext(String s) { setQueue(s == null ? null : java.util.Collections.singletonList(s)); }
+
+        /** Las siguientes. Las que ya están preparadas en el anillo no se repiten. */
+        void setQueue(java.util.List<String> list) {
+            ArrayDeque<String> q = new ArrayDeque<>();
+            if (list != null) for (String x : list) if (x != null && !x.isEmpty()) q.add(x);
+            synchronized (marks) { for (Object[] info : markInfo) { if (!q.isEmpty() && q.peek().equals(info[0])) q.poll(); } }
+            synchronized (upcoming) { upcoming.clear(); nextSrc = q.poll(); upcoming.addAll(q); }
+        }
+
+        private String pollNext() { synchronized (upcoming) { String x = nextSrc; nextSrc = upcoming.poll(); return x; } }
 
         double position() { return baseSec + playedFrames / (double) rate; }
 
@@ -289,18 +311,21 @@ public final class NovaAudioEngine {
                     int n = d.read(in, want);
                     if (n == 0) { Thread.sleep(2); continue; }
                     if (n < 0) {
-                        String nx = nextSrc;
-                        if (nx != null) {
-                            // la siguiente del disco, pegada: sin hueco
-                            Decoder d2 = null;
+                        // la siguiente (del disco o de la cola), pegada: sin hueco. Si una no se abre, la de después
+                        Decoder d2 = null; String nx = null;
+                        while (my == gen && d2 == null) {
+                            nx = pollNext();
+                            if (nx == null) break;
                             try { d2 = factory.open(nx); } catch (Throwable t) { d2 = null; }
+                        }
+                        if (nx != null) {
                             if (d2 != null && my == gen) {
-                                nextSrc = null;
                                 d.close(); d = d2; cur = nx;
                                 rs = rs.rate() == d.sampleRate() ? rs : new Resampler(d.sampleRate(), rate);
                                 synchronized (marks) { marks.add(new long[] { r.written(), d.durationUs() }); markInfo.add(new Object[] { nx }); }
                                 continue;
                             }
+                            if (d2 != null) try { d2.close(); } catch (Throwable ignored) { }
                         }
                         eof = true;
                         return;

@@ -16,6 +16,7 @@ Tu año en Órbita
 Motor de sonido de Android (beta)
 - Ajustes › Sonido › «Motor de sonido de Android»: tu música suena con el reproductor del propio móvil. Las canciones seguidas de un mismo disco van sin cortes.
 - Ecualizador, volumen igualado, sonido directo, visualizador, fundidos y pausas con llamadas o al quitar los auriculares funcionan igual.
+- Con Órbita en segundo plano o la pantalla apagada, el motor pasa solo a la siguiente canción de tu cola (beta 2).
 - Es una prueba: las mezclas de DJ llegan a este motor en la 3.6. Si algo falla tres veces, Órbita vuelve sola al motor de siempre.
 
 Primera vez fácil

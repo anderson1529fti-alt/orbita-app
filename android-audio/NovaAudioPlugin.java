@@ -257,6 +257,34 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         call.resolve();
     }
 
+    /** 3.5b2: la cola de canciones siguientes, para que el motor siga solo con la app en segundo plano. */
+    @PluginMethod
+    public void setQueue(PluginCall call) {
+        JSArray arr = call.getArray("srcs");
+        java.util.ArrayList<String> list = new java.util.ArrayList<>();
+        if (arr != null) for (int i = 0; i < arr.length(); i++) { String x = arr.optString(i, null); if (x != null && !x.isEmpty()) list.add(x); }
+        eng().setQueue(slot(call), list);
+        call.resolve();
+    }
+
+    /**
+     * 3.5b2: que Android no duerma la parte web de Órbita en segundo plano. Con el motor de Android el WebView no
+     * suena, y sin esto Android lo puede congelar: la canción acaba y nadie pone la siguiente.
+     */
+    @PluginMethod
+    public void keepAlive(PluginCall call) {
+        final boolean on = Boolean.TRUE.equals(call.getBoolean("on", true));
+        final android.webkit.WebView wv = getBridge() != null ? getBridge().getWebView() : null;
+        if (wv == null || Build.VERSION.SDK_INT < 26) { call.resolve(); return; }
+        wv.post(() -> {
+            try {
+                wv.setRendererPriorityPolicy(on ? android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT : android.webkit.WebView.RENDERER_PRIORITY_BOUND, !on);
+            } catch (Throwable ignored) {
+            }
+        });
+        call.resolve();
+    }
+
     @PluginMethod
     public void viz(PluginCall call) {
         eng().setViz(Boolean.TRUE.equals(call.getBoolean("on", false)));

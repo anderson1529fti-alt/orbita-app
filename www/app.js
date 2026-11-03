@@ -2173,15 +2173,37 @@ if (NA_ON) {
 }
 /* Songs of the same album, one after the other: glued, without a gap (and without a mix between them) */
 function naGapless(t, n) {
+  if (naBgQueue() && naOwn(t) && naOwn(n)) return true;
   return NA_ON && !!t && !!n && t.dev && n.dev && !t.net && !n.net && state.repeat !== 'one' && !!norm(t.album || '') && norm(t.album || '') === norm(n.album || '') && artistKey(t.artist) === artistKey(n.artist);
 }
+/* 3.5b2 · With Órbita in the background Android can put its web part to sleep: then nobody would start the next song.
+   So, in the background, the engine gets the whole list of next songs and plays them one after another by itself
+   (without fades). When the app wakes up it just catches up with what is playing. */
+const naOwn = t => !!t && !!t.dev && !t.net && !!t.uri;
+const naBgQueue = () => NA_ON && document.hidden && state.repeat !== 'one' && sleepLeft() === null;
 function naSyncNext() {
   if (!NA_ON || A > 1) return;
-  const t = current(), id = state.queue[state.qi + 1], n = id && trackById(id);
+  const t = current();
+  if (naBgQueue() && naOwn(t)) {
+    const srcs = [];
+    for (let i = state.qi + 1; i < state.queue.length && srcs.length < 40; i++) { const n = trackById(state.queue[i]); if (!naOwn(n)) break; srcs.push(n.uri); }
+    NA_PLUGIN.setQueue({ slot: A, srcs }).catch(() => {
+      const n = trackById(state.queue[state.qi + 1]);   // an engine without the queue (3.5 beta 1): just the next one
+      NA_PLUGIN.setNext({ slot: A, src: naOwn(n) ? n.uri : null }).catch(() => {});
+    });
+    return;
+  }
+  const id = state.queue[state.qi + 1], n = id && trackById(id);
   NA_PLUGIN.setNext({ slot: A, src: naGapless(t, n) ? n.uri : null }).catch(() => {});
 }
 function naInit() {
   if (!NA_ON) return;
+  NA_PLUGIN.keepAlive({ on: true }).catch(() => {});
+  document.addEventListener('visibilitychange', () => {
+    // going to the background: a fade that hasn't started yet won't be done (the engine joins the songs itself)
+    if (document.hidden && mixArm && !mixing) disarmMix();
+    naSyncNext();
+  });
   analyser = naAnalyser; freq = new Uint8Array(256);
   applyEq();
   NA_PLUGIN.status().then(s => { if (!s || !s.available) throw 0; }).catch(() => { LS.set('engineBroken', true); toast('El motor de sonido de Android no arranca en este móvil: uso el de siempre.', 5000); setTimeout(() => location.reload(), 2500); });
