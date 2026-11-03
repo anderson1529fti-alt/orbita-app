@@ -1,3 +1,26 @@
+Órbita 3.6: lo que suena con la pantalla apagada también cuenta, temporizador y repetir que no fallan en segundo plano, y un widget al día.
+
+Todo cuenta, también con la pantalla apagada
+- Las canciones que suenan con el móvil bloqueado o la app en segundo plano suman en «Tú», en «Tu año en Órbita» y en lo que Nova aprende de ti. Antes, si Android dormía la app, esas canciones se perdían.
+- Si pasas una canción desde el aviso, los auriculares o el widget, cuenta como saltada (Nova lo tiene en cuenta), y las que acaban solas, no.
+- Aparecen en «Recientes» y suman en las veces que has escuchado cada canción. Ninguna se cuenta dos veces.
+- Si Android cierra la app mientras suena una canción, cuenta hasta donde llegó.
+
+Temporizador para dormir
+- La música baja poco a poco y se para a su hora aunque Android haya dormido la app. Si la app estaba dormida, Nova ya no te da las buenas noches de golpe al volver.
+
+Repetir
+- «Repetir esta» y «repetir toda la lista» siguen solos en segundo plano, sin huecos entre vueltas. Cada vuelta cuenta como una escucha.
+
+Widget
+- Cambia de canción, de portada y de botón (pausa / reproducir) con la música, aunque la app esté dormida.
+- Sus botones responden al momento con el motor de Android.
+
+Detalles
+- Arriba en «Ahora», la hora, el despertador y el botón de ajustes caben en una sola línea.
+- El motor de Android ya no puede repetir una canción por error si la cola cambia justo cuando prepara la siguiente.
+- La compilación usa las versiones nuevas de las herramientas de GitHub: se acaba el aviso de «Node.js 20».
+
 Órbita 3.5: despertador con Nova, tu año en Órbita, el motor de sonido de Android con mezclas de DJ, cambios de canción más finos y una bienvenida fácil.
 
 Despertador con Nova

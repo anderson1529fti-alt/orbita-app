@@ -58,6 +58,8 @@ public final class NovaAudioEngine {
     private volatile float pre = 1f;
     private float masterNow = 1f;
     private volatile float master = 1f;
+    // 3.6: el temporizador para dormir baja todo poco a poco (aunque la app esté dormida)
+    private volatile float sleepGain = 1f;
     private final Limiter limiter;
     private volatile boolean viz = false;
     private final Spectrum spectrum;
@@ -111,6 +113,7 @@ public final class NovaAudioEngine {
     public String source(int slot) { return slots[slot].src; }
     public float normOf(int slot) { return slots[slot].norm; }
     public void setMaster(float v) { master = clamp(v, 0f, 1f); }
+    public void setSleepGain(float v) { sleepGain = clamp(v, 0f, 1f); }
     public void setDirect(boolean d) { direct = d; }
     public void setViz(boolean on) { viz = on; }
     public boolean anyPlaying() { for (Slot s : slots) if (s.playing) return true; return false; }
@@ -176,7 +179,7 @@ public final class NovaAudioEngine {
     }
 
     private void process(float[] buf, int frames) {
-        final float target = master;
+        final float target = master * sleepGain;
         final boolean useEq = eqOn && !direct;
         final float p = useEq ? pre : 1f;
         for (int i = 0; i < frames; i++) {
@@ -256,6 +259,8 @@ public final class NovaAudioEngine {
         final ArrayDeque<long[]> marks = new ArrayDeque<>();
         final ArrayDeque<Object[]> markInfo = new ArrayDeque<>();
         volatile boolean endedSent;
+        // 3.6: la siguiente que se está abriendo en este momento (aún sin marca en el anillo)
+        volatile Item opening;
 
         Slot(int id) { this.id = id; }
 
@@ -263,7 +268,7 @@ public final class NovaAudioEngine {
             stopFeeder();
             src = s; durUs = 0; playedFrames = 0; baseSec = Math.max(0, startAt);
             eof = false; failed = false; endedSent = false; overlapping = false;
-            synchronized (upcoming) { upcoming.clear(); nextItem = null; }
+            synchronized (upcoming) { upcoming.clear(); nextItem = null; opening = null; }
             synchronized (marks) { marks.clear(); markInfo.clear(); }
             ring = new Ring(rate * 2);
             seekTo = startAt; seekDone = seekReq; if (startAt > 0) seekReq++;
@@ -297,6 +302,8 @@ public final class NovaAudioEngine {
                todas, en orden */
             ArrayDeque<Item> rest = new ArrayDeque<>();
             synchronized (marks) { for (Object[] info : markInfo) rest.add((Item) info[0]); }
+            Item op = opening;
+            if (op != null && !rest.contains(op)) rest.add(op);
             if (!rest.isEmpty() || overlapping) {
                 boolean p = playing; String s = src;
                 synchronized (upcoming) { if (nextItem != null) rest.add(nextItem); rest.addAll(upcoming); }
@@ -325,7 +332,11 @@ public final class NovaAudioEngine {
             ArrayDeque<Item> q = new ArrayDeque<>();
             if (list != null) for (Item x : list) if (x != null && x.src != null && !x.src.isEmpty()) q.add(x);
             synchronized (marks) { for (Object[] info : markInfo) { if (!q.isEmpty() && q.peek().src.equals(((Item) info[0]).src)) q.poll(); } }
-            synchronized (upcoming) { upcoming.clear(); nextItem = q.poll(); upcoming.addAll(q); }
+            synchronized (upcoming) {
+                Item op = opening;
+                if (op != null && !q.isEmpty() && q.peek().src.equals(op.src)) q.poll();
+                upcoming.clear(); nextItem = q.poll(); upcoming.addAll(q);
+            }
         }
 
         private Item peekNext() { return nextItem; }
@@ -336,7 +347,8 @@ public final class NovaAudioEngine {
         /** Abre la siguiente de la cola que se pueda abrir (si una falla, la de después). */
         private Object[] openNext(int my) {
             while (my == gen) {
-                Item nx = pollNext();
+                Item nx;
+                synchronized (upcoming) { nx = pollNext(); opening = nx; }
                 if (nx == null) return null;
                 Decoder d2 = null;
                 try {
@@ -347,12 +359,14 @@ public final class NovaAudioEngine {
                     d2 = null;
                 }
                 if (d2 != null) return new Object[] { nx, d2 };
+                opening = null;
             }
+            opening = null;
             return null;
         }
 
         private void addMark(Ring r, Item it, Decoder d) {
-            synchronized (marks) { marks.add(new long[] { r.written(), d.durationUs(), (long) (it.st * 1e6) }); markInfo.add(new Object[] { it }); }
+            synchronized (marks) { marks.add(new long[] { r.written(), d.durationUs(), (long) (it.st * 1e6) }); markInfo.add(new Object[] { it }); opening = null; }
         }
 
         /** Decodifica un trozo de d en la cola f (ya a la frecuencia de salida). -1 al acabar. */
@@ -448,7 +462,13 @@ public final class NovaAudioEngine {
                         if (d1Done) {
                             // se acabó esta: la siguiente, pegada (sin hueco)
                             Object[] o = openNext(my);
-                            if (o == null) { eof = true; return; }
+                            if (o == null) {
+                                /* 3.6 · aún no hay siguiente: mientras suena lo ya escrito (hasta 2 s) se espera, por si
+                                   llega la lista (la app despertando, repetir una, otra vuelta de la lista) */
+                                Ring rr = ring;
+                                if (rr != null && rr.available() > rate / 20 && my == gen && running && seekReq == seekDone) { Thread.sleep(15); continue; }
+                                eof = true; return;
+                            }
                             Item it = (Item) o[0];
                             d.close(); d = (Decoder) o[1]; cur = it.src; rs[0] = null;
                             curDurUs = d.durationUs(); curPos = it.st; curRate = 1; glide = 0; d1Done = false;

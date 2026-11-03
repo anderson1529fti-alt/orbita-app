@@ -31,6 +31,8 @@ public class OrbitaWidget extends AppWidgetProvider {
         String a = intent.getAction();
         String action = ACT_TOGGLE.equals(a) ? "toggle" : ACT_NEXT.equals(a) ? "next" : ACT_PREV.equals(a) ? "prev" : null;
         if (action == null) return;
+        // 3.6: con la música del motor de Android, el botón lo hace él al momento (aunque la app vaya dormida)
+        if (engineButton(context, action)) return;
         if (MusicLibraryPlugin.sendWidgetAction(action)) return;
         Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         if (launch == null) return;
@@ -39,6 +41,16 @@ public class OrbitaWidget extends AppWidgetProvider {
         try {
             context.startActivity(launch);
         } catch (Exception ignored) {}
+    }
+
+    /** El motor de Android es opcional (una versión de respaldo de la app no lo tiene): se busca por su nombre. */
+    static boolean engineButton(Context context, String action) {
+        try {
+            Class<?> c = Class.forName(context.getPackageName() + ".NovaAudioPlugin");
+            return Boolean.TRUE.equals(c.getDeclaredMethod("widgetButton", String.class).invoke(null, action));
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     public static void refresh(Context context) {

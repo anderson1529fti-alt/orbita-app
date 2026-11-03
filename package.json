@@ -1,7 +1,7 @@
 {
   "name": "orbita-app",
-  "version": "3.5.0",
-  "beta": false,
+  "version": "3.6.0",
+  "beta": true,
   "private": true,
   "description": "Órbita: tu música, tu DJ. App de Android construida con Capacitor.",
   "dependencies": {

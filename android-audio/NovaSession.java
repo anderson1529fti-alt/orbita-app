@@ -8,6 +8,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
+import android.graphics.Canvas;
+import android.graphics.Matrix;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.drawable.Icon;
 import android.media.MediaMetadata;
 import android.media.MediaMetadataRetriever;
@@ -19,6 +25,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
 import android.util.Size;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -53,6 +61,9 @@ final class NovaSession {
     private MediaSession ms;
     final List<PItem> items = new ArrayList<>();
     int index = -1, slot = 0;
+    // 3.6: repetir (0 no, 1 esta, 2 toda la lista) y cuántas canciones forman una vuelta de la lista (0: no se sabe)
+    static final int REP_OFF = 0, REP_ONE = 1, REP_ALL = 2;
+    int repeat = REP_OFF, cycle = 0;
     boolean playing;
     double pos, dur;
     // lo que suena fuera del motor (radio, YouTube…): lo cuenta la app
@@ -102,12 +113,32 @@ final class NovaSession {
     /** La cola desde la canción que suena (las siguientes, para el motor). */
     synchronized List<NovaAudioEngine.Item> after(int i) {
         List<NovaAudioEngine.Item> out = new ArrayList<>();
+        if (repeat == REP_ONE) {
+            // repetir esta: la misma otra vez, pegada y desde el principio
+            PItem it = item(i);
+            if (it != null) out.add(new NovaAudioEngine.Item(it.src, 0, 0, 0, it.g));
+            return out;
+        }
         for (int k = i + 1; k < items.size(); k++) out.add(items.get(k).engineItem());
         return out;
     }
 
-    synchronized void setPlaylist(List<PItem> list, int idx, int slot) {
+    /**
+     * Repetir toda la lista: cuando quedan pocas, otra vuelta al final (la app manda la lista entera desde la que
+     * suena). Así sigue sonando aunque la app no despierte. Devuelve si ha cambiado.
+     */
+    synchronized boolean extend() {
+        if (repeat != REP_ALL || cycle <= 0 || cycle > items.size() || index < items.size() - 3) return false;
+        List<PItem> again = new ArrayList<>(items.subList(items.size() - cycle, items.size()));
+        items.addAll(again);
+        // las de hace mucho ya no hacen falta (solo unas pocas, para «anterior»)
+        if (index > 60) { int cut = index - 3; items.subList(0, cut).clear(); index -= cut; }
+        return true;
+    }
+
+    synchronized void setPlaylist(List<PItem> list, int idx, int slot, int repeat, int cycle) {
         items.clear(); items.addAll(list);
+        this.repeat = repeat; this.cycle = cycle;
         index = idx; this.slot = slot; external = false;
         PItem it = item(idx);
         if (it != null && it.dur > 0) dur = it.dur;
@@ -124,6 +155,8 @@ final class NovaSession {
     synchronized void onSource(int slot, String src, double pos, double dur) {
         if (slot != this.slot || src == null) return;
         int found = -1;
+        PItem here = item(index);
+        if (repeat == REP_ONE && here != null && src.equals(here.src)) found = index;
         for (int k = Math.max(0, index + 1); k < items.size() && found < 0; k++) if (src.equals(items.get(k).src)) found = k;
         for (int k = 0; k < items.size() && found < 0; k++) if (src.equals(items.get(k).src)) found = k;
         if (found >= 0) index = found;
@@ -167,6 +200,8 @@ final class NovaSession {
             artFor = src; art = null;
             bg.execute(() -> {
                 Bitmap b = loadArt(ctx, src);
+                artTried.add(src);
+                if (artTried.size() > 200) artTried.clear();
                 synchronized (NovaSession.this) { if (src.equals(artFor)) art = b; }
                 main.post(() -> publish(pl, p, d, t, ar, al, true));
             });
@@ -201,6 +236,68 @@ final class NovaSession {
             // en pausa, el aviso se queda un rato; luego se puede quitar
             if (!pl) main.postDelayed(stopLater, 10 * 60_000L);
         } catch (Throwable ignored) {
+        }
+        widget(t, ar, pl);
+    }
+
+    // ---------------------------------------------------------------- el widget (3.6)
+    private String wSig, wArtFor;
+    /**
+     * El widget de la pantalla de inicio cambia con la canción aunque la parte web de la app esté dormida. Lo de la
+     * radio o YouTube lo sigue poniendo la app (está despierta mientras suena).
+     */
+    private void widget(String t, String ar, boolean pl) {
+        final PItem it;
+        final Bitmap a;
+        synchronized (this) {
+            if (external) return;
+            it = now();
+            if (it == null || t.isEmpty()) return;
+            a = it.src.equals(artFor) ? art : null;
+        }
+        final String src = it.src;
+        // la portada se escribe cuando ya está cargada (o se sabe que no tiene)
+        final boolean artReady = src.equals(artFor) && (a != null || artTried.contains(src));
+        final String sig = t + "\n" + ar + "\n" + pl + "\n" + (artReady ? src : "");
+        if (sig.equals(wSig)) return;
+        wSig = sig;
+        bg.execute(() -> {
+            try {
+                android.content.SharedPreferences.Editor ed = ctx.getSharedPreferences("orbita_widget", Context.MODE_PRIVATE).edit();
+                ed.putString("title", t); ed.putString("artist", ar); ed.putBoolean("playing", pl);
+                ed.apply();
+                if (artReady && !src.equals(wArtFor)) {
+                    wArtFor = src;
+                    File f = new File(ctx.getFilesDir(), "widget_art.jpg");
+                    Bitmap r = a != null ? rounded(a, 144, 22) : null;
+                    if (r != null) { FileOutputStream fos = new FileOutputStream(f); try { r.compress(Bitmap.CompressFormat.PNG, 100, fos); } finally { fos.close(); } }
+                    else if (f.exists()) f.delete();
+                }
+                Class.forName(ctx.getPackageName() + ".OrbitaWidget").getMethod("refresh", Context.class).invoke(null, ctx);
+            } catch (Throwable ignored) {
+                // sin widget (la versión segura de la app no lo tiene)
+            }
+        });
+    }
+    private final java.util.Set<String> artTried = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
+    /** La portada como la pone la app en el widget: cuadrada, recortada al centro, con las esquinas redondeadas. */
+    static Bitmap rounded(Bitmap src, int size, float radius) {
+        try {
+            Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(out);
+            BitmapShader sh = new BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            float sc = Math.max(size / (float) src.getWidth(), size / (float) src.getHeight());
+            Matrix m = new Matrix();
+            m.setScale(sc, sc);
+            m.postTranslate((size - src.getWidth() * sc) / 2f, (size - src.getHeight() * sc) / 2f);
+            sh.setLocalMatrix(m);
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+            p.setShader(sh);
+            c.drawRoundRect(new RectF(0, 0, size, size), radius, radius, p);
+            return out;
+        } catch (Throwable t) {
+            return null;
         }
     }
 

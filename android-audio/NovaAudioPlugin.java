@@ -52,6 +52,10 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     private long wakeAt;
     private BroadcastReceiver noisy;
     private ScheduledExecutorService ticker;
+    // 3.6: las escuchas que hace el motor (cuentan aunque la app esté dormida) y el temporizador para dormir
+    private NovaListenLog listens;
+    private volatile long sleepAt;
+    private volatile long sleepFade = 30_000L;
     private final AudioManager.OnAudioFocusChangeListener focusListener = change -> {
         if (change == AudioManager.AUDIOFOCUS_GAIN) hasFocus = true;
         else if (change == AudioManager.AUDIOFOCUS_LOSS) hasFocus = false;
@@ -79,6 +83,7 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     @Override
     public void load() {
         instance = this;
+        try { listens = new NovaListenLog(getContext()); } catch (Throwable ignored) { }
     }
 
     private synchronized NovaSession sess() {
@@ -115,8 +120,43 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
                 notifyListeners("audio", o);
             }
             keepAwake(any);
+            countListen(e);
+            sleepTick(e);
         } catch (Throwable ignored) {
         }
+    }
+
+    /** 3.6 · Apunta lo que suena en el plato del aviso (la canción de ahora, cuánto lleva). */
+    private void countListen(NovaAudioEngine e) {
+        NovaListenLog L = listens; if (L == null) return;
+        NovaSession s = session;
+        if (s == null || s.external) { L.tick(-1, null, false, 0, 0, null, null); return; }
+        int sl = s.slot;
+        String src = e.source(sl);
+        NovaSession.PItem it = s.now();
+        boolean mine = it != null && src != null && src.equals(it.src);
+        L.tick(sl, src, e.playing(sl), e.position(sl), e.duration(sl), mine ? it.title : null, mine ? it.artist : null);
+    }
+
+    /** 3.6 · El temporizador para dormir, hecho aquí: baja la música poco a poco y la para, aunque la app esté dormida. */
+    private void sleepTick(NovaAudioEngine e) {
+        long at = sleepAt;
+        if (at <= 0) return;
+        long left = at - System.currentTimeMillis();
+        if (left > 0) {
+            long fade = Math.max(1000L, sleepFade);
+            e.setSleepGain(left < fade ? Math.max(0.02f, left / (float) fade) : 1f);
+            return;
+        }
+        sleepAt = 0;
+        boolean was = false;
+        for (int i = 0; i < NovaAudioEngine.SLOTS; i++) if (e.playing(i)) { e.pause(i); was = true; }
+        e.setSleepGain(1f);
+        NovaSession s = session;
+        if (s != null && !s.external && was) state(s.slot, false);
+        JSObject o = new JSObject();
+        o.put("type", "sleep"); o.put("t", System.currentTimeMillis()); o.put("paused", was);
+        notifyListeners("audio", o);
     }
 
     private synchronized void keepAwake(boolean on) {
@@ -187,7 +227,7 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         JSObject r = new JSObject();
         r.put("available", true);
         r.put("rate", outputRate());
-        r.put("v", 1);
+        r.put("v", 2);
         call.resolve(r);
     }
 
@@ -197,6 +237,8 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         if (src == null || src.isEmpty()) { call.reject("sin canción", "NO_SRC"); return; }
         boolean play = Boolean.TRUE.equals(call.getBoolean("play", false));
         if (play) requestFocus();
+        NovaSession s = session; NovaListenLog L = listens;
+        if (L != null && s != null && !s.external && s.slot == slot(call)) L.end("app");
         eng().load(slot(call), src, num(call, "at", 0f), play);
         if (play) keepAwake(true);
         call.resolve();
@@ -310,8 +352,11 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
                 list.add(it);
             }
             int index = ix == null ? 0 : Math.max(0, Math.min(list.size() - 1, ix));
+            String rp = call.getString("repeat", "off");
+            int rep = "one".equals(rp) ? NovaSession.REP_ONE : "all".equals(rp) ? NovaSession.REP_ALL : NovaSession.REP_OFF;
+            Integer cy = call.getInt("cycle", 0);
             NovaSession s = sess();
-            s.setPlaylist(list, index, sl);
+            s.setPlaylist(list, index, sl, rep, cy == null ? 0 : Math.max(0, cy));
             NovaAudioEngine e = eng();
             NovaSession.PItem cur = s.item(index);
             e.setNorm(sl, 1f);
@@ -397,6 +442,8 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         NovaSession s = session; NovaAudioEngine e = engine;
         NovaSession.PItem it = s.item(idx);
         if (it == null) return;
+        NovaListenLog L = listens;
+        if (L != null) L.end("boton");
         int other = 1 - slot;
         if (e.playing(other)) { e.pause(other); }
         requestFocus();
@@ -404,12 +451,60 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         e.setSongGain(slot, it.g);
         e.load(slot, it.src, it.st, true);
         s.index = idx;
-        e.setItems(slot, s.after(idx));
+        s.extend();
+        e.setItems(slot, s.after(s.index));
         keepAwake(true);
         s.onSource(slot, it.src, it.st, it.dur);
         JSObject o = new JSObject();
         o.put("type", "jump"); o.put("slot", slot); o.put("src", it.src); o.put("pos", it.st); o.put("dur", it.dur);
         notifyListeners("audio", o);
+    }
+
+    /**
+     * 3.6 · Las escuchas que apuntó el motor y la app aún no tiene. «after»: la última que la app ya guardó (se borran
+     * aquí las que ya tiene).
+     */
+    @PluginMethod
+    public void takeListens(PluginCall call) {
+        JSObject r = new JSObject();
+        NovaListenLog L = listens;
+        Object a = call.getData() != null ? call.getData().opt("after") : null;
+        long after = a instanceof Number ? ((Number) a).longValue() : 0;
+        if (L == null) { r.put("items", new JSArray()); r.put("seq", 0); call.resolve(r); return; }
+        try {
+            org.json.JSONArray got = L.take(after);
+            JSArray out = new JSArray();
+            for (int i = 0; i < got.length(); i++) out.put(got.opt(i));
+            r.put("items", out);
+            r.put("seq", L.seq());
+        } catch (Throwable t) {
+            call.reject("No he podido leer las escuchas: " + t.getMessage(), "LISTENS");
+            return;
+        }
+        call.resolve(r);
+    }
+
+    /** 3.6 · El temporizador para dormir: «at» (hora del móvil, en ms; 0 lo quita) y cuánto dura el fundido final. */
+    @PluginMethod
+    public void setSleep(PluginCall call) {
+        Object a = call.getData() != null ? call.getData().opt("at") : null;
+        Object f = call.getData() != null ? call.getData().opt("fade") : null;
+        long at = a instanceof Number ? ((Number) a).longValue() : 0;
+        if (f instanceof Number) sleepFade = Math.max(1000L, ((Number) f).longValue());
+        NovaAudioEngine e = eng();
+        sleepAt = at > 0 ? at : 0;
+        if (sleepAt == 0) e.setSleepGain(1f);
+        call.resolve();
+    }
+
+    /** 3.6 · Los botones del widget, con la música del motor: los hace él al momento (la app puede ir dormida). */
+    static boolean widgetButton(String action) {
+        NovaAudioPlugin p = instance;
+        if (p == null) return false;
+        NovaSession s = p.session; NovaAudioEngine e = p.engine;
+        if (s == null || e == null || s.external || s.now() == null || e.source(s.slot) == null) return false;
+        p.button("toggle".equals(action) ? "playpause" : action, 0);
+        return true;
     }
 
     /** 3.5b2: la cola de canciones siguientes, para que el motor siga solo con la app en segundo plano. */
@@ -510,7 +605,12 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         NovaSession s = session;
         if (s != null && slot == s.slot) {
             try {
-                if ("gapless".equals(type)) s.onSource(slot, src, pos, dur);
+                if ("gapless".equals(type)) {
+                    final String was = s.now() != null ? s.now().src : null;
+                    s.onSource(slot, src, pos, dur);
+                    final ScheduledExecutorService tk = ticker;
+                    if (tk != null) tk.execute(() -> afterGapless(slot, src, was));
+                }
                 else if ("loaded".equals(type) || "seeked".equals(type)) s.setState(engine != null && engine.playing(slot), pos, dur);
                 else if ("ended".equals(type) || "error".equals(type)) s.setState(false, pos, dur);
             } catch (Throwable ignored) {
@@ -526,6 +626,20 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         notifyListeners("audio", o);
     }
 
+    /** Fuera del hilo del sonido: otra vuelta de la lista (repetir) y, si es la misma canción otra vez, una escucha nueva. */
+    private void afterGapless(int slot, String src, String was) {
+        try {
+            NovaSession s = session; NovaAudioEngine e = engine;
+            if (s == null || e == null || slot != s.slot) return;
+            if (src != null && src.equals(was)) {
+                NovaListenLog L = listens;
+                if (L != null) L.restart("auto");
+            }
+            if (s.repeat == NovaSession.REP_ONE || s.extend()) e.setItems(slot, s.after(s.index));
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     public void onSpectrum(byte[] bins) {
         JSObject o = new JSObject();
@@ -536,6 +650,7 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     @Override
     protected void handleOnDestroy() {
         try {
+            if (listens != null) listens.end("cierre");
             if (session != null) session.release();
             session = null;
             if (instance == this) instance = null;
