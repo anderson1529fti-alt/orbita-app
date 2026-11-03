@@ -95,6 +95,13 @@ if (extras) {
     </application>`);
   }
 }
+// El motor de sonido de Android (3.5): su servicio de reproducción (el aviso con los botones y que Android no lo
+// congele con la pantalla apagada). NATIVEAUDIO=0 es un respaldo del workflow: la app sin él.
+const nativeAudio = extras && process.env.NATIVEAUDIO !== '0' && fs.existsSync(path.join(root, 'android-audio'));
+if (nativeAudio && !manifest.includes('.NovaMediaService')) {
+  manifest = manifest.replace('</application>', `    <service android:name=".NovaMediaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+    </application>`);
+}
 // El despertador con Nova (3.5). ALARM=0 es un respaldo del workflow: la app sin él.
 const alarm = extras && process.env.ALARM !== '0' && fs.existsSync(path.join(root, 'android-alarm'));
 if (alarm) {
@@ -135,7 +142,6 @@ for (const dir of javaFrom) {
 if (extras) copyDir(path.join(root, 'android-extras', 'res'), res);
 
 // 3c) El motor de sonido de Android (3.5, beta). NATIVEAUDIO=0 es un respaldo del workflow: la app sin él.
-const nativeAudio = extras && process.env.NATIVEAUDIO !== '0' && fs.existsSync(path.join(root, 'android-audio'));
 if (nativeAudio) {
   for (const f of fs.readdirSync(path.join(root, 'android-audio')).filter(f => f.endsWith('.java'))) {
     fs.writeFileSync(path.join(javaDir, f), fs.readFileSync(path.join(root, 'android-audio', f), 'utf8').replace(/__PACKAGE__/g, appId));

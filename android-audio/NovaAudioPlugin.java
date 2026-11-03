@@ -42,6 +42,8 @@ import java.util.concurrent.TimeUnit;
 @CapacitorPlugin(name = "NovaAudio")
 public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener {
 
+    static volatile NovaAudioPlugin instance;
+    private volatile NovaSession session;
     private NovaAudioEngine engine;
     private AudioManager am;
     private AudioFocusRequest focusReq;
@@ -72,6 +74,16 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     private AudioManager audio() {
         if (am == null) am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
         return am;
+    }
+
+    @Override
+    public void load() {
+        instance = this;
+    }
+
+    private synchronized NovaSession sess() {
+        if (session == null) session = new NovaSession(getContext());
+        return session;
     }
 
     private synchronized NovaAudioEngine eng() {
@@ -186,6 +198,7 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         boolean play = Boolean.TRUE.equals(call.getBoolean("play", false));
         if (play) requestFocus();
         eng().load(slot(call), src, num(call, "at", 0f), play);
+        if (play) keepAwake(true);
         call.resolve();
     }
 
@@ -194,12 +207,14 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         requestFocus();
         eng().play(slot(call));
         keepAwake(true);
+        stateToSession(slot(call));
         call.resolve();
     }
 
     @PluginMethod
     public void pause(PluginCall call) {
         eng().pause(slot(call));
+        stateToSession(slot(call));
         call.resolve();
     }
 
@@ -255,6 +270,132 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     public void setNext(PluginCall call) {
         eng().setNext(slot(call), call.getString("src"));
         call.resolve();
+    }
+
+    private void stateToSession(int slot) {
+        NovaSession s = session; NovaAudioEngine e = engine;
+        if (s != null && e != null && slot == s.slot && !s.external) s.setState(e.playing(slot), e.position(slot), e.duration(slot));
+    }
+
+    /**
+     * 3.5b3: la cola entera, desde la que suena, con lo del aviso (título, artista, disco) y los fundidos. El motor la
+     * sigue solo y los botones del aviso la usan para la siguiente y la anterior.
+     */
+    @PluginMethod
+    public void setPlaylist(PluginCall call) {
+        try {
+            int sl = slot(call);
+            Integer ix = call.getInt("index", 0);
+            JSArray arr = call.getArray("items");
+            java.util.ArrayList<NovaSession.PItem> list = new java.util.ArrayList<>();
+            if (arr != null) for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject j = arr.optJSONObject(i);
+                if (j == null) continue;
+                NovaSession.PItem it = new NovaSession.PItem();
+                it.src = j.optString("src", "");
+                if (it.src.isEmpty()) continue;
+                it.title = j.optString("title", ""); it.artist = j.optString("artist", ""); it.album = j.optString("album", "");
+                it.dur = j.optDouble("dur", 0); it.xf = j.optDouble("xf", 0); it.at = j.optDouble("at", 0); it.st = j.optDouble("st", 0);
+                double g = j.optDouble("g", Double.NaN); it.g = Double.isNaN(g) ? Float.NaN : (float) g;
+                list.add(it);
+            }
+            int index = ix == null ? 0 : Math.max(0, Math.min(list.size() - 1, ix));
+            NovaSession s = sess();
+            s.setPlaylist(list, index, sl);
+            NovaAudioEngine e = eng();
+            e.setItems(sl, s.after(index));
+            stateToSession(sl);
+        } catch (Throwable t) {
+            call.reject("No he podido poner la cola: " + t.getMessage(), "PLAYLIST");
+            return;
+        }
+        call.resolve();
+    }
+
+    /** 3.5b3: lo que suena fuera del motor (radio, YouTube…), para el aviso. Sus botones los atiende la app. */
+    @PluginMethod
+    public void setNowPlaying(PluginCall call) {
+        NovaSession s = sess();
+        s.setExternal(call.getString("title", ""), call.getString("artist", ""), call.getString("album", ""), NovaSession.decodeDataUrl(call.getString("art", null)),
+            Boolean.TRUE.equals(call.getBoolean("playing", false)), num(call, "pos", 0f), num(call, "dur", 0f));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void sessionEnd(PluginCall call) {
+        NovaSession s = session;
+        if (s != null) s.clear();
+        call.resolve();
+    }
+
+    /**
+     * Un botón del aviso, de los auriculares o del reloj. Si lo que suena es del motor, se hace aquí mismo (al
+     * momento); si no (radio, YouTube…), se le pasa a la app.
+     */
+    void button(String a, double arg) {
+        NovaSession s = session; NovaAudioEngine e = engine;
+        JSObject o = new JSObject();
+        o.put("type", "button"); o.put("action", a); o.put("t", System.currentTimeMillis());
+        if (s == null || e == null || s.external || s.now() == null || e.source(s.slot) == null) {
+            o.put("forward", true);
+            if ("seek".equals(a)) o.put("pos", arg);
+            notifyListeners("audio", o);
+            return;
+        }
+        int sl = s.slot;
+        try {
+            switch (a) {
+                case "play":
+                    requestFocus(); e.play(sl); keepAwake(true); state(sl, true); break;
+                case "pause":
+                    e.pause(sl); state(sl, false); break;
+                case "playpause":
+                    if (e.playing(sl)) { e.pause(sl); state(sl, false); } else { requestFocus(); e.play(sl); keepAwake(true); state(sl, true); }
+                    break;
+                case "seek":
+                    e.seek(sl, arg); break;
+                case "next": {
+                    if (s.item(s.index + 1) == null) { o.put("forward", true); break; }
+                    jump(sl, s.index + 1); break;
+                }
+                case "prev": {
+                    if (e.position(sl) > 3 || s.item(s.index - 1) == null) e.seek(sl, 0);
+                    else jump(sl, s.index - 1);
+                    break;
+                }
+                default: o.put("forward", true);
+            }
+        } catch (Throwable t) {
+            o.put("forward", true);
+        }
+        notifyListeners("audio", o);
+    }
+
+    private void state(int slot, boolean playing) {
+        stateToSession(slot);
+        JSObject o = new JSObject();
+        o.put("type", "state"); o.put("slot", slot); o.put("playing", playing);
+        o.put("pos", engine.position(slot)); o.put("src", engine.source(slot));
+        notifyListeners("audio", o);
+    }
+
+    /** Siguiente o anterior desde el aviso: otra canción de la cola en este mismo plato, ya. */
+    private void jump(int slot, int idx) {
+        NovaSession s = session; NovaAudioEngine e = engine;
+        NovaSession.PItem it = s.item(idx);
+        if (it == null) return;
+        int other = 1 - slot;
+        if (e.playing(other)) { e.pause(other); }
+        requestFocus();
+        e.load(slot, it.src, it.st, true);
+        if (!Float.isNaN(it.g)) e.setNorm(slot, it.g);
+        s.index = idx;
+        e.setItems(slot, s.after(idx));
+        keepAwake(true);
+        s.onSource(slot, it.src, it.st, it.dur);
+        JSObject o = new JSObject();
+        o.put("type", "jump"); o.put("slot", slot); o.put("src", it.src); o.put("pos", it.st); o.put("dur", it.dur);
+        notifyListeners("audio", o);
     }
 
     /** 3.5b2: la cola de canciones siguientes, para que el motor siga solo con la app en segundo plano. */
@@ -352,6 +493,15 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     // ---------------------------------------------------------------- lo que cuenta el motor
     @Override
     public void onEvent(String type, int slot, String src, double pos, double dur, String msg) {
+        NovaSession s = session;
+        if (s != null && slot == s.slot) {
+            try {
+                if ("gapless".equals(type)) s.onSource(slot, src, pos, dur);
+                else if ("loaded".equals(type) || "seeked".equals(type)) s.setState(engine != null && engine.playing(slot), pos, dur);
+                else if ("ended".equals(type) || "error".equals(type)) s.setState(false, pos, dur);
+            } catch (Throwable ignored) {
+            }
+        }
         JSObject o = new JSObject();
         o.put("type", type);
         o.put("slot", slot);
@@ -372,6 +522,9 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     @Override
     protected void handleOnDestroy() {
         try {
+            if (session != null) session.release();
+            session = null;
+            if (instance == this) instance = null;
             if (ticker != null) ticker.shutdownNow();
             if (engine != null) engine.release();
             engine = null;
@@ -393,11 +546,17 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         private int sr, ch, enc = AudioFormat.ENCODING_PCM_16BIT;
         private long dur;
         private boolean inDone, outDone;
+        // lo decodificado que espera (muestras intercaladas)
         private float[] pend = new float[0];
         private int pendPos, pendLen;
         private long skipUntil = -1;
+        /* MP3: el codificador añade silencio al principio y al final (retardo y relleno). Se quita, para que las
+           canciones de un disco vayan pegadas de verdad */
+        private int skipStart = 0, holdBack = 0;
 
         AndroidDecoder(Context ctx, String src) throws Exception {
+            // el hilo que decodifica, con prioridad de sonido: que Android no lo frene en segundo plano
+            try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO); } catch (Throwable ignored) { }
             try {
                 if (src.startsWith("content://")) ex.setDataSource(ctx, Uri.parse(src), null);
                 else if (src.startsWith("file://")) ex.setDataSource(Uri.parse(src).getPath());
@@ -415,6 +574,10 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
                 sr = f.getInteger(MediaFormat.KEY_SAMPLE_RATE);
                 ch = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
                 dur = f.containsKey(MediaFormat.KEY_DURATION) ? f.getLong(MediaFormat.KEY_DURATION) : 0;
+                if ("audio/mpeg".equals(mime)) {
+                    try { if (f.containsKey("encoder-delay")) skipStart = Math.max(0, Math.min(sr, f.getInteger("encoder-delay"))); } catch (Throwable ignored) { }
+                    try { if (f.containsKey("encoder-padding")) holdBack = Math.max(0, Math.min(sr, f.getInteger("encoder-padding"))); } catch (Throwable ignored) { }
+                }
                 codec = MediaCodec.createDecoderByType(mime);
                 boolean configured = false;
                 if (Build.VERSION.SDK_INT >= 24) {
@@ -444,9 +607,12 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
 
         public int read(float[] dst, int maxFrames) throws Exception {
             for (int tries = 0; tries < 50; tries++) {
-                if (pendLen > 0) {
-                    int frames = Math.min(maxFrames, pendLen / Math.max(1, ch));
-                    int n = frames * ch;
+                int c = Math.max(1, ch);
+                // el relleno del final no se da nunca: se guarda hasta saber que no queda más
+                int usable = pendLen / c - holdBack;
+                if (usable > 0) {
+                    int frames = Math.min(maxFrames, usable);
+                    int n = frames * c;
                     System.arraycopy(pend, pendPos, dst, 0, n);
                     pendPos += n;
                     pendLen -= n;
@@ -488,36 +654,45 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
                 ob.position(info.offset);
                 ob.limit(info.offset + info.size);
                 ob.order(ByteOrder.LITTLE_ENDIAN);
+                int c = Math.max(1, ch);
+                // lo que aún esperaba se pone al principio y lo nuevo detrás
+                if (pendPos > 0 && pendLen > 0) System.arraycopy(pend, pendPos, pend, 0, pendLen);
+                pendPos = 0;
                 int samples;
                 if (enc == AudioFormat.ENCODING_PCM_FLOAT) {
                     FloatBuffer fb = ob.asFloatBuffer();
                     samples = fb.remaining();
-                    ensure(samples);
-                    fb.get(pend, 0, samples);
+                    ensure(pendLen + samples);
+                    fb.get(pend, pendLen, samples);
                 } else {
                     ShortBuffer sb = ob.asShortBuffer();
                     samples = sb.remaining();
-                    ensure(samples);
-                    for (int i = 0; i < samples; i++) pend[i] = sb.get() / 32768f;
+                    ensure(pendLen + samples);
+                    for (int i = 0; i < samples; i++) pend[pendLen + i] = sb.get() / 32768f;
                 }
-                pendPos = 0;
-                pendLen = samples - samples % Math.max(1, ch);
+                samples -= samples % c;
+                int newFrom = pendLen;
+                pendLen += samples;
+                int newFrames = samples / c, drop = 0;
                 /* después de saltar: se tira lo que queda antes del punto exacto */
                 if (skipUntil >= 0) {
                     long pts = info.presentationTimeUs;
-                    if (pts < skipUntil) {
-                        int dropFrames = (int) Math.min(pendLen / Math.max(1, ch), (skipUntil - pts) * sr / 1_000_000L);
-                        pendPos = dropFrames * ch;
-                        pendLen -= dropFrames * ch;
-                    }
-                    if (pendLen > 0) skipUntil = -1;
+                    if (pts < skipUntil) drop = (int) Math.min(newFrames, (skipUntil - pts) * sr / 1_000_000L);
+                    if (newFrames - drop > 0) skipUntil = -1;
+                } else if (skipStart > 0) {
+                    drop = Math.min(newFrames, skipStart);
+                    skipStart -= drop;
+                }
+                if (drop > 0) {
+                    System.arraycopy(pend, newFrom + drop * c, pend, newFrom, (newFrames - drop) * c);
+                    pendLen -= drop * c;
                 }
             }
             codec.releaseOutputBuffer(oi, false);
             if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outDone = true;
         }
 
-        private void ensure(int n) { if (pend.length < n) pend = new float[n]; }
+        private void ensure(int n) { if (pend.length < n) pend = java.util.Arrays.copyOf(pend, Math.max(n, pend.length * 2)); }
 
         public void seekUs(long us) {
             ex.seekTo(us, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
@@ -527,6 +702,7 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
             pendLen = 0;
             pendPos = 0;
             skipUntil = us;
+            skipStart = 0;
         }
 
         public void close() {
@@ -547,11 +723,15 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
             AudioAttributes aa = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build();
             AudioFormat af = new AudioFormat.Builder().setSampleRate(sr).setEncoding(AudioFormat.ENCODING_PCM_FLOAT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build();
             track = new AudioTrack.Builder().setAudioAttributes(aa).setAudioFormat(af)
-                .setBufferSizeInBytes(Math.max(min * 2, sr / 8 * 2 * 4)).setTransferMode(AudioTrack.MODE_STREAM).build();
+                .setBufferSizeInBytes(Math.max(min * 2, sr / 5 * 2 * 4)).setTransferMode(AudioTrack.MODE_STREAM).build();
         }
 
         public int sampleRate() { return sr; }
-        public void start() { try { track.play(); } catch (Throwable ignored) { } }
+        public void start() {
+            // el hilo que da el sonido al altavoz: la prioridad más alta de sonido (sin cortes con la pantalla apagada)
+            try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Throwable ignored) { }
+            try { track.play(); } catch (Throwable ignored) { }
+        }
         public void write(float[] st, int frames) { track.write(st, 0, frames * 2, AudioTrack.WRITE_BLOCKING); }
         public void pause() { try { track.pause(); } catch (Throwable ignored) { } }
         public void flush() { try { track.flush(); } catch (Throwable ignored) { } }

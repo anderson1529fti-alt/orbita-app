@@ -650,7 +650,7 @@ class NativeDeck extends EventTarget {
   _emit(type) { try { this.dispatchEvent(new Event(type)); } catch {} }
   /* what the engine tells about this deck */
   _on(e) {
-    if (e.type !== 'gapless' && e.src && this._native && e.src !== this._native) return;   // an old song of this deck
+    if (e.type !== 'gapless' && e.type !== 'jump' && e.type !== 'state' && e.src && this._native && e.src !== this._native) return;   // an old song of this deck
     if (e.type === 'loaded') { if (e.dur > 0) { this._dur = e.dur; this._emit('loadedmetadata'); this._emit('durationchange'); } }
     else if (e.type === 'pos') {
       if (this.paused) return;
@@ -659,10 +659,19 @@ class NativeDeck extends EventTarget {
       this._emit('timeupdate');
     } else if (e.type === 'seeked') { this._t = e.pos; this._tAt = performance.now(); this._emit('seeked'); }
     else if (e.type === 'ended') { this._t = isFinite(this._dur) ? this._dur : this._t; this.paused = true; this._ended = true; this._playingSent = false; this._emit('pause'); this._emit('ended'); }
-    else if (e.type === 'gapless') {
+    else if (e.type === 'jump') {
+      /* a button of the notification (next / previous) already changed the song in the engine: the app catches up */
+      this._native = e.src; this._gapless = e.src; this._src = e.src; this._t = e.pos || 0; this._tAt = performance.now(); this._dur = e.dur > 0 ? e.dur : NaN;
+      this._ended = false; this._playingSent = false; if (this.paused) { this.paused = false; this._emit('play'); }
+      this._auto = false; this._emit('nativejump');
+    } else if (e.type === 'state') {
+      /* play / pause from the notification, the headphones or the watch: already done by the engine */
+      if (e.playing && this.paused) { this.paused = false; this._ended = false; this._t = e.pos || this._t; this._tAt = performance.now(); this._emit('play'); }
+      else if (!e.playing && !this.paused) { this._t = e.pos || this.currentTime; this._tAt = performance.now(); this.paused = true; this._playingSent = false; this._emit('pause'); }
+    } else if (e.type === 'gapless') {
       /* the next song of the album is already playing, glued to the last one: the app only has to catch up */
       this._native = e.src; this._gapless = e.src; this._src = e.src; this._t = e.pos || 0; this._tAt = performance.now(); this._dur = e.dur > 0 ? e.dur : NaN;
-      this._emit('ended');
+      this._auto = true; this._emit('nativejump');
     } else if (e.type === 'error') { this.error = { message: e.msg || 'error' }; this.paused = true; this._playingSent = false; naFail(); this._emit('error'); }
   }
 }
@@ -872,7 +881,8 @@ const els = [decks[0], decks[1], netEl, ytEl];
 decks.forEach(d => { d.preload = 'auto'; try { d.preservesPitch = true; } catch {} });
 const clipEl = new Audio(); clipEl.preload = 'auto';
 let A = 0; const act = () => els[A];
-let baseVol = LS.get('vol', 80) / 100, duckF = 1, sleepF = 1, alarmF = 1; const deckF = [1, 1, 1, 1];
+if (!LS.get('vol100', false)) { if (LS.get('vol', 80) === 80) LS.set('vol', 100); LS.set('vol100', true); }
+let baseVol = LS.get('vol', 100) / 100, duckF = 1, sleepF = 1, alarmF = 1; const deckF = [1, 1, 1, 1];
 const AUD = {
   direct: LS.get('aDirect', false),
   eq: LS.get('eq', 'plano'), eqCustom: eqMigrate(LS.get('eqCustom', null)), eqOn: LS.get('eqOn', true),
@@ -1012,9 +1022,9 @@ function applyEq() {
   if (!G) return; const g = eqGains(), now = actx.currentTime, on = !AUD.direct;
   G.eq.forEach((b, i) => b.gain.setTargetAtTime(on ? g[i] : 0, now, 0.05));
   const boost = on ? eqPeakDb(g) : 0;
-  G.pre.gain.setTargetAtTime(Math.pow(10, -boost * 0.85 / 20), now, 0.05);
+  G.pre.gain.setTargetAtTime(Math.pow(10, -boost * 0.5 / 20), now, 0.05);
 }
-const TARGET_DB = -15;
+const TARGET_DB = -10;   // 3.5b3: was -15 (everything sounded quieter than in other players)
 function normGainFor(t) {
   const a = t && anaCache.get(t.id);
   if (!AUD.level || AUD.direct || !a || !isFinite(a.rms)) return 1;
@@ -1246,6 +1256,17 @@ function disarmMix() {
   const arm = mixArm; mixArm = null;
   if (arm && arm.to !== undefined && arm.to !== A) { try { decks[arm.to].pause(); } catch {} }
 }
+async function playRetry(el) {
+  for (let k = 0; ; k++) {
+    try { await el.play(); if (k) diag('arrancó al reintentar (' + k + ')'); return; }
+    catch (e) {
+      const name = (e && e.name) || String(e);
+      diag('no arranca: ' + name + (document.hidden ? ' (en segundo plano)' : ''));
+      if (k >= 3 || name === 'AbortError') throw e;
+      await sleep(400 * (k + 1));
+    }
+  }
+}
 async function startOn(url, xf, isNet) {
   const my = ++gen;
   if (mixing) finishMix(true);
@@ -1259,7 +1280,7 @@ async function startOn(url, xf, isNet) {
   if (nw === old) {
     if (busy) { await tween('f' + old, 0, 150); if (my !== gen) return true; }
     cur.src = url; deckF[old] = 0; applyVol();
-    try { await cur.play(); } catch { deckF[old] = 1; applyVol(); return false; }
+    try { await playRetry(cur); } catch { deckF[old] = 1; applyVol(); return false; }
     if (my !== gen) return true;
     tween('f' + old, 1, 220); return true;
   }
@@ -1271,7 +1292,7 @@ async function startOn(url, xf, isNet) {
   if (smooth) { tween('f' + nw, 1, 0); G.dk[nw].xf.gain.setValueAtTime(0.0001, actx.currentTime); } else { deckF[nw] = 0; applyVol(); }
   d.src = url; A = nw;
   if (!isNet) applyNorm(nw, current(), 0);
-  try { await d.play(); } catch { if (smooth) resetDeckFx(nw); deckF[nw] = 1; applyVol(); return false; }
+  try { await playRetry(d); } catch { if (smooth) resetDeckFx(nw); deckF[nw] = 1; applyVol(); return false; }
   if (my !== gen) return true;
   if (smooth) {
     const L = Math.max(0.15, xf || 0), t0 = actx.currentTime, now = t0 + 0.02, fa = G.dk[old], fb = G.dk[nw];
@@ -1326,6 +1347,7 @@ async function loadCurrent(autoplay, xf = 0, at = 0) {
 }
 /* Everything that happens when a song becomes the current one, however it started */
 function beginTrack(t, { talk = null, viaMix = false, silent = false } = {}) {
+  diag('suena: ' + t.title + (viaMix ? ' (mezcla)' : '') + (document.hidden ? ' · en segundo plano' : ''));
   finishListen();
   if (!silent) {
     listen = { id: t.id, acc: 0, last: null, manual: false, title: t.title, artist: t.artist, dur: t.duration || 0, net: !!t.net, src: state.source };
@@ -1598,6 +1620,20 @@ function finishMix(early) {
 /* ---------- Listening memory (feeds your stats and Nova's recommendations) ---------- */
 let listen = null, lastSessionSave = 0, memEvents = [];
 function markManual() { if (listen) listen.manual = true; }
+/* 3.5b3 · What happened while music played (song changes, buttons, the app going to the background, errors), to
+   send it if something fails: Ajustes › «Copiar diagnóstico». Only in this phone, never sent by itself */
+const DIAG = LS.get('diag', []); let diagT = 0;
+function diag(msg) {
+  const d = new Date(), hh = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+  DIAG.push(hh + ' ' + msg); if (DIAG.length > 300) DIAG.splice(0, DIAG.length - 250);
+  clearTimeout(diagT); diagT = setTimeout(() => LS.set('diag', DIAG), 3000);
+}
+function diagText() {
+  const t = current();
+  return [`Órbita ${APP_CFG.version || '?'}${APP_CFG.beta ? ' beta' : ''} · motor ${NA_ON ? 'Android' : 'de siempre'} · ${navigator.userAgent}`,
+    `Ahora: ${t ? t.title + ' — ' + t.artist : 'nada'} · ${act() && !act().paused ? 'sonando' : 'en pausa'} · mezcla ${AUD.mix} ${AUD.mixLen}s · igualar ${AUD.level} · directo ${AUD.direct}`, '', ...DIAG].join('\n');
+}
+document.addEventListener('visibilitychange', () => { if (!NA_ON) diag(document.hidden ? 'app en segundo plano' : 'app en primer plano'); });
 function trackListen(d) {
   if (!listen || d.paused) return;
   const t = d.currentTime;
@@ -1647,6 +1683,7 @@ window.addEventListener('pagehide', () => saveSession(true));
 
 els.forEach((d, idx) => {
   d.addEventListener('ended', () => {
+    if (d === act()) diag('terminó: ' + ((current() || {}).title || '?') + (mixing ? ' (en una mezcla)' : ''));
     if (d !== act() || mixing) return;
     if (sleepLeft() !== null && sleepLeft() < 4000) { sleepFinish(); return; }
     if (advancing && !mixArm) advancing = false;
@@ -1735,6 +1772,7 @@ function artDataUrl(t) {
 }
 let lastPosSync = 0;
 function syncNativeState() {
+  if (NA_ON) { naSessionState(); return; }
   if (!nativeMS) return;
   const d = act(); lastPosSync = Date.now();
   try {
@@ -1760,8 +1798,8 @@ async function nativeMediaSession(t) {
     if (!nativeMediaSession.wired) {
       nativeMediaSession.wired = true;
       const on = (action, fn) => { try { nativeMS.setActionHandler({ action }, fn); } catch {} };
-      on('play', () => resume()); on('pause', () => fadePause()); on('stop', () => fadePause());
-      on('nexttrack', () => next(false)); on('previoustrack', () => prev());
+      on('play', () => { diag('botón seguir (aviso)'); resume(); }); on('pause', () => { diag('botón pausa (aviso)'); fadePause(); }); on('stop', () => fadePause());
+      on('nexttrack', () => { diag('botón siguiente (aviso)'); next(false); }); on('previoustrack', () => { diag('botón anterior (aviso)'); prev(); });
       on('seekto', dt => { const x = act(); if (dt && typeof dt.seekTime === 'number' && isFinite(x.duration)) { x.currentTime = dt.seekTime; advancing = false; syncNativeState(); } });
     }
     const art = t.net ? (t.artBig || t.art || placeholderArt(t)) : ((await artDataUrl(t)) || placeholderArt(t));
@@ -1770,6 +1808,7 @@ async function nativeMediaSession(t) {
   } catch {}
 }
 function mediaSession(t) {
+  if (NA_ON) { naSession(t); return; }
   if (nativeMS) { nativeMediaSession(t); return; }
   try {
     if (!('mediaSession' in navigator)) return;
@@ -2005,6 +2044,7 @@ function setMixStyle(v) {
   $('#mixSel').value = v; renderSound();
 }
 function renderSound() {
+  if (NA_ON) naSyncNext();   // the fades of the engine follow the settings
   if (!$('#mixChips')) return;
   $('#mixChips').innerHTML = MIX_ORDER.map(id => [id, MIX_STYLES[id]]).map(([id, s]) => `<button class="chip" data-mix="${id}" aria-pressed="${AUD.mix === id}">${esc(s.name)}</button>`).join('');
   $('#mixDesc').textContent = MIX_STYLES[AUD.mix].desc;
@@ -2148,6 +2188,7 @@ if (NA_ON) {
         if (v === 1 && naFocusPaused) { naFocusPaused = false; if (current() && A < 2) resume(); }
         return;
       }
+      if (e.type === 'button') { naButton(e); return; }
       if (e.type === 'noisy') { if (current() && A < 2 && !act().paused) { fadePause(); toast('Auriculares desconectados: pausa'); } return; }
       const d = decks[e.slot]; if (d && d._on) d._on(e);
     });
@@ -2171,39 +2212,93 @@ if (NA_ON) {
   } catch {}
   setInterval(() => { if (naVizOn && Date.now() - naVizUse > 1500) { naVizOn = false; NA_PLUGIN.viz({ on: false }).catch(() => {}); } }, 1000);
 }
-/* Songs of the same album, one after the other: glued, without a gap (and without a mix between them) */
-function naGapless(t, n) {
-  if (naBgQueue() && naOwn(t) && naOwn(n)) return true;
-  return NA_ON && !!t && !!n && t.dev && n.dev && !t.net && !n.net && state.repeat !== 'one' && !!norm(t.album || '') && norm(t.album || '') === norm(n.album || '') && artistKey(t.artist) === artistKey(n.artist);
-}
-/* 3.5b2 · With Órbita in the background Android can put its web part to sleep: then nobody would start the next song.
-   So, in the background, the engine gets the whole list of next songs and plays them one after another by itself
-   (without fades). When the app wakes up it just catches up with what is playing. */
+/* Songs of the same album, one after the other: glued, without a gap */
+const naAlbumPair = (t, n) => !!t && !!n && t.dev && n.dev && !!norm(t.album || '') && norm(t.album || '') === norm(n.album || '') && artistKey(t.artist) === artistKey(n.artist);
 const naOwn = t => !!t && !!t.dev && !t.net && !!t.uri;
-const naBgQueue = () => NA_ON && document.hidden && state.repeat !== 'one' && sleepLeft() === null;
+let NA_PL = true;   // the engine takes the whole list (3.5 beta 3); false with an older engine
+/* 3.5b3 · The engine plays your queue by itself, with the fades between songs: with the app open, in the background
+   or with the screen off. The app only has to catch up with what is playing. */
+function naGapless(t, n) {
+  if (!NA_ON || !naOwn(t) || !naOwn(n) || state.repeat === 'one') return false;
+  return NA_PL ? true : naAlbumPair(t, n);
+}
+/* How the engine goes from p to t: the same plan as the app's fades (from the analysis of both songs) */
+function naFade(p, t) {
+  if (!p || naAlbumPair(p, t)) return { xf: 0, at: 0, st: 0 };
+  const a = anaCache.get(p.id), b = anaCache.get(t.id), durA = p.duration || 0;
+  const st = b && b.introStart > 0.3 ? Math.max(0, b.introStart - 0.03) : 0;
+  if (AUD.mix === 'corte') { const end = a && a.outroEnd ? Math.min(durA || a.outroEnd, a.outroEnd) : 0; return { xf: 0, at: end > 0 && durA - end > 0.4 ? end : 0, st }; }
+  if (!durA || !a) return { xf: Math.max(2, Math.min(12, AUD.mixLen)), at: 0, st };
+  const pl = planMix(a, b, durA);
+  return { xf: Math.max(1, Math.min(16, pl.len)), at: pl.start > 1 ? pl.start : 0, st: Math.max(0, pl.bStart || 0) };
+}
+const naItem = (t, p) => Object.assign({ src: t.uri, title: t.title || '', artist: t.artist || '', album: t.album || '', dur: t.duration || 0, g: normGainFor(t) }, naFade(p, t));
+let naPlKey = '';
 function naSyncNext() {
   if (!NA_ON || A > 1) return;
   const t = current();
-  if (naBgQueue() && naOwn(t)) {
-    const srcs = [];
-    for (let i = state.qi + 1; i < state.queue.length && srcs.length < 40; i++) { const n = trackById(state.queue[i]); if (!naOwn(n)) break; srcs.push(n.uri); }
-    NA_PLUGIN.setQueue({ slot: A, srcs }).catch(() => {
-      const n = trackById(state.queue[state.qi + 1]);   // an engine without the queue (3.5 beta 1): just the next one
-      NA_PLUGIN.setNext({ slot: A, src: naOwn(n) ? n.uri : null }).catch(() => {});
-    });
-    return;
-  }
-  const id = state.queue[state.qi + 1], n = id && trackById(id);
-  NA_PLUGIN.setNext({ slot: A, src: naGapless(t, n) ? n.uri : null }).catch(() => {});
-}
-function naInit() {
-  if (!NA_ON) return;
-  NA_PLUGIN.keepAlive({ on: true }).catch(() => {});
-  document.addEventListener('visibilitychange', () => {
-    // going to the background: a fade that hasn't started yet won't be done (the engine joins the songs itself)
-    if (document.hidden && mixArm && !mixing) disarmMix();
-    naSyncNext();
+  if (!naOwn(t) || els[A].getAttribute('src') == null) return;
+  if (!NA_PL) { const id = state.queue[state.qi + 1], n = id && trackById(id); NA_PLUGIN.setNext({ slot: A, src: naGapless(t, n) ? n.uri : null }).catch(() => {}); return; }
+  // a few before (for «previous» in the notification), this one and up to 40 after: as long as they are songs of the phone
+  let from = state.qi; while (from > 0 && state.qi - from < 3 && naOwn(trackById(state.queue[from - 1]))) from--;
+  const items = []; let prevT = null;
+  const stopAfter = state.repeat === 'one' || (sleepLeft() !== null && sleepEnd && sleepFade === 12000) ? state.qi : state.qi + 40;
+  for (let i = from; i < state.queue.length && i <= stopAfter; i++) { const n = trackById(state.queue[i]); if (!naOwn(n)) break; items.push(naItem(n, prevT)); prevT = n; }
+  const index = state.qi - from;
+  const key = A + '|' + index + '|' + JSON.stringify(items);
+  if (key === naPlKey) return;
+  naPlKey = key;
+  NA_PLUGIN.setPlaylist({ slot: A, index, items }).catch(e => {
+    if (/not implemented|UNIMPLEMENTED/i.test(String(e && (e.code || e.message)))) { NA_PL = false; naPlKey = ''; naSyncNext(); }
   });
+}
+/* The notification while something plays outside the engine (radio, YouTube, demo songs) */
+let naExtT = 0;
+async function naSession(t) {
+  if (naOwn(t) && A < 2) { naPlKey = ''; naSyncNext(); return; }
+  const art = t.net ? (t.artBig || t.art || placeholderArt(t)) : ((await artDataUrl(t)) || placeholderArt(t));
+  if (t !== current()) return;
+  const d = act();
+  NA_PLUGIN.setNowPlaying({ title: t.title || '', artist: t.artist || (t.kind === 'radio' ? 'Radio en directo' : ''), album: t.album || (t.net ? 'Órbita · internet' : 'Órbita'),
+    art: /^data:/.test(art || '') ? art : null, playing: !d.paused, pos: d.currentTime || 0, dur: isFinite(d.duration) ? d.duration : 0 }).catch(() => {});
+}
+function naSessionState() {
+  const t = current(); if (!t) { NA_PLUGIN.sessionEnd().catch(() => {}); return; }
+  if (naOwn(t) && A < 2) return;   // the engine knows by itself
+  if (Date.now() - naExtT < 800) return; naExtT = Date.now();
+  const d = act();
+  NA_PLUGIN.setNowPlaying({ title: t.title || '', artist: t.artist || '', album: t.album || '', playing: !d.paused, pos: d.currentTime || 0, dur: isFinite(d.duration) ? d.duration : 0 }).catch(() => {});
+}
+/* Buttons: the engine does them itself when the song is its own; otherwise (radio, YouTube…) it passes them here */
+function naButton(e) {
+  diag('botón ' + e.action + (e.forward ? ' (lo hace la app; le llegó a los ' + (e.t ? Math.max(0, Date.now() - e.t) : '?') + ' ms)' : ' (lo hizo el motor al momento)'));
+  if (!e.forward) return;
+  const a = e.action;
+  if (a === 'play') { if (current()) resume(); else togglePlay(); }
+  else if (a === 'pause') fadePause();
+  else if (a === 'playpause') togglePlay();
+  else if (a === 'next') next(false);
+  else if (a === 'prev') prev();
+  else if (a === 'seek') { const x = act(); if (isFinite(x.duration) && typeof e.pos === 'number') { x.currentTime = e.pos; advancing = false; } }
+}
+/* The engine changed the song by itself (a button): the app goes to that song of the queue, without loading it again */
+decks.forEach(d => d.addEventListener && d.addEventListener('nativejump', () => {
+  if (d !== act()) return;
+  let idx = -1;
+  for (const k of [state.qi + 1, state.qi - 1]) if (k >= 0 && k < state.queue.length && (trackById(state.queue[k]) || {}).uri === d._src) idx = k;
+  if (idx < 0) idx = state.queue.findIndex(id => (trackById(id) || {}).uri === d._src);
+  diag((d._auto ? 'el motor pasó solo a la siguiente' : 'el motor cambió de canción (botón)') + ' → ' + (idx < 0 ? 'no está en la cola' : '#' + idx));
+  if (d._auto && sleepLeft() !== null && sleepLeft() < 4000) { sleepFinish(); return; }
+  if (idx < 0) return;
+  if (mixing) finishMix(true); disarmMix(); advancing = false;
+  if (!d._auto) markManual();
+  state.qi = idx; loadCurrent(true, 0);
+}));
+function naInit() {
+  // that Android doesn't put the web part of Órbita to sleep while music plays (with either engine)
+  if (NA_PLUGIN) NA_PLUGIN.keepAlive({ on: true }).catch(() => {});
+  if (!NA_ON) return;
+  document.addEventListener('visibilitychange', () => { diag(document.hidden ? 'app en segundo plano' : 'app en primer plano'); naSyncNext(); });
   analyser = naAnalyser; freq = new Uint8Array(256);
   applyEq();
   NA_PLUGIN.status().then(s => { if (!s || !s.available) throw 0; }).catch(() => { LS.set('engineBroken', true); toast('El motor de sonido de Android no arranca en este móvil: uso el de siempre.', 5000); setTimeout(() => location.reload(), 2500); });
@@ -3162,6 +3257,12 @@ $('#onb').addEventListener('click', e => {
 $('#onb').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches && e.target.matches('#onbName, #onbCity')) { e.preventDefault(); if (e.target.id === 'onbName') $('#onbCity').focus(); else $('#onbStage [data-ob="next"]').click(); } });
 $('#onbSkip').onclick = () => { if (OB_STEPS[OB.step] === 'gustos') obSaveTastes(); if (OB_STEPS[OB.step] === 'dj') obSaveDj(); closeOnboarding(); };
 $('#obAgain').onclick = () => openOnboarding(true);
+$('#diagCopy').onclick = async () => {
+  const txt = diagText();
+  try { await navigator.clipboard.writeText(txt); }
+  catch { const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch {} ta.remove(); }
+  toast('Diagnóstico copiado: pégamelo en el chat', 4200);
+};
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#onb').hidden) { e.preventDefault(); e.stopImmediatePropagation(); closeOnboarding(); } }, true);
 /* ===== 3.5 · Despertador con Nova: tu música subiendo poco a poco, la hora y el tiempo, a pantalla completa ===== */
 const AL_PLUGIN = capPlugin('NovaAlarm');
@@ -5286,7 +5387,7 @@ function draw(ts) {
   if (state.view !== 'inicio' || document.hidden || state.heroMode !== 'vinyl' || !$('#np').hidden || root.classList.contains('booting')) return;
   const t = current(); const d = act(); const playing = !d.paused && !!t;
   if (playing && !reduceMotion) angle += dt * 2.0;
-  const minGap = !playing ? 90 : (state.anim === 'lite' || idleSlow()) ? 33 : 0;
+  const minGap = !playing ? 90 : (state.anim === 'lite' || idleSlow()) ? 50 : 33;
   if (ts - lastDraw < minGap) return;
   lastDraw = ts;
   const W = cv.width; if (W < 10) return;
@@ -7387,7 +7488,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, naSyncNext, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, naSyncNext, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }

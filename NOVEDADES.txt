@@ -16,8 +16,16 @@ Tu año en Órbita
 Motor de sonido de Android (beta)
 - Ajustes › Sonido › «Motor de sonido de Android»: tu música suena con el reproductor del propio móvil. Las canciones seguidas de un mismo disco van sin cortes.
 - Ecualizador, volumen igualado, sonido directo, visualizador, fundidos y pausas con llamadas o al quitar los auriculares funcionan igual.
-- Con Órbita en segundo plano o la pantalla apagada, el motor pasa solo a la siguiente canción de tu cola (beta 2).
+- El motor pone él solo toda tu cola, con fundidos entre canciones (los de siempre, calculados igual), también en segundo plano y con la pantalla apagada. Entre canciones ya no debería haber cortes ni silencios.
+- Tiene su propio aviso de reproducción: los botones (anterior, pausa, siguiente), los de los auriculares y la barra responden al momento, aunque la app esté en segundo plano.
+- Los MP3 de un mismo disco van pegados de verdad: se quita el silencio que añade el codificador.
 - Es una prueba: las mezclas de DJ llegan a este motor en la 3.6. Si algo falla tres veces, Órbita vuelve sola al motor de siempre.
+
+Sonido y rapidez
+- Más volumen y más cuerpo: el volumen igualado deja las canciones más cerca de su volumen original, el ecualizador ya no baja tanto el resto al subir graves, y el volumen de la app empieza al 100 %.
+- Si una canción no arranca en segundo plano, Órbita lo vuelve a intentar en vez de quedarse parada.
+- La pantalla «Ahora» gasta la mitad: el vinilo se dibuja 30 veces por segundo.
+- Ajustes › «Copiar diagnóstico»: un registro de lo que pasa al reproducir (cambios de canción, botones, segundo plano) para mandármelo si algo falla. Solo se guarda en tu móvil.
 
 Primera vez fácil
 - Quien instala Órbita tiene una bienvenida de un minuto: su música (con el permiso), sus estilos, el nombre de su DJ y cuánto habla, su ciudad para el tiempo y su primera mezcla.
