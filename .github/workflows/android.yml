@@ -17,10 +17,12 @@ concurrency:
 jobs:
   apk:
     # Ubuntu 24.04 fijo: «ubuntu-latest» está cambiando a Ubuntu 26 y trae otras herramientas de Android
+    # 3.6: las acciones van con Node 24 (checkout v5, setup-node v5, setup-java v5, setup-android v4, gh-release v3):
+    # ya no sale el aviso de «Node.js 20 está obsoleto»
     runs-on: ubuntu-24.04
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Comprobar la clave de firma
         env:
@@ -33,18 +35,18 @@ jobs:
           fi
 
       - name: Preparar Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
       - name: Preparar Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
       - name: Preparar Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           # Sin el paquete antiguo «tools», que Google ya no ofrece (por defecto lo pedía y fallaba)
           packages: 'platform-tools'
@@ -155,7 +157,7 @@ jobs:
         run: cp android/app/build/outputs/apk/release/app-release.apk "Orbita-${{ steps.prep.outputs.version }}.apk"
 
       - name: Publicar la versión (Releases)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.prep.outputs.version }}
           name: "Órbita ${{ steps.prep.outputs.version }}${{ steps.prep.outputs.prerelease == 'true' && ' (beta)' || '' }}"
