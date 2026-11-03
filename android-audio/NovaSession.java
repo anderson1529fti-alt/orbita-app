@@ -37,9 +37,14 @@ final class NovaSession {
     /** Una canción de la cola, con lo que hace falta para el aviso y para el fundido. */
     static final class PItem {
         String src, title = "", artist = "", album = "";
-        double dur, xf, at, st;
+        double dur, xf, at, st, swap = -1, rate = 1, gridA, beatA, gridB, beatB;
+        int style;
         float g = Float.NaN;
-        NovaAudioEngine.Item engineItem() { return new NovaAudioEngine.Item(src, xf, at, st, g); }
+        NovaAudioEngine.Item engineItem() {
+            NovaAudioEngine.Item it = new NovaAudioEngine.Item(src, xf, at, st, g);
+            it.style = style; it.swap = swap; it.rate = rate; it.gridA = gridA; it.beatA = beatA; it.gridB = gridB; it.beatB = beatB;
+            return it;
+        }
     }
 
     private final Context ctx;

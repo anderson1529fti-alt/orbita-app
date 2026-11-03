@@ -101,6 +101,8 @@ public final class NovaAudioEngine {
     public void seek(int slot, double pos) { slots[slot].seek(pos); wake(); }
     public void setVolume(int slot, float v) { slots[slot].volume = clamp(v, 0f, 1f); }
     public void setNorm(int slot, float g) { slots[slot].norm = clamp(g, 0f, 4f); }
+    /** 3.5b4: el volumen igualado de la canción que suena, aplicado dentro del plato (en un fundido, cada canción el suyo). */
+    public void setSongGain(int slot, float g) { if (!Float.isNaN(g)) slots[slot].songGain = clamp(g, 0f, 4f); }
     public void setNext(int slot, String src) { slots[slot].setNext(src); }
     /** 3.5b2: las siguientes canciones en orden; el motor las encadena solo aunque la app esté dormida. */
     public void setQueue(int slot, java.util.List<String> srcs) { slots[slot].setQueue(srcs); }
@@ -199,7 +201,12 @@ public final class NovaAudioEngine {
      * la anterior empieza el cambio (0 = al final); st: desde qué segundo empieza esta; g: su volumen igualado (NaN = el que haya).
      */
     public static final class Item {
+        /** Cómo se entra: suave (sin ritmo claro), filtro (la anterior se apaga por arriba y esta entra sin graves) o dj (ritmos cuadrados). */
+        public static final int SUAVE = 0, FILTRO = 1, DJ = 2;
         public final String src; public final double xf, at, st; public final float g;
+        public int style = SUAVE;
+        /** dj: en qué segundo del fundido cambian los graves de manos; la velocidad de esta para cuadrar el ritmo; las rejillas de pulsos. */
+        public double swap = -1, rate = 1, gridA, beatA, gridB, beatB;
         public Item(String src, double xf, double at, double st, float g) { this.src = src; this.xf = Math.max(0, xf); this.at = at; this.st = Math.max(0, st); this.g = g; }
         public static Item plain(String src) { return new Item(src, 0, 0, 0, Float.NaN); }
     }
@@ -228,6 +235,9 @@ public final class NovaAudioEngine {
         volatile String src;
         volatile boolean playing;
         volatile float volume = 1f, norm = 1f;
+        // volumen igualado de la canción que se está escribiendo (lo pide la app); gNow va hacia él poco a poco
+        volatile float songGain = 1f;
+        private float gNow = 1f;
         float volNow = 0f;
         volatile long durUs;
         // lo que el hilo de sonido ya ha sacado (tramas a la frecuencia de salida) desde el principio de la canción actual
@@ -257,7 +267,7 @@ public final class NovaAudioEngine {
             synchronized (marks) { marks.clear(); markInfo.clear(); }
             ring = new Ring(rate * 2);
             seekTo = startAt; seekDone = seekReq; if (startAt > 0) seekReq++;
-            playing = play; volNow = 0f;
+            playing = play; volNow = 0f; gNow = songGain;
             final int my = ++gen;
             feeder = new Thread(() -> feed(my, s), "orbita-plato-" + id);
             feeder.setPriority(Thread.MAX_PRIORITY);
@@ -366,21 +376,23 @@ public final class NovaAudioEngine {
             float[] in = new float[4096 * 8];
             float[] outb = new float[4096 * 2];
             String cur = first;
-            double curStart = 0; long curWritten = 0, curDurUs = 0;   // la canción que se está escribiendo
+            // la canción que se está escribiendo: en qué segundo de su archivo va lo escrito y a qué velocidad va
+            double curPos = 0, curRate = 1, glide = 0; long curDurUs = 0;
             boolean d1Done = false;
-            Item xfItem = null; long xfLen = 0, xfDone = 0;
+            Item xf = null; long xfLen = 0, xfDone = 0; double bPos = 0, bRate = 1;
+            Biquad hpA = new Biquad(), lpA = new Biquad(), hpB = new Biquad();
             try {
                 d = factory.open(first);
                 curDurUs = d.durationUs(); durUs = curDurUs;
                 emit("loaded", id, first, baseSec, durUs / 1e6, null);
-                curStart = baseSec;
+                curPos = baseSec;
                 while (my == gen && running) {
                     int sr = seekReq;
                     if (sr != seekDone) {
                         double to = seekTo;
                         d.seekUs((long) (to * 1e6));
-                        if (rs[0] != null) rs[0].reset();
-                        f1.clear(); d1Done = false; curStart = to; curWritten = 0;
+                        if (rs[0] != null) { rs[0].reset(); rs[0].setSpeed(1); }
+                        f1.clear(); d1Done = false; curPos = to; curRate = 1; glide = 0;
                         Ring rr = ring; if (rr != null) rr.clear();
                         seekDone = sr;
                         if (my == gen) emit("seeked", id, cur, to, durUs / 1e6, null);
@@ -391,21 +403,22 @@ public final class NovaAudioEngine {
                     if (space < 256) { Thread.sleep(6); continue; }
 
                     if (d2 == null) {
-                        // ¿toca empezar a cambiar a la siguiente?
+                        // ¿toca empezar a cambiar a la siguiente? (en segundos del archivo de esta)
                         Item nx = peekNext();
-                        long atFrames = -1;
+                        double at = -1;
                         if (nx != null && !d1Done) {
                             double endSec = curDurUs > 0 ? curDurUs / 1e6 : -1;
-                            double at = nx.at > 0 ? nx.at : (nx.xf > 0.05 && endSec > 0 ? endSec - nx.xf : -1);
-                            if (at > 0) atFrames = Math.max(0, Math.round((at - curStart) * rate));
+                            at = nx.at > 0 ? nx.at : (nx.xf > 0.05 && endSec > 0 ? endSec - nx.xf : -1);
                         }
-                        if (atFrames >= 0 && curWritten >= atFrames) {
+                        if (at > 0 && curPos >= at - 1e-6) {
                             if (nx.xf > 0.05) {
                                 Object[] o = openNext(my);
                                 if (o != null) {
-                                    xfItem = (Item) o[0]; d2 = (Decoder) o[1]; rs2[0] = null; f2.clear();
-                                    xfLen = Math.max(1, Math.round(xfItem.xf * rate)); xfDone = 0;
-                                    overlapping = true; addMark(r, xfItem, d2);
+                                    xf = (Item) o[0]; d2 = (Decoder) o[1]; rs2[0] = null; f2.clear();
+                                    xfLen = Math.max(1, Math.round(xf.xf * rate)); xfDone = 0;
+                                    bPos = xf.st; bRate = xf.rate > 0 ? xf.rate : 1;
+                                    hpA.reset(); lpA.reset(); hpB.reset();
+                                    overlapping = true; addMark(r, xf, d2);
                                     continue;
                                 }
                             }
@@ -418,11 +431,18 @@ public final class NovaAudioEngine {
                             else if (n == 0) { Thread.sleep(2); continue; }
                         }
                         if (f1.frames() > 0) {
-                            int m = Math.min(Math.min(f1.frames(), space), outb.length / 2);
-                            if (atFrames > curWritten) m = (int) Math.min(m, atFrames - curWritten);
-                            for (int i = 0; i < m; i++) { outb[2 * i] = f1.l(i); outb[2 * i + 1] = f1.r(i); }
+                            int m = Math.min(Math.min(f1.frames(), space), glide != 0 ? 1024 : outb.length / 2);
+                            if (at > curPos) m = (int) Math.max(1, Math.min(m, Math.ceil((at - curPos) * rate / curRate)));
+                            final float gt = songGain;
+                            for (int i = 0; i < m; i++) { gNow += (gt - gNow) * 0.0002f; outb[2 * i] = f1.l(i) * gNow; outb[2 * i + 1] = f1.r(i) * gNow; }
                             if (my != gen) return;
-                            r.write(outb, m); f1.drop(m); curWritten += m;
+                            r.write(outb, m); f1.drop(m); curPos += m * curRate / rate;
+                            // después de un fundido con el ritmo cuadrado: vuelve poco a poco a su velocidad
+                            if (glide != 0) {
+                                curRate += glide * m;
+                                if ((glide > 0 && curRate >= 1) || (glide < 0 && curRate <= 1)) { curRate = 1; glide = 0; }
+                                if (rs[0] != null) rs[0].setSpeed(curRate);
+                            }
                             continue;
                         }
                         if (d1Done) {
@@ -431,35 +451,60 @@ public final class NovaAudioEngine {
                             if (o == null) { eof = true; return; }
                             Item it = (Item) o[0];
                             d.close(); d = (Decoder) o[1]; cur = it.src; rs[0] = null;
-                            curDurUs = d.durationUs(); curStart = it.st; curWritten = 0; d1Done = false;
+                            curDurUs = d.durationUs(); curPos = it.st; curRate = 1; glide = 0; d1Done = false;
+                            if (!Float.isNaN(it.g)) songGain = clamp(it.g, 0f, 4f);
                             addMark(r, it, d);
                         }
                         continue;
                     }
 
-                    // fundido: las dos a la vez, una bajando y otra subiendo (curva de igual potencia)
+                    // el fundido: las dos a la vez, en trozos de 10 ms para que filtros y volúmenes se muevan suaves
+                    if (rs2[0] == null) { rs2[0] = new Resampler(d2.sampleRate(), rate); rs2[0].setSpeed(bRate); }
                     if (!d1Done && f1.frames() < 2048) { int n = decodeInto(d, rs, f1, in); if (n < 0) d1Done = true; }
                     boolean d2Done = false;
                     if (f2.frames() < 2048) { int n2 = decodeInto(d2, rs2, f2, in); if (n2 < 0) d2Done = true; }
                     int m = d1Done ? f2.frames() : Math.min(f1.frames(), f2.frames());
-                    m = Math.min(Math.min(m, space), outb.length / 2);
+                    m = Math.min(Math.min(m, space), 480);
                     m = (int) Math.min(m, Math.max(1, xfLen - xfDone));
                     if (m <= 0 && !d2Done) { Thread.sleep(1); continue; }
-                    for (int i = 0; i < m; i++) {
-                        double t = Math.min(1.0, (xfDone + i) / (double) xfLen);
-                        float gOut = (float) Math.cos(t * Math.PI / 2), gIn = (float) Math.sin(t * Math.PI / 2);
-                        float al = 0, ar = 0;
-                        if (i < f1.frames()) { al = f1.l(i); ar = f1.r(i); }
-                        outb[2 * i] = al * gOut + f2.l(i) * gIn; outb[2 * i + 1] = ar * gOut + f2.r(i) * gIn;
+                    if (m > 0) {
+                        double p0 = xfDone / (double) xfLen, p1 = Math.min(1.0, (xfDone + m) / (double) xfLen);
+                        float[] g0 = gains(xf, p0), g1 = gains(xf, p1);
+                        final float gB = Float.isNaN(xf.g) ? 1f : clamp(xf.g, 0f, 4f);
+                        boolean useHpA = shape(xf, p0, hpA, lpA, hpB);
+                        for (int i = 0; i < m; i++) {
+                            float u = m > 1 ? i / (float) (m - 1) : 0;
+                            float gOut = g0[0] + (g1[0] - g0[0]) * u, gIn = g0[1] + (g1[1] - g0[1]) * u;
+                            float al = 0, ar = 0;
+                            if (i < f1.frames()) {
+                                al = f1.l(i); ar = f1.r(i);
+                                if (useHpA) { al = hpA.l(al); ar = hpA.r(ar); }
+                                if (lpOn) { al = lpA.l(al); ar = lpA.r(ar); }
+                            }
+                            al *= gNow; ar *= gNow;
+                            float bl = f2.l(i) * gB, br = f2.r(i) * gB;
+                            if (hpBOn) { bl = hpB.l(bl); br = hpB.r(br); }
+                            outb[2 * i] = al * gOut + bl * gIn; outb[2 * i + 1] = ar * gOut + br * gIn;
+                        }
+                        if (my != gen) return;
+                        r.write(outb, m); f1.drop(m); f2.drop(m); xfDone += m;
+                        curPos += m * curRate / rate; bPos += m * bRate / rate;
+                        // dj: los pulsos de las dos, en fase (como un DJ que toca el plato)
+                        if (xf.style == Item.DJ && xf.beatA > 0 && xf.beatB > 0) {
+                            double err = (curPos - xf.gridA) / xf.beatA - (bPos - xf.gridB) / xf.beatB;
+                            err -= Math.floor(err); if (err > 0.5) err -= 1;
+                            bRate = xf.rate * (1 + Math.max(-0.04, Math.min(0.04, err * 0.25)));
+                            rs2[0].setSpeed(bRate);
+                        }
                     }
-                    if (my != gen) return;
-                    if (m > 0) { r.write(outb, m); f1.drop(m); f2.drop(m); xfDone += m; }
                     if (xfDone >= xfLen || d2Done || (d1Done && f1.frames() == 0)) {
-                        // terminado: la nueva sigue sola
+                        // terminado: la nueva sigue sola (y si iba acelerada o frenada, vuelve despacio a su velocidad)
                         d.close(); d = d2; d2 = null; rs[0] = rs2[0]; rs2[0] = null;
+                        if (!Float.isNaN(xf.g)) { songGain = clamp(xf.g, 0f, 4f); gNow = songGain; }
                         Fifo tmp = f1; f1 = f2; f2 = tmp; f2.clear();
-                        cur = xfItem.src; curDurUs = d.durationUs(); curStart = xfItem.st; curWritten = xfDone; d1Done = d2Done;
-                        xfItem = null; overlapping = false;
+                        cur = xf.src; curDurUs = d.durationUs(); curPos = bPos; curRate = bRate;
+                        glide = Math.abs(curRate - 1) > 1e-4 ? (1 - curRate) / (6.0 * rate) : 0;
+                        d1Done = d2Done; xf = null; overlapping = false;
                     }
                 }
             } catch (InterruptedException e) {
@@ -471,6 +516,47 @@ public final class NovaAudioEngine {
                 if (d2 != null) try { d2.close(); } catch (Throwable ignored) { }
                 overlapping = false;
             }
+        }
+
+        /* ---- las curvas de cada estilo (las mismas que los fundidos de la app) ---- */
+        private boolean lpOn, hpBOn;
+        private float cUp(double x) { x = Math.max(0, Math.min(1, x)); return (float) Math.sin(x * Math.PI / 2); }
+        private float cDown(double x) { x = Math.max(0, Math.min(1, x)); return (float) Math.cos(x * Math.PI / 2); }
+        private float cS(double x) { x = Math.max(0, Math.min(1, x)); return (float) (0.5 - 0.5 * Math.cos(x * Math.PI)); }
+        private double sweep(double f0, double f1, double u) { u = Math.max(0, Math.min(1, u)); return f0 * Math.pow(f1 / f0, u); }
+        private double swapAt(Item it) { return it.swap > 0 && it.xf > 0 ? Math.max(0.15, Math.min(0.85, it.swap / it.xf)) : 0.55; }
+
+        /** Volumen de la que se va [0] y de la que entra [1] en el punto p (0…1) del fundido. */
+        private float[] gains(Item it, double p) {
+            if (it.style == Item.FILTRO) return new float[] { p < 0.2 ? 1f : cDown((p - 0.2) / 0.75), cUp(p / 0.8) };
+            if (it.style == Item.DJ) {
+                double sw = swapAt(it), bf = it.beatA > 0 ? it.beatA / it.xf : 0.08;
+                double xa = Math.max(0.05, sw - 0.75 * bf);
+                float in = p < xa ? 0.9f * cS(p / xa) : (p < sw ? (float) (0.9 + 0.1 * (p - xa) / Math.max(1e-6, sw - xa)) : 1f);
+                return new float[] { p < sw ? 1f : cDown((p - sw) / (1 - sw)), in };
+            }
+            // suave: la nueva sube primero; la otra aguanta un poco y luego se va (y los graves cambian de manos en medio)
+            return new float[] { p < 0.3 ? 1f : cDown((p - 0.3) / 0.7), cUp(p / 0.7) };
+        }
+
+        /** Los filtros en el punto p: los graves nunca suenan dos veces a la vez. Devuelve si el paso-altos de la que se va está puesto. */
+        private boolean shape(Item it, double p, Biquad hpA, Biquad lpA, Biquad hpB) {
+            double nyq = rate * 0.45;
+            if (it.style == Item.FILTRO) {
+                lpOn = true; lpA.now(Biquad.LOWPASS, sweep(nyq, 420, p), rate);
+                hpBOn = p < 0.75; if (hpBOn) hpB.now(Biquad.HIGHPASS, sweep(1500, 20, p / 0.75), rate);
+                return false;
+            }
+            double xa, xb, lpFrom = 2;
+            if (it.style == Item.DJ) {
+                double sw = swapAt(it), bf = it.beatA > 0 ? it.beatA / it.xf : 0.08;
+                xa = Math.max(0.05, sw - 0.75 * bf); xb = Math.max(xa + 0.02, Math.min(0.98, sw + bf)); lpFrom = sw;
+            } else { xa = 0.45; xb = 0.65; }
+            hpBOn = p < xb; if (hpBOn) hpB.now(Biquad.HIGHPASS, p < xa ? (it.style == Item.DJ ? 320 : 250) : sweep(it.style == Item.DJ ? 320 : 250, 18, (p - xa) / (xb - xa)), rate);
+            lpOn = p > lpFrom; if (lpOn) lpA.now(Biquad.LOWPASS, sweep(nyq, 900, (p - lpFrom) / (1 - lpFrom)), rate);
+            boolean hp = p > xa;
+            if (hp) hpA.now(Biquad.HIGHPASS, p >= xb ? (it.style == Item.DJ ? 300 : 250) : sweep(14, it.style == Item.DJ ? 300 : 250, (p - xa) / (xb - xa)), rate);
+            return hp;
         }
 
         private float[] stereoBuf = new float[0];
@@ -510,7 +596,6 @@ public final class NovaAudioEngine {
                     Item it = (Item) info[0];
                     long over = readPos - m[0];
                     src = it.src; durUs = m[1]; baseSec = m[2] / 1e6; playedFrames = over;
-                    if (!Float.isNaN(it.g)) norm = clamp(it.g, 0f, 4f);
                     emit("gapless", id, src, position(), durUs / 1e6, null);
                     return;
                 }
@@ -556,7 +641,7 @@ public final class NovaAudioEngine {
         private static final java.util.Map<Integer, float[][]> TABLES = new java.util.HashMap<>();
         private final float[][] table;
         private final int inRate, outRate;
-        private final double step;
+        private double step;
         private double pos;          // posición en la entrada, relativa al historial
         private float[] hist = new float[TAPS * 2];   // las últimas TAPS tramas (estéreo)
         private float[] outBuf = new float[0];
@@ -573,6 +658,7 @@ public final class NovaAudioEngine {
             reset();
         }
         int rate() { return inRate; }
+        void setSpeed(double r) { step = inRate * Math.max(0.8, Math.min(1.25, r)) / (double) outRate; }
         int outFrames() { return outFrames; }
         void reset() { java.util.Arrays.fill(hist, 0f); pos = TAPS / 2.0; }
 
@@ -596,7 +682,7 @@ public final class NovaAudioEngine {
 
         /** in: tramas estéreo; devuelve el búfer de salida (outFrames() tramas). */
         float[] process(float[] in, int frames) {
-            if (inRate == outRate) {
+            if (inRate == outRate && step == 1.0) {
                 if (outBuf.length < frames * 2) outBuf = new float[frames * 2];
                 System.arraycopy(in, 0, outBuf, 0, frames * 2); outFrames = frames; return outBuf;
             }
@@ -632,7 +718,7 @@ public final class NovaAudioEngine {
 
     /** Un filtro del ecualizador (fórmulas de Robert Bristow-Johnson, las mismas que usa el navegador). */
     static final class Biquad {
-        static final int PEAKING = 0, LOWSHELF = 1, HIGHSHELF = 2;
+        static final int PEAKING = 0, LOWSHELF = 1, HIGHSHELF = 2, HIGHPASS = 3, LOWPASS = 4;
         double b0 = 1, b1, b2, a1, a2;
         double tb0 = 1, tb1, tb2, ta1, ta2;
         double l1, l2, r1, r2, lo1, lo2, ro1, ro2;
@@ -657,7 +743,12 @@ public final class NovaAudioEngine {
         static double[] coefs(int type, double f, double q, double gainDb, int fs) {
             double A = Math.pow(10, gainDb / 40), w0 = 2 * Math.PI * Math.min(f, fs * 0.49) / fs, cs = Math.cos(w0), sn = Math.sin(w0);
             double b0, b1, b2, a0, a1, a2;
-            if (type == PEAKING) {
+            if (type == HIGHPASS || type == LOWPASS) {
+                double alpha = sn / (2 * q);
+                if (type == HIGHPASS) { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = (1 + cs) / 2; }
+                else { b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = (1 - cs) / 2; }
+                a0 = 1 + alpha; a1 = -2 * cs; a2 = 1 - alpha;
+            } else if (type == PEAKING) {
                 double alpha = sn / (2 * q);
                 b0 = 1 + alpha * A; b1 = -2 * cs; b2 = 1 - alpha * A; a0 = 1 + alpha / A; a1 = -2 * cs; a2 = 1 - alpha / A;
             } else {
@@ -677,6 +768,9 @@ public final class NovaAudioEngine {
             double nr = b0 + b1 * c1 + b2 * c2, ni = -(b1 * s1 + b2 * s2), dr = 1 + a1 * c1 + a2 * c2, di = -(a1 * s1 + a2 * s2);
             return Math.sqrt((nr * nr + ni * ni) / (dr * dr + di * di));
         }
+        /** Para los barridos de los fundidos: cambia ya (cada 10 ms), sin perder lo que lleva dentro. */
+        void now(int type, double f, int fs) { double[] c = coefs(type, f, 0.707, 0, fs); b0 = tb0 = c[0]; b1 = tb1 = c[1]; b2 = tb2 = c[2]; a1 = ta1 = c[3]; a2 = ta2 = c[4]; flat = false; }
+        void reset() { l1 = l2 = r1 = r2 = lo1 = lo2 = ro1 = ro2 = 0; }
         float l(float x) { double y = b0 * x + b1 * l1 + b2 * l2 - a1 * lo1 - a2 * lo2; l2 = l1; l1 = x; lo2 = lo1; lo1 = y; return (float) y; }
         float r(float x) { double y = b0 * x + b1 * r1 + b2 * r2 - a1 * ro1 - a2 * ro2; r2 = r1; r1 = x; ro2 = ro1; ro1 = y; return (float) y; }
     }

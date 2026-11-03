@@ -236,6 +236,13 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         call.resolve();
     }
 
+    /** 3.5b4: el volumen igualado de la canción de este plato (cada canción el suyo, también durante un fundido). */
+    @PluginMethod
+    public void setSongGain(PluginCall call) {
+        eng().setSongGain(slot(call), num(call, "g", 1f));
+        call.resolve();
+    }
+
     @PluginMethod
     public void setNorm(PluginCall call) {
         eng().setNorm(slot(call), num(call, "g", 1f));
@@ -297,12 +304,18 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
                 it.title = j.optString("title", ""); it.artist = j.optString("artist", ""); it.album = j.optString("album", "");
                 it.dur = j.optDouble("dur", 0); it.xf = j.optDouble("xf", 0); it.at = j.optDouble("at", 0); it.st = j.optDouble("st", 0);
                 double g = j.optDouble("g", Double.NaN); it.g = Double.isNaN(g) ? Float.NaN : (float) g;
+                it.style = Math.max(0, Math.min(2, j.optInt("style", 0)));
+                it.swap = j.optDouble("swap", -1); it.rate = Math.max(0.85, Math.min(1.15, j.optDouble("rate", 1)));
+                it.gridA = j.optDouble("gridA", 0); it.beatA = j.optDouble("beatA", 0); it.gridB = j.optDouble("gridB", 0); it.beatB = j.optDouble("beatB", 0);
                 list.add(it);
             }
             int index = ix == null ? 0 : Math.max(0, Math.min(list.size() - 1, ix));
             NovaSession s = sess();
             s.setPlaylist(list, index, sl);
             NovaAudioEngine e = eng();
+            NovaSession.PItem cur = s.item(index);
+            e.setNorm(sl, 1f);
+            if (cur != null) e.setSongGain(sl, cur.g);
             e.setItems(sl, s.after(index));
             stateToSession(sl);
         } catch (Throwable t) {
@@ -387,8 +400,9 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         int other = 1 - slot;
         if (e.playing(other)) { e.pause(other); }
         requestFocus();
+        e.setNorm(slot, 1f);
+        e.setSongGain(slot, it.g);
         e.load(slot, it.src, it.st, true);
-        if (!Float.isNaN(it.g)) e.setNorm(slot, it.g);
         s.index = idx;
         e.setItems(slot, s.after(idx));
         keepAwake(true);

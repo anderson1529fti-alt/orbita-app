@@ -13,13 +13,18 @@ Tu año en Órbita
 - Al final, una imagen para compartir (WhatsApp, Instagram…) o guardar en la galería, y una lista con tus canciones del año.
 - Pídeselo: «enséñame el resumen de mi año».
 
-Motor de sonido de Android (beta)
-- Ajustes › Sonido › «Motor de sonido de Android»: tu música suena con el reproductor del propio móvil. Las canciones seguidas de un mismo disco van sin cortes.
+Motor de sonido de Android (ahora, el de siempre)
+- Tu música suena con el reproductor del propio móvil (se puede apagar en Ajustes › Sonido). Las canciones seguidas de un mismo disco van sin cortes.
 - Ecualizador, volumen igualado, sonido directo, visualizador, fundidos y pausas con llamadas o al quitar los auriculares funcionan igual.
-- El motor pone él solo toda tu cola, con fundidos entre canciones (los de siempre, calculados igual), también en segundo plano y con la pantalla apagada. Entre canciones ya no debería haber cortes ni silencios.
+- El motor pone él solo toda tu cola, con las mezclas de DJ (filtro, graves que cambian de manos y, si los ritmos casi coinciden, el ritmo cuadrado), también en segundo plano y con la pantalla apagada. Entre canciones ya no debería haber cortes ni silencios.
 - Tiene su propio aviso de reproducción: los botones (anterior, pausa, siguiente), los de los auriculares y la barra responden al momento, aunque la app esté en segundo plano.
 - Los MP3 de un mismo disco van pegados de verdad: se quita el silencio que añade el codificador.
-- Es una prueba: las mezclas de DJ llegan a este motor en la 3.6. Si algo falla tres veces, Órbita vuelve sola al motor de siempre.
+- Si algo falla tres veces seguidas, Órbita vuelve sola al motor del WebView.
+
+Cambios de canción más finos (en los dos motores)
+- Las dos canciones ya no se pisan: la nueva entra sin graves, los graves cambian de manos en medio y luego se va la otra.
+- Cada canción conserva su volumen igualado durante el cambio: la que se va ya no pega un salto de volumen al empezar.
+- Si los ritmos no cuadran, el cambio es corto (unos 5 segundos); si cuadran, la mezcla es más larga y al compás.
 
 Sonido y rapidez
 - Más volumen y más cuerpo: el volumen igualado deja las canciones más cerca de su volumen original, el ecualizador ya no baja tanto el resto al subir graves, y el volumen de la app empieza al 100 %.

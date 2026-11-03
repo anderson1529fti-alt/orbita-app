@@ -573,7 +573,7 @@ async function importOne(e, folderCover, opts) {
    there too. DJ mixes with filters, echo and beat matching still need the WebView engine: with this one, songs
    change with a fade. If the engine fails, Órbita goes back to the usual one by itself. */
 const NA_PLUGIN = capPlugin('NovaAudio');
-const NA_ON = !!NA_PLUGIN && LS.get('engine', 'web') === 'nativo' && !LS.get('engineBroken', false);
+const NA_ON = !!NA_PLUGIN && LS.get('engine', 'nativo') === 'nativo' && !LS.get('engineBroken', false);
 const naPaths = new Map();   // blob: URL → file prepared for the engine
 /* What the engine can open: phone songs by their address; anything else, through a temporary file */
 async function naPath(v) {
@@ -1030,7 +1030,7 @@ function normGainFor(t) {
   if (!AUD.level || AUD.direct || !a || !isFinite(a.rms)) return 1;
   return Math.pow(10, Math.max(-9, Math.min(4, TARGET_DB - a.rms)) / 20);
 }
-function applyNorm(i, t, ramp = 0.4) { if (NA_ON && i < 2) { NA_PLUGIN.setNorm({ slot: i, g: normGainFor(t) }).catch(() => {}); return; } if (!G || i > 1) return; G.dk[i].nrm.gain.setTargetAtTime(normGainFor(t), actx.currentTime, Math.max(0.005, ramp / 3)); }
+function applyNorm(i, t, ramp = 0.4) { if (NA_ON && i < 2) { const g = normGainFor(t); NA_PLUGIN.setSongGain({ slot: i, g }).catch(() => NA_PLUGIN.setNorm({ slot: i, g }).catch(() => {})); return; } if (!G || i > 1) return; G.dk[i].nrm.gain.setTargetAtTime(normGainFor(t), actx.currentTime, Math.max(0.005, ramp / 3)); }
 function resetDeckFx(i) {
   if (i > 1) return;
   try { decks[i].playbackRate = 1; } catch {}
@@ -1428,11 +1428,13 @@ function planMix(aA, bA, durA) {
   const want = Math.max(2, Math.min(16, AUD.mixLen));
   let style = AUD.mix, len = want;
   /* Automatic choices never rush: at least 6 s, and the echo cut is only used when you pick it */
-  if (!G || AUD.direct) style = style === 'corte' ? 'corte' : 'suave';
+  if ((!G && !NA_ON) || AUD.direct) style = style === 'corte' ? 'corte' : 'suave';
   else if (style === 'auto') style = close ? 'dj' : (beatA && beatB ? 'filtro' : 'suave');
   else if (style === 'dj' && !tempoOK) style = 'suave';
   else if (style === 'filtro' && !beatA) style = 'suave';
   if (AUD.mix !== style) len = Math.max(6, want);
+  /* 3.5b4 · Automatic, without squared beats: short, so the two songs don't step on each other */
+  if (AUD.mix === 'auto' && style !== 'dj') len = Math.min(len, 6);
   const beat = a.bpm > 0 ? 60 / a.bpm : 0.5, bar = 4 * beat;
   /* Snap to beats, or to whole bars when the bar line is clear */
   const barsA = a.bpm > 0 && isFinite(a.downOut) && (a.barSure || 0) >= 0.15;
@@ -1445,7 +1447,7 @@ function planMix(aA, bA, durA) {
   if (style === 'corte') { len = 0.08; start = outEnd - len; }
   else if (style === 'suave') {
     /* A song that fades by itself keeps its own fade: the next one rises under it from a little before */
-    if (hasFade && AUD.mix !== 'suave') len = Math.max(len, Math.min(12, fadeLen + 2.5));
+    if (hasFade && AUD.mix !== 'suave') len = Math.max(len, Math.min(10, fadeLen + 2));
     start = outEnd - len;
     if (hasFade) aHold = Math.max(0, Math.min(0.6, (a.fadeStart - start) / len));
   } else if (style === 'dj') {
@@ -1460,10 +1462,10 @@ function planMix(aA, bA, durA) {
     rateB = close ? ratio : 1;
   } else if (style === 'filtro') {
     /* Four bars (6–14 s): this song sinks into the bass while the next rises from the treble, from a bar line */
-    const E = hasFade ? Math.min(outEnd, a.fadeStart + 2 * beat) : outEnd, bars = barsFor();
+    const E = hasFade ? Math.min(outEnd, a.fadeStart + 2 * beat) : outEnd, bars = AUD.mix === 'auto' ? Math.max(2, Math.round(barsFor() / 2)) : barsFor();
     start = snapBar(E - bars * bar - 0.2);
     if (E - start < 6) start -= bar;
-    len = Math.max(4, Math.min(14, E - start));
+    len = Math.max(4, Math.min(AUD.mix === 'auto' ? 8 : 14, E - start));
     if (bOne !== null && isFinite(bOne)) bStart = Math.max(0, bOne);
   } else {
     /* Echo-out: the next song enters on the cut while the last beat of this one repeats and fades */
@@ -1560,11 +1562,19 @@ function scheduleMixFx(p, from, to, L) {
   if (p.style === 'corte') {
     fa.xf.gain.setValueAtTime(1, now); fa.xf.gain.linearRampToValueAtTime(0.0001, now + 0.06);
     fb.xf.gain.setValueAtTime(0.0001, now); fb.xf.gain.linearRampToValueAtTime(1, now + 0.06);
-  } else if (p.style === 'suave') {
-    /* Equal power; if this song fades by itself it keeps playing untouched until its own fade begins */
+  } else if (p.style === 'suave' && p.aHold > 0) {
+    /* This song fades by itself: it keeps playing untouched until its own fade begins */
     const hT = now + L * Math.max(0, Math.min(0.6, p.aHold || 0));
     fa.xf.gain.setValueAtTime(1, now); curveAt(fa.xf.gain, mkCurve(C_DOWN), hT, end - hT);
-    fb.xf.gain.setValueAtTime(0.0001, now); curveAt(fb.xf.gain, p.aHold > 0 ? mkCurve(C_S) : mkCurve(C_UP), now, L);
+    fb.xf.gain.setValueAtTime(0.0001, now); curveAt(fb.xf.gain, mkCurve(C_S), now, L);
+  } else if (p.style === 'suave') {
+    /* 3.5b4 · The new one comes up first without its bass; in the middle the bass changes hands; then this one goes.
+       Never two basslines at once */
+    const xa = now + L * 0.45, xb = now + L * 0.65, hold = now + L * 0.3;
+    fb.hp.frequency.setValueAtTime(250, now); fb.hp.frequency.setValueAtTime(250, xa); fb.hp.frequency.exponentialRampToValueAtTime(18, xb); fb.hp.frequency.setValueAtTime(0, xb + 0.05);
+    fa.hp.frequency.setValueAtTime(12, now); fa.hp.frequency.setValueAtTime(12, xa); fa.hp.frequency.exponentialRampToValueAtTime(250, xb);
+    fb.xf.gain.setValueAtTime(0.0001, now); const up = curveAt(fb.xf.gain, mkCurve(C_UP), now, L * 0.7); fb.xf.gain.setValueAtTime(1, up);
+    fa.xf.gain.setValueAtTime(1, now); curveAt(fa.xf.gain, mkCurve(C_DOWN), hold, end - hold);
   } else if (p.style === 'dj') {
     /* The next song creeps in without its bass, the low end changes hands over two beats on the bar line,
        then this one leaves through a closing low-pass */
@@ -1579,7 +1589,7 @@ function scheduleMixFx(p, from, to, L) {
     fa.xf.gain.setValueAtTime(1, now); curveAt(fa.xf.gain, mkCurve(C_DOWN), sw, end - sw);
   } else if (p.style === 'filtro') {
     /* This song sinks into the bass while the next rises out of the treble; both sweeps are exponential so they sound even */
-    const open = now + L * 0.6;
+    const open = now + L * 0.75;
     fa.lp.frequency.setValueAtTime(G.nyq, now); fa.lp.frequency.exponentialRampToValueAtTime(420, end);
     fa.xf.gain.setValueAtTime(1, now); curveAt(fa.xf.gain, mkCurve(C_DOWN), now + L * 0.2, L * 0.8);
     fb.hp.frequency.setValueAtTime(1500, now); fb.hp.frequency.exponentialRampToValueAtTime(20, open); fb.hp.frequency.setValueAtTime(0, open + 0.05);
@@ -2228,9 +2238,16 @@ function naFade(p, t) {
   const a = anaCache.get(p.id), b = anaCache.get(t.id), durA = p.duration || 0;
   const st = b && b.introStart > 0.3 ? Math.max(0, b.introStart - 0.03) : 0;
   if (AUD.mix === 'corte') { const end = a && a.outroEnd ? Math.min(durA || a.outroEnd, a.outroEnd) : 0; return { xf: 0, at: end > 0 && durA - end > 0.4 ? end : 0, st }; }
-  if (!durA || !a) return { xf: Math.max(2, Math.min(12, AUD.mixLen)), at: 0, st };
+  if (!durA || !a) return { xf: Math.max(2, Math.min(AUD.mix === 'auto' ? 6 : 12, AUD.mixLen)), at: 0, st, style: 0 };
   const pl = planMix(a, b, durA);
-  return { xf: Math.max(1, Math.min(16, pl.len)), at: pl.start > 1 ? pl.start : 0, st: Math.max(0, pl.bStart || 0) };
+  /* 3.5b4 · the engine does the DJ styles too: «filtro», and «dj» with the beats squared (the echo-out becomes a short filter) */
+  /* the engine squares the beat by changing the speed (and so, a little, the pitch): only up to 4 %; more than that, a filter mix */
+  const djOk = pl.style === 'dj' && Math.abs((pl.rateB || 1) - 1) <= 0.04;
+  const style = djOk ? 2 : pl.style === 'dj' || pl.style === 'filtro' || pl.style === 'eco' ? 1 : 0;
+  if (pl.style === 'dj' && !djOk) pl.len = Math.min(pl.len, 6);
+  const o = { xf: Math.max(1, Math.min(16, pl.style === 'eco' ? 4 : pl.len)), at: pl.start > 1 ? pl.start : 0, st: Math.max(0, pl.bStart || 0), style };
+  if (style === 2) Object.assign(o, { rate: pl.rateB || 1, swap: pl.swap || 0, gridA: isFinite(pl.gridA) ? pl.gridA : 0, beatA: pl.beat || 0, gridB: isFinite(pl.gridB) ? pl.gridB : 0, beatB: pl.beatB || 0 });
+  return o;
 }
 const naItem = (t, p) => Object.assign({ src: t.uri, title: t.title || '', artist: t.artist || '', album: t.album || '', dur: t.duration || 0, g: normGainFor(t) }, naFade(p, t));
 let naPlKey = '';
@@ -2307,17 +2324,17 @@ function naInit() {
 function renderEngine() {
   const row = $('#engineRow'); if (!row) return;
   row.hidden = !NA_PLUGIN;
-  const want = LS.get('engine', 'web') === 'nativo' && !LS.get('engineBroken', false);
+  const want = LS.get('engine', 'nativo') === 'nativo' && !LS.get('engineBroken', false);
   setToggle($('#tEngine'), want);
   const pending = want !== NA_ON;
   $('#engineNote').innerHTML = pending
     ? `<b>Se aplica al reabrir Órbita.</b> <button class="btn small" id="engineNow" type="button">Aplicar ahora</button>`
-    : NA_ON ? 'Activado: canciones del mismo disco sin hueco. Las mezclas de DJ (filtro, eco y cuadrar el ritmo) aún no van con este motor: entre canciones hace fundidos.'
+    : NA_ON ? 'Activado: suena con el reproductor del propio móvil. Pone tu cola él solo, con las mezclas de DJ (filtro, graves que cambian de manos y ritmo cuadrado), y sus botones responden al momento aunque la app esté en segundo plano.'
     : LS.get('engineBroken', false) ? 'Se apagó solo porque falló varias veces en este móvil. Puedes volver a probarlo.'
-    : 'Beta: reproduce con el decodificador del propio móvil, fuera del WebView. Canciones del mismo disco sin hueco.';
+    : 'Apagado: suena con el motor de siempre (el del WebView). Con el de Android, los botones del aviso y el paso de canción en segundo plano van mejor.';
 }
 $('#tEngine').onclick = () => {
-  const on = !(LS.get('engine', 'web') === 'nativo' && !LS.get('engineBroken', false));
+  const on = !(LS.get('engine', 'nativo') === 'nativo' && !LS.get('engineBroken', false));
   LS.set('engine', on ? 'nativo' : 'web'); LS.set('engineBroken', false);
   renderEngine(); toast(on ? 'Motor de sonido de Android: se aplica al reabrir' : 'Vuelves al motor de siempre al reabrir');
 };
@@ -5622,7 +5639,8 @@ const NEWS = {
   '3.5': [
     '<b>Despertador con Nova</b> (Ajustes › Despertador): te despierta con tu música, empezando muy bajito y subiendo poco a poco, y te dice la hora, el día y el tiempo. Se ve aunque el móvil esté bloqueado y, si algo falla, suena la alarma del móvil. También se lo puedes pedir: «despiértame a las siete y media».',
     '<b>Tu año en Órbita</b> (en «Tú»): tus horas de música, tu canción y tu artista del año, tus récords y qué tipo de oyente eres, contado por Nova en tarjetas. Al final, una imagen para compartir.',
-    '<b>Motor de sonido de Android</b> (beta, Ajustes › Sonido): tu música suena con el reproductor del propio móvil, y las canciones seguidas de un mismo disco van sin cortes. Es una prueba: las mezclas de DJ llegarán a este motor en la 3.6. Si notas algo raro, apágalo y vuelve el de siempre.',
+    '<b>Motor de sonido de Android</b>, ahora el de siempre: tu música suena con el reproductor del propio móvil. Pone tu cola él solo con las mezclas de DJ, también con la pantalla apagada, y los botones del aviso responden al momento. Se puede apagar en Ajustes › Sonido.',
+    '<b>Cambios de canción más finos</b>: las dos canciones ya no se pisan. La nueva entra sin graves y los graves cambian de manos en medio; si los ritmos no cuadran, el cambio es corto.',
     '<b>Primera vez fácil</b>: quien instala Órbita tiene una bienvenida de un minuto (su música, sus estilos, cómo quiere a su DJ y su primera mezcla). Puedes verla otra vez al final de Ajustes.'
   ],
   '3.4': [
