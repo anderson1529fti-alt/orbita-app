@@ -1742,7 +1742,41 @@ const ICON = {
   shuffle: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>'
 };
 function setRange(el) { const max = +el.max || 100, min = +el.min || 0; el.style.setProperty('--p', ((el.value - min) / (max - min) * 100) + '%'); }
-function updatePlayBtn() { const p = !act().paused; $$('[data-ctl="play"]').forEach(b => { b.innerHTML = p ? ICON.pause : ICON.play; b.setAttribute('aria-label', p ? 'Pausar' : 'Reproducir'); }); }
+/* 3.8 · Movement. mo(): may things move? (not with «Ligeras» nor with the phone's «reduce motion») */
+const mo = () => !reduceMotion && state.anim !== 'lite' && !root.classList.contains('lite');
+function moAnim(el, frames, opt) { if (!el || !el.animate || !mo()) return null; try { return el.animate(frames, Object.assign({ duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' }, opt)); } catch { return null; } }
+/* Buttons you can feel: they sink while pressed and spring back when you let go */
+const PRESS = '.btn,.icon-btn,.ctrl,.chip,.toggle,.tab,.seg button,.np-close,[data-like-current]';
+document.addEventListener('pointerdown', e => {
+  const b = e.target.closest && e.target.closest(PRESS); if (!b || b.disabled || !mo()) return;
+  b.classList.add('pressed');
+  if (b.matches('.ctrl,.toggle,.tab,[data-like-current]')) haptic(5);
+  const up = () => {
+    b.classList.remove('pressed'); removeEventListener('pointerup', up, true); removeEventListener('pointercancel', up, true);
+    moAnim(b, [{ scale: '0.94' }, { scale: '1.04', offset: 0.55 }, { scale: '1' }], { duration: 300, easing: 'ease-out' });
+  };
+  addEventListener('pointerup', up, true); addEventListener('pointercancel', up, true);
+}, { passive: true, capture: true });
+/* The heart beats when you like a song (and a ring of light leaves it) */
+function heartPop(el) {
+  const svg = el && el.querySelector('svg'); if (!svg || !mo()) return;
+  moAnim(svg, [{ scale: '1' }, { scale: '1.4', offset: 0.35 }, { scale: '0.9', offset: 0.7 }, { scale: '1' }], { duration: 480, easing: 'ease-out' });
+  const r = document.createElement('span'); r.className = 'heart-ring'; r.setAttribute('aria-hidden', 'true'); el.appendChild(r);
+  const a = moAnim(r, [{ transform: 'scale(.3)', opacity: 0.9 }, { transform: 'scale(1.7)', opacity: 0 }], { duration: 520, easing: 'ease-out' });
+  if (a) a.onfinish = () => r.remove(); else r.remove();
+}
+/* A new song: it comes in from the side it comes from (next: from the right; previous: from the left) */
+let mvId = null, mvQi = 0, mvCover = '';
+function slideIn(el, dir, dist = 26) { moAnim(el, [{ transform: `translateX(${dir * dist}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300 }); }
+function fadeIn(el, dir) { moAnim(el, [{ transform: `translateX(${dir * 10}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 280, delay: 40, fill: 'backwards' }); }
+function updatePlayBtn() {
+  const p = !act().paused;
+  $$('[data-ctl="play"]').forEach(b => {
+    const st = p ? 'pause' : 'play', was = b.dataset.st; if (was === st) return;
+    b.dataset.st = st; b.innerHTML = p ? ICON.pause : ICON.play; b.setAttribute('aria-label', p ? 'Pausar' : 'Reproducir');
+    if (was) moAnim(b.querySelector('svg'), [{ transform: `rotate(${p ? -90 : 90}deg) scale(.4)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 240 });
+  });
+}
 let seeking = false;
 function updateSeek() {
   if (document.hidden) return;
@@ -1767,9 +1801,16 @@ function updateArt() {
 function updatePlayer() {
   renderNovaChips();
   const t = current();
-  $('#plCover').outerHTML = coverHTML(t, 'lg', 'plCover', ' data-act="np-open"');
+  const plc = coverHTML(t, 'lg', 'plCover', ' data-act="np-open"');
+  if (plc !== mvCover) { $('#plCover').outerHTML = plc; mvCover = plc; }   // only when it really changes (so its slide isn't cut)
   $('#plTitle').textContent = t ? t.title : 'Nada sonando';
   $('#plArtist').textContent = t ? t.artist : 'Gira la ruleta o pídele algo a la DJ';
+  const tid = t ? t.id : null;
+  if (tid !== mvId) {
+    const dir = state.qi < mvQi && !(mvQi === state.queue.length - 1 && state.qi === 0) ? -1 : 1;
+    if (mvId && tid) { slideIn($('#plCover'), dir); fadeIn($('#plTitle'), dir); fadeIn($('#plArtist'), dir); }
+    mvId = tid; mvQi = state.qi; npMv.dir = dir;
+  }
   $('#plLike').hidden = !t || !!t.net; $('#npLike').hidden = !t || !!t.net;
   document.body.classList.toggle('live', !!(t && t.kind === 'radio'));
   $$('[data-like-current]').forEach(lk => { if (!t) return; lk.innerHTML = liked(t) ? ICON.heartOn : ICON.heart; lk.classList.toggle('liked', liked(t)); lk.setAttribute('aria-pressed', liked(t)); });
@@ -1851,7 +1892,7 @@ const vol = $('#vol'); vol.value = Math.round(baseVol * 100); setRange(vol);
 vol.addEventListener('input', () => { baseVol = vol.value / 100; applyVol(); setRange(vol); LS.set('vol', +vol.value); });
 document.addEventListener('click', e => {
   const c = e.target.closest('[data-ctl]'); if (c) { const k = c.dataset.ctl; if (k === 'play') togglePlay(); else if (k === 'next') next(false); else if (k === 'prev') prev(); return; }
-  const l = e.target.closest('[data-like-current]'); if (l) { const t = current(); if (t) toggleLike(t); }
+  const l = e.target.closest('[data-like-current]'); if (l) { const t = current(); if (t) { toggleLike(t); if (liked(t)) $$('[data-like-current]').forEach(heartPop); } }
 });
 $('#btnShuffle').onclick = () => {
   state.shuffle = !state.shuffle; LS.set('shuffle', state.shuffle);
@@ -1982,10 +2023,14 @@ function npSoftBg(bg, u) {
   };
   img.src = u;
 }
+var npMv = { id: null, dir: 1 };
 function renderNP() {
   renderAbout(current());
   const t = current();
+  const npOpen = !$('#np').hidden, npNew = (t ? t.id : null) !== npMv.id; npMv.id = t ? t.id : null;
+  if (npOpen && npNew && mo()) { const bg0 = $('#npBg'), old = bg0.cloneNode(false); old.removeAttribute('id'); old.classList.add('np-bg-old'); bg0.after(old); const a = moAnim(old, [{ opacity: 1 }, { opacity: 0 }], { duration: 700, easing: 'ease-in-out' }); if (a) a.onfinish = () => old.remove(); else old.remove(); }
   $('#npArt').innerHTML = bigArtHTML(t);
+  if (npOpen && npNew && t) { slideIn($('#npArt'), npMv.dir, 48); fadeIn($('#npTitle'), npMv.dir); fadeIn($('#npArtist'), npMv.dir); }
   const u = coverUrl(t, 'full'); const bg = $('#npBg');
   if (u) { bg.classList.remove('ph'); npSoftBg(bg, u); } else { bg.classList.add('ph'); bg.classList.remove('soft'); bg.style.backgroundImage = ''; bg.dataset.u = ''; }
   $('#npTitle').textContent = t ? t.title : 'Nada sonando';
@@ -5859,6 +5904,11 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '3.8': [
+    '<b>Botones que se notan</b>: se hunden al tocarlos y vuelven con un rebote, con una vibración suave. Reproducir y pausa se transforman uno en otro, y el corazón late cuando te gusta una canción.',
+    '<b>Cambios de canción con movimiento</b>: la portada nueva entra deslizándose (también en la barra de abajo), el título aparece con un fundido y el fondo del reproductor pasa poco a poco de un color al otro.',
+    'Todo se puede quitar en Ajustes › Animaciones › «Ligeras».'
+  ],
   '3.7': [
     '<b>Nova, con nueva aura</b>: un anillo de colores que gira y brilla más cuando te habla.',
     '<b>El reproductor sigue a tu dedo</b>: arrastra la barra de abajo hacia arriba y sube contigo, con la portada creciendo hasta su sitio; arrástralo hacia abajo para cerrarlo. Un toque también lo abre con la misma animación.',

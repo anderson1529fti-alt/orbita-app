@@ -1,3 +1,18 @@
+Órbita 3.8: movimiento. Botones que se notan y cambios de canción con animación.
+
+Botones que se notan
+- Se hunden un poco al tocarlos y vuelven con un pequeño rebote. Los del reproductor, las pestañas, los interruptores y el corazón, además, vibran suave.
+- Reproducir y pausa se transforman uno en otro con un giro, en vez de cambiar de golpe.
+- El corazón late y suelta un anillo de luz cuando te gusta una canción.
+- Los interruptores (Voz, Presenta cada canción…) se deslizan con un rebote suave.
+
+Cambios de canción con movimiento
+- La portada nueva entra deslizándose desde el lado del que viene (siguiente: desde la derecha; anterior: desde la izquierda), en la barra de abajo y en el reproductor.
+- El título y el artista aparecen con un fundido corto.
+- Con el reproductor abierto, el fondo pasa poco a poco del color de una canción al de la siguiente.
+
+Todo esto se quita en Ajustes › Animaciones › «Ligeras» (y con «reducir movimiento» del móvil).
+
 Órbita 3.7: cambios de canción limpios, la música ya no se para en segundo plano, vuelves a elegir cuánto dura cada cambio, Nova estrena aura y el reproductor se abre con animación.
 
 Nova y el reproductor
