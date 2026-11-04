@@ -1,4 +1,19 @@
-Órbita 3.9: la música se pausa con suavidad cuando suena otra app o se desconectan los auriculares, y arrastrar el reproductor es más fluido.
+Órbita 3.9: luces con la música, letras tipo karaoke, la música se pausa con suavidad cuando suena otra app o se desconectan los auriculares, y arrastrar el reproductor es más fluido.
+
+Luces con la música
+- El motor de sonido ahora distingue los instrumentos: el bombo, el bajo, la caja, la voz y los platillos, y cada golpe.
+- Detrás de la portada, en el reproductor, un halo con los colores de la propia portada late con el bombo.
+- El vinilo de «Ahora» brilla con el ritmo y suelta un anillo de luz en cada golpe de bombo.
+- El fondo del reproductor respira despacio con la música.
+- El aura de Nova se mueve al ritmo de su voz cuando habla.
+- Se apagan en Ajustes › «Luces con la música». Con las animaciones «Ligeras» o «reducir movimiento», tampoco hay luces.
+
+Letras tipo karaoke
+- La línea que suena se va llenando de blanco al ritmo de la canción (si ocupa dos renglones, primero uno y luego el otro).
+- Las que ya se cantaron quedan un poco más claras que las que vienen.
+
+Animaciones «Ligeras»
+- En Ajustes, debajo del selector, ahora pone qué quita: menos movimiento y sin luces. Va más suave en móviles lentos y gasta menos batería.
 
 Pausa suave cuando suena otra app
 - Si pones un vídeo de TikTok, una nota de voz o cualquier otro audio, la música se va apagando (1,5 s) y se pausa. Antes, con la app en segundo plano, seguía sonando por encima.

@@ -2004,7 +2004,8 @@ function npSoftBg(bg, u) {
   if (bg.dataset.u === u) return;
   bg.dataset.u = u;
   const done = npSoft.get(u);
-  if (done) { bg.style.backgroundImage = `url("${done}")`; bg.classList.add('soft'); return; }
+  if (done) { bg.style.backgroundImage = `url("${done}")`; bg.classList.add('soft'); plHaloColors(u); return; }
+  plHaloColors(null);
   bg.classList.remove('soft'); bg.style.backgroundImage = `url("${u}")`;   // the old way until the small one is ready
   const img = new Image();
   img.onload = () => {
@@ -2019,6 +2020,8 @@ function npSoftBg(bg, u) {
       g.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
       const url = c.toDataURL('image/jpeg', 0.85);
       npSoft.set(u, url); if (npSoft.size > 30) npSoft.delete(npSoft.keys().next().value);
+      const pal = coverPalette(img); if (pal) { npPal.set(u, pal); if (npPal.size > 30) npPal.delete(npPal.keys().next().value); }
+      if (bg.dataset.u === u) plHaloColors(u);
       if (bg.dataset.u === u) { bg.style.backgroundImage = `url("${url}")`; bg.classList.add('soft'); }
     } catch {}   // a cover from another site can't be read: the old blur stays
   };
@@ -2033,7 +2036,7 @@ function renderNP() {
   $('#npArt').innerHTML = bigArtHTML(t);
   if (npOpen && npNew && t) { slideIn($('#npArt'), npMv.dir, 48); fadeIn($('#npTitle'), npMv.dir); fadeIn($('#npArtist'), npMv.dir); }
   const u = coverUrl(t, 'full'); const bg = $('#npBg');
-  if (u) { bg.classList.remove('ph'); npSoftBg(bg, u); } else { bg.classList.add('ph'); bg.classList.remove('soft'); bg.style.backgroundImage = ''; bg.dataset.u = ''; }
+  if (u) { bg.classList.remove('ph'); npSoftBg(bg, u); } else { bg.classList.add('ph'); bg.classList.remove('soft'); bg.style.backgroundImage = ''; bg.dataset.u = ''; plHaloColors(null); }
   $('#npTitle').textContent = t ? t.title : 'Nada sonando';
   $('#npArtist').textContent = t ? t.artist : 'Gira la ruleta o pídele algo a la DJ';
   $('#npSrc').textContent = !t ? 'Ahora suena' : t.kind === 'radio' ? 'Radio por internet · en directo' : t.kind === 'yt' ? (t.clipOf ? 'Videoclip · YouTube' : 'Vídeo de YouTube') : t.net ? 'Avance de 30 s por internet' : state.source === 'radio' ? 'Órbita FM · modo radio' : state.source === 'daily' ? 'Tu mezcla del día' : state.source === 'mix' ? `Mezcla · ${state.mix?.name || ''}` : 'Desde tu biblioteca';
@@ -2416,6 +2419,7 @@ function naAfterTalk() { if (NA_ON && naRefocus && current() && A < 2 && !act().
 /* The visualizer: the engine «listens» to what plays (no microphone) only while a visualizer is on screen */
 let naVizOn = false, naVizUse = 0;
 const naSpec = new Uint8Array(256), naWave = new Uint8Array(512).fill(128);
+const naBands = new Uint8Array(8); let naBandsAt = 0, naFlags = 0;   // 3.9 · kick, bass, snare, voice, cymbals, level, hits
 const naAnalyser = {
   fftSize: 512, frequencyBinCount: 256,
   getByteFrequencyData(a) { naVizUse = Date.now(); if (!naVizOn) { naVizOn = true; NA_PLUGIN.viz({ on: true }).catch(() => {}); } a.set(naSpec.subarray(0, a.length)); },
@@ -2424,7 +2428,8 @@ const naAnalyser = {
 if (NA_ON) {
   try {
     NA_PLUGIN.addListener('spectrum', e => {
-      try { const s = atob(e.b); for (let i = 0; i < 256 && i < s.length; i++) naSpec[i] = s.charCodeAt(i); for (let i = 0; i < 512 && 256 + i < s.length; i++) naWave[i] = s.charCodeAt(256 + i); } catch {}
+      try { const s = atob(e.b); for (let i = 0; i < 256 && i < s.length; i++) naSpec[i] = s.charCodeAt(i); for (let i = 0; i < 512 && 256 + i < s.length; i++) naWave[i] = s.charCodeAt(256 + i);
+        if (s.length >= 776) { for (let i = 0; i < 8; i++) naBands[i] = s.charCodeAt(768 + i); naFlags |= naBands[6]; naBandsAt = performance.now(); } } catch {}
     });
   } catch {}
   setInterval(() => { if (naVizOn && Date.now() - naVizUse > 1500) { naVizOn = false; NA_PLUGIN.viz({ on: false }).catch(() => {}); } }, 1000);
@@ -3958,7 +3963,7 @@ function renderLyrics(t, r) {
   if (r.synced) {
     const shift = r.shift || 0;
     LY.lines = parseLRC(r.synced).map(l => ({ t: l.t + shift, text: l.text }));
-    box.innerHTML = `<div class="ly-scroll" id="lyScroll">${LY.lines.map((l, i) => `<p class="ly-line${l.text ? '' : ' gap'}" data-i="${i}" role="button" tabindex="0">${l.text ? esc(l.text) : '♪'}</p>`).join('')}</div>${tools}`;
+    box.innerHTML = `<div class="ly-scroll" id="lyScroll">${LY.lines.map((l, i) => `<p class="ly-line${l.text ? '' : ' gap'}" data-i="${i}" role="button" tabindex="0"><span>${l.text ? esc(l.text) : '♪'}</span></p>`).join('')}</div>${tools}`;
     lyricsTick(act().currentTime || 0, true);
   } else {
     box.innerHTML = `<div class="ly-scroll plain" id="lyScroll">${r.plain.split('\n').map(l => `<p class="ly-line${l.trim() ? '' : ' gap'}">${esc(l) || '&nbsp;'}</p>`).join('')}</div>${tools}`;
@@ -3972,10 +3977,16 @@ function lyricsTick(time, force) {
   if (idx === LY.idx && !force) return;
   LY.idx = idx;
   const sc = $('#lyScroll'); if (!sc) return;
-  sc.querySelectorAll('.ly-line.on').forEach(p => p.classList.remove('on'));
+  sc.querySelectorAll('.ly-line.on').forEach(p => p.classList.remove('on', 'fill', 'go'));
+  sc.querySelectorAll('.ly-line').forEach(p => p.classList.toggle('sung', +p.dataset.i < idx));   // also after a jump
   const el = idx >= 0 ? sc.querySelector(`.ly-line[data-i="${idx}"]`) : null;
   if (!el) return;
   el.classList.add('on');
+  if (plOK() && !el.classList.contains('gap') && !act().paused) {
+    const nx = ls.find((l, j) => j > idx && l.t > ls[idx].t), dur = Math.max(0.6, Math.min(12, (nx ? nx.t : ls[idx].t + 4) - time));
+    el.style.setProperty('--lyd', dur.toFixed(2) + 's'); el.classList.add('fill');
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (el.classList.contains('on')) el.classList.add('go'); }));
+  }
   if (Date.now() - LY.userScroll > 3500) sc.scrollTo({ top: el.offsetTop - sc.clientHeight * 0.42, behavior: reduceMotion || force ? 'auto' : 'smooth' });
 }
 function onTrackLyrics(t) { if (LY.on && !$('#np').hidden) showLyrics(t); else { LY.id = null; LY.lines = null; } }
@@ -5691,6 +5702,82 @@ function grooves(W, R, dR) {
 let drawOn = false, lastInput = performance.now();
 const idleSlow = () => performance.now() - lastInput > 60000;
 ['pointerdown', 'keydown', 'wheel'].forEach(ev => document.addEventListener(ev, () => { lastInput = performance.now(); }, { capture: true, passive: true }));
+/* ---- 3.9 · Lights ---- */
+const PL = { on: LS.get('lights', true), k: 0, s: 0, l: 0, slow: 0, v: 0, kickAt: 0, t: 0, raf: 0, avg: 0.4, rings: [], talk: false, ph: 0, sty: false };
+const plOK = () => PL.on && mo();
+/* what is playing now, by instruments (0…1). From the engine when it plays; otherwise estimated from the spectrum */
+function plRead(ts) {
+  if (ts - PL.t < 8) return;
+  const dt = Math.min(0.06, PL.t ? (ts - PL.t) / 1000 : 0.016); PL.t = ts;
+  const d = act(), playing = !!current() && !d.paused && A < 2;
+  let k = 0, sn = 0, lv = 0, hit = 0;
+  if (playing && analyser && freq) {
+    analyser.getByteFrequencyData(freq);   // (with the Android engine this also keeps it listening)
+    if (NA_ON && performance.now() - naBandsAt < 500) { k = naBands[0] / 255; sn = naBands[2] / 255; lv = naBands[5] / 255; PL.v = naBands[3] / 255; hit = naFlags; naFlags = 0; }
+    else {
+      k = Math.max(freq[1], freq[2]) / 255; let a = 0; for (let i = 16; i < 54; i++) a += freq[i]; sn = a / 38 / 255; let b = 0; for (let i = 1; i < 120; i++) b += freq[i]; lv = b / 119 / 255;
+      PL.avg += (k - PL.avg) * Math.min(1, dt * 3);
+      if (k > PL.avg * 1.18 && k > 0.45 && ts - PL.kickAt > 230) hit |= 1;
+    }
+  }
+  if (hit & 1) { PL.k = 1; PL.kickAt = ts; PL.rings.push({ r: 0, a: 0.75 }); if (PL.rings.length > 4) PL.rings.shift(); }
+  else PL.k *= Math.exp(-dt * 6.5);
+  if (hit & 2) PL.s = 1; else PL.s *= Math.exp(-dt * 9);
+  const L = playing ? Math.max(0, Math.min(1, (lv - 0.45) / 0.45)) : 0;
+  PL.l += (L - PL.l) * Math.min(1, dt * (L > PL.l ? 12 : 4));
+  PL.slow += (L - PL.slow) * Math.min(1, dt * 0.9);
+}
+/* the cover's two most vivid colours, for the halo */
+const npPal = new Map();
+function coverPalette(img) {
+  try {
+    const c = document.createElement('canvas'); c.width = c.height = 12; const g = c.getContext('2d'); g.drawImage(img, 0, 0, 12, 12);
+    const px = g.getImageData(0, 0, 12, 12).data, cs = [];
+    for (let i = 0; i < px.length; i += 4) {
+      const r = px[i], gg = px[i + 1], b = px[i + 2], mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), sat = mx ? (mx - mn) / mx : 0;
+      let h = 0; if (mx !== mn) { h = mx === r ? (gg - b) / (mx - mn) : mx === gg ? 2 + (b - r) / (mx - mn) : 4 + (r - gg) / (mx - mn); h = (h * 60 + 360) % 360; }
+      cs.push({ r, g: gg, b, h, w: sat * (mx / 255) * (mx > 40 ? 1 : 0.2) });
+    }
+    cs.sort((a, b) => b.w - a.w);
+    const c1 = cs[0], c2 = cs.find(x => Math.min(Math.abs(x.h - c1.h), 360 - Math.abs(x.h - c1.h)) > 35 && x.w > c1.w * 0.35) || c1;
+    const css = x => `rgb(${Math.min(255, Math.round(x.r * 1.15))},${Math.min(255, Math.round(x.g * 1.15))},${Math.min(255, Math.round(x.b * 1.15))})`;
+    return c1.w > 0.08 ? [css(c1), css(c2)] : null;
+  } catch { return null; }   // a picture from another site can't be read: the accent colours stay
+}
+function plHaloColors(u) {
+  const h = $('#npHalo'); if (!h) return;
+  const p = u && npPal.get(u);
+  if (p) { h.style.setProperty('--h1', p[0]); h.style.setProperty('--h2', p[1]); } else { h.style.removeProperty('--h1'); h.style.removeProperty('--h2'); }
+}
+function plFrame(ts) {
+  PL.raf = 0;
+  const np = $('#np'), halo = $('#npHalo'), bg = $('#npBg');
+  const npOn = !np.hidden && !NPM.on && !np.classList.contains('ly-open') && !np.classList.contains('viz-open') && !np.classList.contains('yt-on');
+  const talk = $('#dj').classList.contains('speaking') && state.view === 'inicio' && np.hidden;
+  if (!plOK() || document.hidden || (!npOn && !talk)) {
+    if (PL.sty) { PL.sty = false; halo.style.opacity = ''; halo.style.transform = ''; if (bg.classList.contains('soft')) bg.style.transform = ''; }
+    if (PL.talk) { PL.talk = false; document.querySelector('#dj .dj-avatar').style.removeProperty('--talk'); }
+    return;
+  }
+  PL.raf = requestAnimationFrame(plFrame);
+  plRead(ts);
+  if (npOn) {
+    PL.sty = true;
+    halo.style.opacity = Math.min(0.95, 0.22 + 0.45 * PL.l + 0.35 * PL.k).toFixed(3);
+    halo.style.transform = `scale(${(1 + 0.03 * PL.l + 0.07 * PL.k).toFixed(4)})`;
+    if (bg.classList.contains('soft')) bg.style.transform = `scale(${(1.1 + 0.04 * PL.slow + 0.012 * PL.k).toFixed(4)})`;
+  }
+  /* Nova's aura moves with her voice: the rhythm of the syllables while she talks */
+  const av = document.querySelector('#dj .dj-avatar');
+  if (talk) { PL.talk = true; PL.ph += 0.016 * 4.6 * (dj.rate || 1); const v = Math.max(0, Math.sin(PL.ph * Math.PI * 2)) * (0.55 + 0.45 * Math.abs(Math.sin(PL.ph * 0.61))); av.style.setProperty('--talk', v.toFixed(3)); }
+  else if (PL.talk) { PL.talk = false; av.style.removeProperty('--talk'); }
+}
+function plKick() { if (!PL.raf && plOK() && !document.hidden) PL.raf = requestAnimationFrame(plFrame); }
+try { new MutationObserver(plKick).observe($('#dj'), { attributes: true, attributeFilter: ['class'] }); } catch {}
+setInterval(plKick, 500);
+document.addEventListener('visibilitychange', plKick);
+setToggle($('#tLights'), PL.on);
+$('#tLights').onclick = () => { PL.on = !PL.on; LS.set('lights', PL.on); setToggle($('#tLights'), PL.on); toast(PL.on ? 'Luces con la música: sí' : 'Luces con la música: no'); plKick(); };
 const drawWanted = () => state.view === 'inicio' && !document.hidden && state.heroMode === 'vinyl' && $('#np').hidden && !root.classList.contains('booting');
 function drawKick() { if (!drawOn && drawWanted()) { drawOn = true; requestAnimationFrame(draw); } }
 setInterval(drawKick, 700);
@@ -5719,8 +5806,13 @@ function draw(ts) {
     vals[i] = clamp01(v); level += vals[i];
   }
   level /= n;
+  const lit = plOK() && playing; if (lit) { plRead(ts); level = Math.max(level, PL.l * 0.8); }
   const halo = g.createRadialGradient(cx, cy, R * 0.55, cx, cy, R);
-  halo.addColorStop(0, hsla(hue, 96, 60, 0)); halo.addColorStop(0.6, hsla(hue, 96, 60, 0.12 + level * 0.35)); halo.addColorStop(1, hsla(hue - 45, 92, 60, 0));
+  halo.addColorStop(0, hsla(hue, 96, 60, 0)); halo.addColorStop(0.6, hsla(hue, 96, 60, 0.12 + level * 0.35 + (lit ? PL.k * 0.3 : 0))); halo.addColorStop(1, hsla(hue - 45, 92, 60, 0));
+  if (lit) {
+    for (const w of PL.rings) { w.r += 0.033 * 1.6; w.a *= 0.86; g.strokeStyle = hsla(hue, 96, 72, w.a * 0.7); g.lineWidth = Math.max(1, W / 220); g.beginPath(); g.arc(cx, cy, R * (0.8 + 0.2 * Math.min(1, w.r)), 0, Math.PI * 2); g.stroke(); }
+    PL.rings = PL.rings.filter(w => w.a > 0.04 && w.r < 1);
+  }
   g.fillStyle = halo; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
   g.lineCap = 'round'; g.lineWidth = Math.max(2, W / 120);
   for (let i = 0; i < n; i++) {
@@ -5937,6 +6029,8 @@ const NEWS = {
   '3.9': [
     '<b>Pausa suave cuando suena otra app</b>: si pones un vídeo de TikTok, una nota de voz o cualquier otro audio, la música se va apagando y se pausa (también con la pantalla apagada). Si era algo corto, vuelve sola subiendo poco a poco.',
     '<b>Auriculares desconectados</b>: si se apagan, se quedan sin batería o se desconectan, la música se pausa enseguida con un fundido corto y no sigue sonando por el altavoz.',
+    '<b>Luces con la música</b>: detrás de la portada, un halo con sus colores late con el bombo; el vinilo brilla con el ritmo y suelta un anillo de luz en cada golpe; el fondo del reproductor respira despacio y el aura de Nova se mueve cuando habla. Se apagan en Ajustes › «Luces con la música».',
+    '<b>Letras tipo karaoke</b>: la línea que suena se va llenando de blanco al ritmo de la canción, y las que ya se cantaron quedan un poco más claras.',
     '<b>Arrastrar el reproductor, más fluido</b>: sigue al dedo sin retraso y, al soltarlo, termina a la velocidad de tu gesto.',
     '<b>Botones que se notan</b>: se hunden al tocarlos y vuelven con un rebote. Reproducir y pausa se transforman uno en otro y el corazón late cuando te gusta una canción.',
     '<b>Cambios de canción con movimiento</b>: la portada nueva entra deslizándose, el título aparece con un fundido y el fondo del reproductor pasa poco a poco de un color al otro. Se quita con Ajustes › Animaciones › «Ligeras».'
@@ -7830,7 +7924,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, naSyncNext, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, naSyncNext, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }

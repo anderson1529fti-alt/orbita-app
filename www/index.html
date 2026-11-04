@@ -467,7 +467,20 @@ html.booting .bg::before,html.booting .ticker-track,html.booting .dj-avatar .rin
 .np.np-moving .np-inner{will-change:transform,opacity;pointer-events:none}
 .np.np-moving .np-bg{will-change:transform}
 .np-bg{position:absolute;inset:-60px;background-size:cover;background-position:center;filter:blur(50px) saturate(1.4) brightness(.45);transform:scale(1.1)}
-.np-bg.soft{filter:none;background-size:100% 100%}
+.np-bg.soft{filter:none;background-size:100% 100%;will-change:transform}
+/* 3.9 · lights */
+.np-art-wrap{position:relative;isolation:isolate;width:100%}
+.np-art-wrap>.np-art{position:relative;z-index:1}
+/* like a TV's ambient light: the cover's two colours, blurred, coming out from all its sides */
+.np-halo{position:absolute;inset:-4%;border-radius:28px;z-index:0;pointer-events:none;opacity:0;background:linear-gradient(135deg,var(--h1,var(--accent)),var(--h2,var(--accent-2)));filter:blur(30px);will-change:transform,opacity}
+.np.ly-open .np-halo,.np.viz-open .np-halo,.np.yt-on .np-halo,html.lite .np-halo{display:none}
+.dj-avatar::before{scale:calc(1 + var(--talk, 0) * .18)}
+@property --lyp{syntax:'<percentage>';inherits:false;initial-value:0%}
+.ly-line.sung{color:rgba(255,255,255,.55)}
+/* the fill goes on a span (an inline box): a line that wraps fills the first row, then the second, like karaoke */
+.ly-line.on.fill>span{color:transparent;background:linear-gradient(90deg,#fff var(--lyp),rgba(255,255,255,.45) calc(var(--lyp) + 6%));-webkit-background-clip:text;background-clip:text;-webkit-box-decoration-break:slice;box-decoration-break:slice}
+.ly-line.on.fill.go>span{--lyp:100%;transition:--lyp var(--lyd,3s) linear}
+@media (prefers-reduced-motion:reduce){.np-halo{display:none}.ly-line.on.fill>span{color:#fff;background:none}}
 .np-bg.ph{filter:none;background:radial-gradient(60% 50% at 30% 20%,var(--glow),transparent 70%),radial-gradient(60% 60% at 80% 90%,hsla(calc(var(--accent-h) - 45),90%,50%,.3),transparent 70%),var(--bg)}
 .np-inner{position:relative;width:min(460px,100%);max-height:100%;overflow-y:auto;display:flex;flex-direction:column;gap:18px;padding-block:max(20px,env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-bottom,0px));padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
 .np-inner>*{flex-shrink:0}
@@ -1258,6 +1271,8 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
             <span class="lbl">Animaciones</span>
             <div class="seg" id="animSeg" role="group" aria-label="Animaciones"><button data-anim="full">Completas</button><button data-anim="lite">Ligeras (ahorran batería)</button></div>
           </div>
+          <p class="note">«Ligeras»: menos movimiento y sin luces (los botones no rebotan, las canciones cambian sin deslizarse). Va más suave en móviles lentos y gasta menos batería.</p>
+          <div class="row-wrap"><button class="toggle" id="tLights" aria-pressed="true"><span class="sw"></span>Luces con la música</button><span class="note">Un halo con los colores de la portada que late con el bombo, el vinilo que brilla con el ritmo y las letras que se van llenando.</span></div>
           <div class="stack" style="gap:8px">
             <span class="lbl" id="storeTxt">Calculando espacio…</span>
             <div class="meter"><i id="storeBar" style="width:0"></i></div>
@@ -1324,7 +1339,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
   <div class="np-bg ph" id="npBg"></div>
   <div class="np-inner">
     <button class="np-close" data-act="np-close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>Cerrar</button>
-    <div class="np-art" id="npArt"></div>
+    <div class="np-art-wrap"><div class="np-halo" id="npHalo" aria-hidden="true"></div><div class="np-art" id="npArt"></div></div>
     <div class="np-video" id="npVideo" aria-hidden="true"></div>
     <div class="np-lyrics" id="npLyrics"></div>
     <div class="np-viz" id="npViz" role="button" tabindex="0" aria-label="Visualizador: tócalo para verlo a pantalla completa"><canvas id="vizNP" aria-hidden="true"></canvas><button class="viz-chip" data-act="viz-scene" aria-label="Cambiar el estilo del visualizador"><span data-viz-scene-label>Órbita</span></button></div>

@@ -70,6 +70,7 @@ public final class NovaAudioEngine {
     private final Limiter limiter;
     private volatile boolean viz = false;
     private final Spectrum spectrum;
+    private final Bands bands;
     private boolean outPlaying = false;
 
     public static final double[] EQ_FREQS = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
@@ -84,6 +85,7 @@ public final class NovaAudioEngine {
         setEq(new float[10], false);
         limiter = new Limiter(rate);
         spectrum = new Spectrum(rate);
+        bands = new Bands(rate);
     }
 
     public int rate() { return rate; }
@@ -187,13 +189,14 @@ public final class NovaAudioEngine {
             for (Slot s : slots) if (s.playing) { nPlay++; ovl |= s.overlapping; s.render(mix, tmp, BLOCK); }
             /* 3.7 · dos canciones a la vez (un fundido): el limitador cuida aunque esté puesto el sonido directo */
             mixingNow = nPlay > 1 || ovl;
+            if (viz) bands.push(mix, BLOCK);   // 3.9: antes del volumen general: las luces no dependen de lo alto que lo tengas
             process(mix, BLOCK);
             out.write(mix, BLOCK);
             for (Slot s : slots) s.afterBlock();
             if (viz) {
                 long now = System.nanoTime();
                 spectrum.push(mix, BLOCK);
-                if (now - lastSpec > 33_000_000L) { lastSpec = now; try { listener.onSpectrum(spectrum.bins()); } catch (Throwable ignored) { } }
+                if (now - lastSpec > 33_000_000L) { lastSpec = now; try { byte[] b = spectrum.bins(); bands.fill(b, 768); listener.onSpectrum(b); } catch (Throwable ignored) { } }
             }
         }
     }
@@ -887,7 +890,7 @@ public final class NovaAudioEngine {
             double[] re = new double[512], im = new double[512];
             for (int i = 0; i < 512; i++) re[i] = hist[(n + i) & 511] * win[i];
             fft(re, im);
-            byte[] out = new byte[768];
+            byte[] out = new byte[776];   // 256 bandas + 512 de onda + 8 de instrumentos (3.9)
             for (int k = 0; k < 256; k++) {
                 double mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]) / 512;
                 smooth[k] = (float) (0.8 * smooth[k] + 0.2 * mag);
@@ -919,6 +922,54 @@ public final class NovaAudioEngine {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * 3.9 · Lo que suena, por instrumentos, para las luces: bombo (graves de menos de 110 Hz), bajo (60-250 Hz),
+     * caja (1,5-5 kHz), voz (300-3400 Hz) y platillos (más de 7 kHz). Cada uno con su envolvente, y los golpes
+     * (cuando su energía salta por encima de la media de los últimos 0,35 s). Ocho bytes: bombo, bajo, caja, voz,
+     * platillos, nivel (de 0 a 255, de -60 a 0 dB) y los golpes desde el último envío (1 bombo, 2 caja, 4 platillos).
+     */
+    static final class Bands {
+        private final Biquad kLp = new Biquad(), kLp2 = new Biquad(), bHp = new Biquad(), bLp = new Biquad(), sHp = new Biquad(), sLp = new Biquad(),
+            vHp = new Biquad(), vLp = new Biquad(), hHp = new Biquad();
+        private final float att, rel, slow, relK;
+        private final int fs;
+        private float eK, eB, eS, eV, eH, eL, aK, aS, aH;
+        private long n, lastK = -1_000_000, lastS = -1_000_000, lastH = -1_000_000;
+        private volatile int flags;
+        Bands(int fs) {
+            this.fs = fs;
+            kLp.set(Biquad.LOWPASS, 110, 0.707, 0, fs); kLp2.set(Biquad.LOWPASS, 110, 0.707, 0, fs);
+            bHp.set(Biquad.HIGHPASS, 60, 0.707, 0, fs); bLp.set(Biquad.LOWPASS, 250, 0.707, 0, fs);
+            sHp.set(Biquad.HIGHPASS, 1500, 0.707, 0, fs); sLp.set(Biquad.LOWPASS, 5000, 0.707, 0, fs);
+            vHp.set(Biquad.HIGHPASS, 300, 0.707, 0, fs); vLp.set(Biquad.LOWPASS, 3400, 0.707, 0, fs);
+            hHp.set(Biquad.HIGHPASS, 7000, 0.707, 0, fs);
+            att = (float) (1 - Math.exp(-1 / (0.004 * fs))); rel = (float) (1 - Math.exp(-1 / (0.10 * fs)));
+            relK = (float) (1 - Math.exp(-1 / (0.16 * fs))); slow = (float) (1 - Math.exp(-1 / (0.35 * fs)));
+        }
+        private float env(float e, float x, float r) { return e + (x - e) * (x > e ? att : r); }
+        void push(float[] st, int frames) {
+            for (int i = 0; i < frames; i++) {
+                float x = (st[2 * i] + st[2 * i + 1]) * 0.5f;
+                float k = Math.abs(kLp2.l(kLp.l(x))), b = Math.abs(bLp.l(bHp.l(x))), sn = Math.abs(sLp.l(sHp.l(x))), v = Math.abs(vLp.l(vHp.l(x))), h = Math.abs(hHp.l(x));
+                eK = env(eK, k, relK); eB = env(eB, b, rel); eS = env(eS, sn, rel); eV += (v - eV) * slow * 4; eH = env(eH, h, rel); eL += (Math.abs(x) - eL) * slow * 4;
+                aK += (eK - aK) * slow; aS += (eS - aS) * slow; aH += (eH - aH) * slow;
+                if ((n & 63) == 0) {
+                    if (eK > aK * 1.45f && eK > 0.02f && n - lastK > fs * 0.22) { flags |= 1; lastK = n; }
+                    // la caja suena sobre todo entre 1,5 y 5 kHz; un platillo, mucho más arriba (así no se confunden)
+                    if (eS > aS * 1.6f && eS > 0.01f && eS > eH * 0.6f && n - lastS > fs * 0.14) { flags |= 2; lastS = n; }
+                    if (eH > aH * 1.6f && eH > 0.004f && eH > eS * 0.8f && n - lastH > fs * 0.07) { flags |= 4; lastH = n; }
+                }
+                n++;
+            }
+        }
+        private static byte db(float e) { double d = 20 * Math.log10(e + 1e-7); return (byte) Math.max(0, Math.min(255, (int) Math.round((d + 60) / 60 * 255))); }
+        void fill(byte[] out, int at) {
+            if (out.length < at + 8) return;
+            out[at] = db(eK); out[at + 1] = db(eB); out[at + 2] = db(eS); out[at + 3] = db(eV); out[at + 4] = db(eH); out[at + 5] = db(eL);
+            out[at + 6] = (byte) flags; out[at + 7] = 0; flags = 0;
         }
     }
 
