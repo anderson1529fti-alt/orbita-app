@@ -1375,7 +1375,7 @@ async function prefetchNext() {
   const id = state.queue[state.qi + 1]; const t = id && trackById(id);
   if (t && !t.net) { try { await audioUrl(t); coverUrl(t, 'full'); setTimeout(() => scheduleAnalysis(t), 4000); } catch {} if (ONLINE) setTimeout(() => artistFact(t.artist), 2500); if (nvUsable()) setTimeout(() => { if (state.queue[state.qi + 1] === t.id) nvPrepareIntro(t); }, 7000); }
 }
-async function fadePause() { stopTalk(); if (mixing) finishMix(true); const k = A; await tween('f' + k, 0, 160); els.forEach(e => { if (!e.paused) e.pause(); }); deckF[k] = 1; applyVol(); saveSession(true); }
+async function fadePause(ms = 160) { stopTalk(); if (mixing) finishMix(true); const k = A; await tween('f' + k, 0, ms); els.forEach(e => { if (!e.paused) e.pause(); }); deckF[k] = 1; applyVol(); saveSession(true); }
 async function resume() { const d = act(); wakeCtx(); deckF[A] = 0; applyVol(); try { await d.play(); } catch { deckF[A] = 1; applyVol(); return; } tween('f' + A, 1, 240); }
 function togglePlay() {
   if (!current() || !act().getAttribute('src')) { if (resumeSession(true)) return; if (state.mix) playMix(0); else spinRoulette(); return; }
@@ -1968,17 +1968,17 @@ function renderQueue() {
   let d = null;
   const vel = (y, t) => { d.v = (y - d.ly) / Math.max(1, t - d.lt); d.ly = y; d.lt = t; };
   /* up, on the bar below */
-  bar.addEventListener('touchstart', e => { if (e.touches.length !== 1 || skip(e.target) || !np.hidden) { d = null; return; } const t = e.touches[0]; d = { k: 'up', x0: t.clientX, y0: t.clientY, ly: t.clientY, lt: e.timeStamp, v: 0, on: false }; }, { passive: true });
+  bar.addEventListener('touchstart', e => { if (e.touches.length !== 1 || skip(e.target) || !np.hidden) { d = null; return; } const t = e.touches[0]; d = { k: 'up', x0: t.clientX, y0: t.clientY, ly: t.clientY, lt: e.timeStamp, v: 0, on: false }; if (mo()) npPrepare(); }, { passive: true });
   bar.addEventListener('touchmove', e => {
     if (!d || d.k !== 'up') return; const t = e.touches[0], dx = t.clientX - d.x0, dy = d.y0 - t.clientY;
     if (!d.on) { if (dy > 10 && dy > Math.abs(dx) * 1.2) { d.on = true; d.base = t.clientY; openNP($('#plCover'), { drag: true }); } else if (Math.abs(dx) > 14 || dy < -14) { d = null; return; } else return; }
     e.preventDefault(); vel(t.clientY, e.timeStamp);
-    cancelAnimationFrame(NPM.raf); npPaint((d.base - t.clientY) / NPM.top);
+    npDragTo((d.base - t.clientY) / NPM.top);
   }, { passive: false });
   const upEnd = () => {
     if (!d || d.k !== 'up' || !d.on) { d = null; return; }
-    NPM.noClick = Date.now();
-    if (NPM.p > 0.3 || d.v < -0.45) npAnimate(1, npOpened); else closeNP();
+    NPM.noClick = Date.now(); npDragFlush();
+    if (NPM.p > 0.3 || d.v < -0.45) npAnimate(1, npOpened, npFlingMs(1, d.v)); else closeNP();
     d = null;
   };
   bar.addEventListener('touchend', upEnd); bar.addEventListener('touchcancel', upEnd);
@@ -1989,11 +1989,12 @@ function renderQueue() {
     if (!d || d.k !== 'down') return; const t = e.touches[0], dx = t.clientX - d.x0, dy = t.clientY - d.y0;
     if (!d.on) { if (dy > 10 && dy > Math.abs(dx) * 1.2 && inner.scrollTop <= 2) { d.on = true; d.base = t.clientY; cancelAnimationFrame(NPM.raf); npStart(null); } else if (Math.abs(dx) > 14 || dy < -10) { d = null; return; } else return; }
     e.preventDefault(); vel(t.clientY, e.timeStamp);
-    npPaint(1 - (t.clientY - d.base) / NPM.top);
+    npDragTo(1 - (t.clientY - d.base) / NPM.top);
   }, { passive: false });
   const downEnd = () => {
     if (!d || d.k !== 'down' || !d.on) { d = null; return; }
-    if (NPM.p < 0.7 || d.v > 0.5) closeNP(); else npAnimate(1, npOpened);
+    npDragFlush();
+    if (NPM.p < 0.7 || d.v > 0.5) { NPM.flingMs = npFlingMs(0, d.v); closeNP(); } else npAnimate(1, npOpened, npFlingMs(1, d.v));
     d = null;
   };
   np.addEventListener('touchend', downEnd); np.addEventListener('touchcancel', downEnd);
@@ -2061,6 +2062,20 @@ function npStart(fromEl) {
   }
 }
 /* Draws the player at p (0 = down in the bar, 1 = open) */
+function npDragTo(p) {
+  cancelAnimationFrame(NPM.raf); NPM.raf = 0; NPM.want = p;
+  if (!NPM.dragRaf) NPM.dragRaf = requestAnimationFrame(() => { NPM.dragRaf = 0; if (NPM.want != null) npPaint(NPM.want); });
+}
+function npDragFlush() { if (NPM.dragRaf) { cancelAnimationFrame(NPM.dragRaf); NPM.dragRaf = 0; if (NPM.want != null) npPaint(NPM.want); } NPM.want = null; }
+/* how long to finish from here: the speed of the flick (px/ms), between 120 and 300 ms */
+function npFlingMs(to, v) { const left = Math.abs(to - NPM.p) * (NPM.top || innerHeight); return Math.round(Math.max(120, Math.min(300, left / Math.max(0.9, Math.abs(v || 0))))); }
+/* the finger is on the bar: get the player ready, and let the phone paint it below the screen (still out of sight),
+   so the first frame of the drag doesn't have to paint the whole player (that was the little stop at the start) */
+function npPrepare() {
+  const t = current(), np = $('#np'); if (!t || !np.hidden) return;
+  updatePlayer(); renderNP(); NPM.prepId = t.id; NPM.prepAt = Date.now();
+  np.classList.add('np-warm'); clearTimeout(NPM.warmT); NPM.warmT = setTimeout(() => np.classList.remove('np-warm'), 2500);
+}
 function npPaint(p) {
   NPM.p = p = Math.max(0, Math.min(1, p));
   const np = $('#np'), inner = np.querySelector('.np-inner'), q = 1 - p;
@@ -2069,7 +2084,7 @@ function npPaint(p) {
   inner.style.opacity = f < 1 ? f.toFixed(3) : '';
   inner.style.transform = f < 1 ? `translate3d(0,${(26 * (1 - f)).toFixed(1)}px,0)` : '';
   const g = NPM.ghost;
-  if (g) { const sc = NPM.s + (1 - NPM.s) * p; g.style.transform = `translate3d(${(NPM.dx * q).toFixed(1)}px,${(NPM.dy * q).toFixed(1)}px,0) scale(${sc.toFixed(4)})`; g.style.borderRadius = ((12 + 10 * p) / sc).toFixed(1) + 'px'; }
+  if (g) { const sc = NPM.s + (1 - NPM.s) * p; g.style.transform = `translate3d(${(NPM.dx * q).toFixed(1)}px,${(NPM.dy * q).toFixed(1)}px,0) scale(${sc.toFixed(4)})`; }
 }
 function npStop() {
   cancelAnimationFrame(NPM.raf); NPM.raf = 0;
@@ -2081,7 +2096,7 @@ function npStop() {
 /* From where it is now to `to`, with a soft stop. Quicker the less there is to go (and after a flick) */
 function npAnimate(to, done, ms) {
   cancelAnimationFrame(NPM.raf);
-  const from = NPM.p, d = ms != null ? ms : Math.max(140, 360 * Math.abs(to - from));
+  const from = NPM.p, d = ms != null ? ms : Math.max(140, 320 * Math.abs(to - from));
   if (!npMotion() || Math.abs(to - from) < 0.002) { npPaint(to); done(); return; }
   const t0 = performance.now();
   const step = t => { const x = Math.min(1, (t - t0) / d); npPaint(from + (to - from) * npEase(x)); if (x < 1) NPM.raf = requestAnimationFrame(step); else { NPM.raf = 0; done(); } };
@@ -2095,7 +2110,8 @@ function npOpened() {
 function openNP(fromEl, opt) {
   const np = $('#np'), wasHidden = np.hidden, back = NPM.closing, drag = !!(opt && opt.drag);
   if (wasHidden) { NPM.defer = true; NPM.p = 0; }
-  np.hidden = false; updatePlayer(); renderNP(); $('#np .np-close').focus({ preventScroll: true });
+  const t0 = current(), ready = wasHidden && t0 && NPM.prepId === t0.id && Date.now() - (NPM.prepAt || 0) < 4000;
+  np.hidden = false; if (!ready) { updatePlayer(); renderNP(); } NPM.prepId = null; clearTimeout(NPM.warmT); np.classList.remove('np-warm'); $('#np .np-close').focus({ preventScroll: true });
   if (wasHidden) { np.querySelector('.np-inner').scrollTop = 0; npStart(fromEl && fromEl.nodeType === 1 ? fromEl : null); npPaint(0); haptic(6); }
   NPM.closing = false;
   if ((wasHidden || back) && !drag) npAnimate(1, npOpened);
@@ -2109,7 +2125,8 @@ function closeNP(fromPop) {
   if ($('#np').hidden || NPM.closing) return;
   NPM.closing = true; NPM.after.length = 0;
   if (!NPM.on) { npStart(null); npPaint(NPM.p = 1); }
-  npAnimate(0, () => { NPM.closing = false; npStop(); NPM.p = 1; if (NPM.defer) { NPM.defer = false; } $('#np').hidden = true; setTimeout(vizKick, 30); ytLayout(); });
+  const fms = NPM.flingMs; NPM.flingMs = null;
+  npAnimate(0, () => { NPM.closing = false; npStop(); NPM.p = 1; if (NPM.defer) { NPM.defer = false; } $('#np').hidden = true; setTimeout(vizKick, 30); ytLayout(); }, fms);
   if (STANDALONE && !fromPop && history.state && history.state.np) { try { history.back(); } catch {} }
 }
 
@@ -2350,7 +2367,7 @@ $('#eqSaveForm').addEventListener('submit', e => {
 });
 /* The engine's own signals: where each deck is, the end of a song, focus (calls, other apps), headphones out */
 let naFocusPaused = false, naRefocus = false, naOwnTs = 0, naFails = 0;
-const naOwnAudio = () => $('#dj').classList.contains('speaking') || Date.now() - naOwnTs < 4000 || (A === 3 && !ytEl.paused) || (A === 2 && !netEl.paused) || !clipEl.paused;
+const naOwnAudio = () => $('#dj').classList.contains('speaking') || Date.now() - naOwnTs < 1500 || (A === 3 && !ytEl.paused) || (A === 2 && !netEl.paused) || !clipEl.paused;
 function naOk() { naFails = 0; }
 /* Three songs in a row that the engine can't play: back to the usual engine, by itself */
 function naFail() {
@@ -2367,16 +2384,29 @@ if (NA_ON) {
         const v = +e.value;
         if (v === -3) return;                                     // Android lowers the volume a moment by itself
         if (v < 0) {
+          /* 3.9 · the app is awake: it tells the engine it takes care of it (otherwise, after 0.9 s, the engine pauses
+             by itself with a fade). A notice that waited while the app slept is old news: the engine already did it. */
+          if (e.t && Date.now() - e.t > 1500) return;
+          try { NA_PLUGIN.focusAck({ id: e.id || 0 }).catch(() => {}); } catch {}
           if (naOwnAudio()) { naRefocus = true; return; }        // it's Nova's voice or a video of Órbita itself
-          if (current() && A < 2 && !act().paused) { naFocusPaused = v === -2; fadePause(); }
+          if (current() && A < 2 && !act().paused) { naFocusPaused = v === -2; diag('otra app suena: pausa con fundido'); fadePause(v === -2 ? 800 : 1500); }
           return;
         }
+        if (v === 1 && e.resumed) { naFocusPaused = false; return; }   // the engine already went back, rising slowly
         if (v === 1 && naFocusPaused) { naFocusPaused = false; if (current() && A < 2) resume(); }
         return;
       }
       if (e.type === 'button') { naButton(e); return; }
       if (e.type === 'sleep') { diag('el temporizador paró la música (motor)'); if (sleepEnd) sleepFinish(); return; }
-      if (e.type === 'noisy') { if (current() && A < 2 && !act().paused) { fadePause(); toast('Auriculares desconectados: pausa'); } return; }
+      /* 3.9 · headphones off: the engine pauses its own songs by itself (with a short fade, also with the app asleep);
+         the app pauses what plays in it (radio, YouTube) the same way */
+      if (e.type === 'noisy') {
+        const fresh = !e.t || Date.now() - e.t < 4000;
+        if (e.handled) { if (fresh) toast('Auriculares desconectados: pausa'); diag('auriculares desconectados: el motor pausó'); return; }
+        if (fresh && current() && !act().paused) { fadePause(500); toast('Auriculares desconectados: pausa'); }
+        return;
+      }
+      if (e.type === 'autopause') { diag('el motor pausó solo con fundido (' + (e.why || '') + ')'); return; }
       const d = decks[e.slot]; if (d && d._on) d._on(e);
     });
   } catch {}
@@ -5904,6 +5934,13 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '3.9': [
+    '<b>Pausa suave cuando suena otra app</b>: si pones un vídeo de TikTok, una nota de voz o cualquier otro audio, la música se va apagando y se pausa (también con la pantalla apagada). Si era algo corto, vuelve sola subiendo poco a poco.',
+    '<b>Auriculares desconectados</b>: si se apagan, se quedan sin batería o se desconectan, la música se pausa enseguida con un fundido corto y no sigue sonando por el altavoz.',
+    '<b>Arrastrar el reproductor, más fluido</b>: sigue al dedo sin retraso y, al soltarlo, termina a la velocidad de tu gesto.',
+    '<b>Botones que se notan</b>: se hunden al tocarlos y vuelven con un rebote. Reproducir y pausa se transforman uno en otro y el corazón late cuando te gusta una canción.',
+    '<b>Cambios de canción con movimiento</b>: la portada nueva entra deslizándose, el título aparece con un fundido y el fondo del reproductor pasa poco a poco de un color al otro. Se quita con Ajustes › Animaciones › «Ligeras».'
+  ],
   '3.8': [
     '<b>Botones que se notan</b>: se hunden al tocarlos y vuelven con un rebote, con una vibración suave. Reproducir y pausa se transforman uno en otro, y el corazón late cuando te gusta una canción.',
     '<b>Cambios de canción con movimiento</b>: la portada nueva entra deslizándose (también en la barra de abajo), el título aparece con un fundido y el fondo del reproductor pasa poco a poco de un color al otro.',

@@ -1,3 +1,19 @@
+Órbita 3.9: la música se pausa con suavidad cuando suena otra app o se desconectan los auriculares, y arrastrar el reproductor es más fluido.
+
+Pausa suave cuando suena otra app
+- Si pones un vídeo de TikTok, una nota de voz o cualquier otro audio, la música se va apagando (1,5 s) y se pausa. Antes, con la app en segundo plano, seguía sonando por encima.
+- Si es algo corto (una notificación, una nota de voz), el fundido es más rápido y, cuando termina, la música vuelve sola subiendo poco a poco.
+- Funciona también con la pantalla apagada: ahora lo hace el motor de Android, no hace falta que la app esté despierta.
+- La voz de Nova y los vídeos de la propia Órbita no pausan la música.
+
+Auriculares desconectados
+- Si los auriculares (también los Bluetooth) se apagan, se quedan sin batería o se desconectan, la música se pausa enseguida con un fundido corto y ya no sigue sonando por el altavoz del móvil.
+
+Arrastrar el reproductor, más fluido
+- El reproductor se prepara en cuanto pones el dedo en la barra, antes de moverlo: ya no hay un parón al empezar a arrastrar.
+- Se dibuja una vez por fotograma (antes, a veces, más veces de las que la pantalla podía enseñar).
+- Al soltarlo, termina a la velocidad de tu gesto: un movimiento rápido lo abre o lo cierra rápido.
+
 Órbita 3.8: movimiento. Botones que se notan y cambios de canción con animación.
 
 Botones que se notan

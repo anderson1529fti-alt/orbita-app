@@ -56,14 +56,59 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     private NovaListenLog listens;
     private volatile long sleepAt;
     private volatile long sleepFade = 30_000L;
+    /* 3.9: otra app que suena (TikTok, un vídeo, una nota de voz…). Antes solo se avisaba a la app y, si Android la tenía
+       dormida, la música seguía. Ahora se avisa y, si la app no contesta en 900 ms (dormida), el motor pausa solo con
+       un fundido (1,5 s; 0,8 s si es algo corto, y entonces vuelve solo al acabar). Si la app está despierta, decide
+       ella (sabe si lo que suena es la voz de Nova o un vídeo de la propia Órbita) y contesta con focusAck. */
+    private volatile int focusPending = 0, focusSeq = 0;
+    private volatile boolean resumeOnGain = false;
+    private final ScheduledExecutorService later = Executors.newSingleThreadScheduledExecutor();
     private final AudioManager.OnAudioFocusChangeListener focusListener = change -> {
         if (change == AudioManager.AUDIOFOCUS_GAIN) hasFocus = true;
         else if (change == AudioManager.AUDIOFOCUS_LOSS) hasFocus = false;
         JSObject o = new JSObject();
         o.put("type", "focus");
         o.put("value", change);
+        o.put("t", System.currentTimeMillis());   // 3.9: la app, al despertar, no hace caso a los avisos atrasados
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            final int id = ++focusSeq; focusPending = id; o.put("id", id);
+            final boolean shortOne = change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT;
+            try { later.schedule(() -> { if (focusPending == id) { focusPending = 0; fadePauseAll(shortOne ? 800 : 1500, shortOne, "otra app"); } }, 900, TimeUnit.MILLISECONDS); } catch (Throwable ignored) { }
+        } else if (change == AudioManager.AUDIOFOCUS_GAIN) {
+            focusPending = 0;
+            if (resumeOnGain) { resumeOnGain = false; o.put("resumed", resumeFadeIn(700)); }
+        }
         notifyListeners("audio", o);
     };
+
+    /** 3.9 · Pausa todo lo que suene con un fundido (lo hace el motor: vale con la app dormida). */
+    private void fadePauseAll(int ms, boolean resumeLater, String why) {
+        final NovaAudioEngine e = engine;
+        if (e == null || !e.anyPlaying()) return;
+        resumeOnGain = resumeLater;
+        e.fadeTo(0f, ms, () -> {
+            for (int i = 0; i < NovaAudioEngine.SLOTS; i++) if (e.playing(i)) { e.pause(i); state(i, false); }
+            e.fadeSet(1f);
+            JSObject o = new JSObject(); o.put("type", "autopause"); o.put("why", why); notifyListeners("audio", o);
+        });
+    }
+    /** 3.9 · Vuelve a sonar donde estaba, subiendo poco a poco (tras una interrupción corta). */
+    private boolean resumeFadeIn(int ms) {
+        NovaAudioEngine e = engine; NovaSession s = session;
+        if (e == null || s == null || s.external) return false;
+        int sl = s.slot;
+        if (e.source(sl) == null || e.playing(sl)) return false;
+        e.fadeSet(0f); requestFocus(); e.play(sl); keepAwake(true); e.fadeTo(1f, ms, null); state(sl, true);
+        return true;
+    }
+
+    /** 3.9 · La app (despierta) ya se encarga de este aviso de otra app: el motor no hace nada por su cuenta. */
+    @PluginMethod
+    public void focusAck(PluginCall call) {
+        Integer id = call.getInt("id", 0);
+        if (id == null || id == 0 || id == focusPending) focusPending = 0;
+        call.resolve();
+    }
 
     private int outputRate() {
         try {
@@ -180,8 +225,13 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
             @Override
             public void onReceive(Context c, Intent i) {
                 if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(i.getAction())) {
+                    /* 3.9: el motor pausa él solo (antes lo hacía la app, y si estaba dormida la música seguía por el
+                       altavoz). Fundido corto: al cuadrado, en 150 ms ya ha bajado a la mitad. */
+                    NovaAudioEngine e = engine;
+                    boolean mine = e != null && e.anyPlaying();
+                    if (mine) { resumeOnGain = false; focusPending = 0; fadePauseAll(500, false, "auriculares"); }
                     JSObject o = new JSObject();
-                    o.put("type", "noisy");
+                    o.put("type", "noisy"); o.put("handled", mine); o.put("t", System.currentTimeMillis());
                     notifyListeners("audio", o);
                 }
             }
@@ -246,6 +296,8 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
 
     @PluginMethod
     public void play(PluginCall call) {
+        if (engine != null && engine.fadeLevel() < 1f) engine.fadeSet(1f);   // 3.9: un fundido a medias no se lleva lo que pides
+        resumeOnGain = false;
         requestFocus();
         eng().play(slot(call));
         keepAwake(true);
@@ -404,11 +456,11 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         try {
             switch (a) {
                 case "play":
-                    requestFocus(); e.play(sl); keepAwake(true); state(sl, true); break;
+                    resumeOnGain = false; e.fadeSet(1f); requestFocus(); e.play(sl); keepAwake(true); state(sl, true); break;
                 case "pause":
                     e.pause(sl); state(sl, false); break;
                 case "playpause":
-                    if (e.playing(sl)) { e.pause(sl); state(sl, false); } else { requestFocus(); e.play(sl); keepAwake(true); state(sl, true); }
+                    if (e.playing(sl)) { e.pause(sl); state(sl, false); } else { resumeOnGain = false; e.fadeSet(1f); requestFocus(); e.play(sl); keepAwake(true); state(sl, true); }
                     break;
                 case "seek":
                     e.seek(sl, arg); break;
@@ -655,6 +707,7 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
             session = null;
             if (instance == this) instance = null;
             if (ticker != null) ticker.shutdownNow();
+            later.shutdownNow();
             if (engine != null) engine.release();
             engine = null;
             keepAwake(false);

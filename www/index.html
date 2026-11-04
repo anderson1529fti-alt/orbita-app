@@ -454,6 +454,7 @@ html.booting .bg::before,html.booting .ticker-track,html.booting .dj-avatar .rin
 
 /* Now playing (full screen) */
 .np{position:fixed;inset:0;z-index:55;display:grid;place-items:center;background:var(--bg);overflow:hidden}
+.np[hidden].np-warm{visibility:visible;will-change:transform}
 .np-ghost{position:fixed;z-index:60;overflow:hidden;border-radius:22px;transform-origin:0 0;pointer-events:none;will-change:transform;box-shadow:0 30px 60px -20px rgba(0,0,0,.8)}
 .np-ghost img{width:100%;height:100%;object-fit:cover;display:block}.np-ghost .art-ph{width:100%;height:100%;display:grid;place-items:center;font-size:7rem}
 /* while it moves: rounded top corners that don't change (changing them would repaint the whole player every frame) */

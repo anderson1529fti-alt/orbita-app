@@ -60,6 +60,13 @@ public final class NovaAudioEngine {
     private volatile float master = 1f;
     // 3.6: el temporizador para dormir baja todo poco a poco (aunque la app esté dormida)
     private volatile float sleepGain = 1f;
+    /* 3.9: fundido para pausar (otra app suena, se desconectan los auriculares) o para volver: lo hace el motor solo,
+       aunque la app esté dormida. fadeNow va de 0 a 1 en línea recta y se aplica al cuadrado (al oído baja parejo). */
+    private volatile float fadeGoal = 1f, fadeStep = 0f;
+    private float fadeNow = 1f;
+    private volatile Runnable fadeDone;
+    private volatile boolean fadeReset;
+    private volatile float fadeResetTo = 1f;
     private final Limiter limiter;
     private volatile boolean viz = false;
     private final Spectrum spectrum;
@@ -114,6 +121,16 @@ public final class NovaAudioEngine {
     public float normOf(int slot) { return slots[slot].norm; }
     public void setMaster(float v) { master = clamp(v, 0f, 1f); }
     public void setSleepGain(float v) { sleepGain = clamp(v, 0f, 1f); }
+    /** 3.9 · Lleva el volumen del fundido a goal (0…1) en ms milisegundos; al llegar, done (en otro hilo). */
+    public void fadeTo(float goal, int ms, Runnable done) {
+        goal = clamp(goal, 0f, 1f);
+        final float from = fadeReset ? fadeResetTo : fadeNow;   // si hay un «ya» pendiente, se parte de él
+        fadeStep = Math.abs(goal - from) / Math.max(1f, ms * rate / 1000f);
+        fadeDone = done; fadeGoal = goal;
+    }
+    /** El fundido, ya en v (sin transición): cancela uno a medias. */
+    public void fadeSet(float v) { fadeDone = null; v = clamp(v, 0f, 1f); fadeResetTo = v; fadeGoal = v; fadeReset = true; }
+    public float fadeLevel() { return fadeReset ? fadeResetTo : fadeNow; }
     public void setDirect(boolean d) { direct = d; }
     public void setViz(boolean on) { viz = on; }
     public boolean anyPlaying() { for (Slot s : slots) if (s.playing) return true; return false; }
@@ -187,18 +204,23 @@ public final class NovaAudioEngine {
         final boolean useEq = eqOn && !direct;
         final float p = useEq ? pre : 1f;
         final boolean limit = !direct || mixingNow;
+        if (fadeReset) { fadeReset = false; fadeNow = fadeResetTo; }
+        final float fg = fadeGoal, fs = fadeStep;
         for (int i = 0; i < frames; i++) {
             masterNow += (target - masterNow) * 0.0015f;
+            if (fadeNow != fg) fadeNow = fadeNow < fg ? Math.min(fg, fadeNow + fs) : Math.max(fg, fadeNow - fs);
             float l = buf[2 * i] * p, r = buf[2 * i + 1] * p;
             if (useEq) for (Biquad b : eq) { l = b.l(l); r = b.r(r); }
             /* 3.7 · el limitador mira 3 ms por delante (el sonido sale con ese retraso, siempre el mismo): baja el volumen
                ANTES de que llegue el pico, así ningún pico se recorta en seco (antes, en los fundidos, crujía) */
             limiter.push(l, r, limit); l = limiter.outL; r = limiter.outR;
-            l *= masterNow; r *= masterNow;
+            final float fq = fadeNow * fadeNow;
+            l *= masterNow * fq; r *= masterNow * fq;
             buf[2 * i] = l > 1f ? 1f : (l < -1f ? -1f : l);
             buf[2 * i + 1] = r > 1f ? 1f : (r < -1f ? -1f : r);
         }
         if (useEq) for (Biquad b : eq) b.glide();
+        if (fadeNow == fadeGoal && fadeDone != null) { final Runnable r = fadeDone; fadeDone = null; new Thread(r, "nova-fundido").start(); }
     }
 
     private void emit(String type, int slot, String src, double pos, double dur, String msg) {
