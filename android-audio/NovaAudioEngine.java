@@ -156,7 +156,7 @@ public final class NovaAudioEngine {
             boolean any = false;
             for (Slot s : slots) if (s.playing) { any = true; break; }
             if (!any) {
-                if (outPlaying) { out.pause(); outPlaying = false; }
+                if (outPlaying) { out.pause(); outPlaying = false; limiter.reset(); }
                 synchronized (lock) {
                     boolean still = true;
                     for (Slot s : slots) if (s.playing) still = false;
@@ -166,7 +166,10 @@ public final class NovaAudioEngine {
             }
             if (!outPlaying) { out.start(); outPlaying = true; }
             java.util.Arrays.fill(mix, 0f);
-            for (Slot s : slots) if (s.playing) s.render(mix, tmp, BLOCK);
+            int nPlay = 0; boolean ovl = false;
+            for (Slot s : slots) if (s.playing) { nPlay++; ovl |= s.overlapping; s.render(mix, tmp, BLOCK); }
+            /* 3.7 · dos canciones a la vez (un fundido): el limitador cuida aunque esté puesto el sonido directo */
+            mixingNow = nPlay > 1 || ovl;
             process(mix, BLOCK);
             out.write(mix, BLOCK);
             for (Slot s : slots) s.afterBlock();
@@ -178,15 +181,19 @@ public final class NovaAudioEngine {
         }
     }
 
+    private volatile boolean mixingNow;
     private void process(float[] buf, int frames) {
         final float target = master * sleepGain;
         final boolean useEq = eqOn && !direct;
         final float p = useEq ? pre : 1f;
+        final boolean limit = !direct || mixingNow;
         for (int i = 0; i < frames; i++) {
             masterNow += (target - masterNow) * 0.0015f;
             float l = buf[2 * i] * p, r = buf[2 * i + 1] * p;
             if (useEq) for (Biquad b : eq) { l = b.l(l); r = b.r(r); }
-            if (!direct) { float g = limiter.gain(l, r); l *= g; r *= g; }
+            /* 3.7 · el limitador mira 3 ms por delante (el sonido sale con ese retraso, siempre el mismo): baja el volumen
+               ANTES de que llegue el pico, así ningún pico se recorta en seco (antes, en los fundidos, crujía) */
+            limiter.push(l, r, limit); l = limiter.outL; r = limiter.outR;
             l *= masterNow; r *= masterNow;
             buf[2 * i] = l > 1f ? 1f : (l < -1f ? -1f : l);
             buf[2 * i + 1] = r > 1f ? 1f : (r < -1f ? -1f : r);
@@ -495,6 +502,10 @@ public final class NovaAudioEngine {
                         for (int i = 0; i < m; i++) {
                             float u = m > 1 ? i / (float) (m - 1) : 0;
                             float gOut = g0[0] + (g1[0] - g0[0]) * u, gIn = g0[1] + (g1[1] - g0[1]) * u;
+                            /* 3.7 · margen: con las dos casi a tope, se bajan juntas lo justo para que la suma no pase de
+                               la potencia de una sola (el nivel que se oye no cambia; los picos ya no chocan con el techo) */
+                            float pw = gOut * gOut + gIn * gIn;
+                            if (pw > 1f) { float h = (float) (1 / Math.sqrt(pw)); gOut *= h; gIn *= h; }
                             float al = 0, ar = 0;
                             if (i < f1.frames()) {
                                 al = f1.l(i); ar = f1.r(i);
@@ -795,16 +806,50 @@ public final class NovaAudioEngine {
         float r(float x) { double y = b0 * x + b1 * r1 + b2 * r2 - a1 * ro1 - a2 * ro2; r2 = r1; r1 = x; ro2 = ro1; ro1 = y; return (float) y; }
     }
 
-    /** Limitador de seguridad: si algo pasa de -1 dB lo baja rápido (3 ms) y lo devuelve despacio (220 ms). */
+    /**
+     * Limitador de seguridad con anticipación (3.7): el sonido pasa por un retraso de 3 ms y el volumen empieza a bajar en
+     * cuanto el pico entra, así cuando el pico sale ya está por debajo de -1 dB. Lo devuelve despacio (220 ms).
+     * Nunca deja pasar nada por encima del umbral (el último paso lo asegura muestra a muestra), sin recortes en seco.
+     */
     static final class Limiter {
-        private final float thr = (float) Math.pow(10, -1 / 20.0), att, rel;
+        private final float thr = (float) Math.pow(10, -1 / 20.0), rel;
+        private final int look;
+        private final float[] dl, dr, need;   // retraso (izquierda, derecha) y la ganancia que pide cada muestra
+        private final long[] qi; private final float[] qv; private int qh, qt;   // mínimo de la ventana (cola monótona)
+        private long n;
         private float g = 1f;
-        Limiter(int fs) { att = (float) (1 - Math.exp(-1 / (0.003 * fs))); rel = (float) (1 - Math.exp(-1 / (0.22 * fs))); }
-        float gain(float l, float r) {
+        float outL, outR;
+        Limiter(int fs) {
+            look = Math.max(16, Math.round(0.003f * fs));
+            dl = new float[look + 1]; dr = new float[look + 1]; need = new float[look + 1];
+            qi = new long[look + 2]; qv = new float[look + 2];
+            java.util.Arrays.fill(need, 1f);
+            rel = (float) (1 - Math.exp(-1 / (0.22 * fs)));
+        }
+        /** Al quedarse en silencio (pausa, fin): se vacía el retraso, para que nada de lo anterior salga al volver a sonar. */
+        void reset() { java.util.Arrays.fill(dl, 0f); java.util.Arrays.fill(dr, 0f); java.util.Arrays.fill(need, 1f); qh = qt = 0; g = 1f; }
+        /** Entra una muestra; sale (en outL/outR) la de hace look muestras, ya con su volumen. on=false: pasa tal cual (con el mismo retraso). */
+        void push(float l, float r, boolean on) {
+            int w = (int) (n % (look + 1));
             float pk = Math.max(Math.abs(l), Math.abs(r));
-            float want = pk > thr ? thr / pk : 1f;
-            g += (want - g) * (want < g ? att : rel);
-            return g;
+            float want = on && pk > thr ? thr / pk : 1f;
+            // la que sale ahora es la más antigua del retraso (la de la posición w, antes de pisarla)
+            float ol = dl[w], or = dr[w], oNeed = need[w];
+            dl[w] = l; dr[w] = r; need[w] = want;
+            // mínimo de lo que piden las muestras que están dentro del retraso (incluida la que acaba de entrar)
+            int cap = qi.length;
+            while (qh != qt && qv[(qt - 1 + cap) % cap] >= want) qt = (qt - 1 + cap) % cap;
+            qi[qt] = n; qv[qt] = want; qt = (qt + 1) % cap;
+            long oldest = n - look;
+            while (qh != qt && qi[qh] < oldest) qh = (qh + 1) % cap;
+            float target = qh != qt ? qv[qh] : 1f;
+            // bajar: en línea recta hasta el objetivo en lo que queda de retraso; subir: despacio
+            if (target < g) g = Math.max(target, g - (g - target) / Math.max(1, look / 2f));
+            else g += (target - g) * rel;
+            if (!on) g = 1f;
+            float gg = Math.min(g, oNeed);   // la muestra que sale nunca pasa del umbral
+            outL = ol * gg; outR = or * gg;
+            n++;
         }
     }
 

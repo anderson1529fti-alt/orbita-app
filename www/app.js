@@ -944,7 +944,7 @@ const eqGains = () => !AUD.eqOn ? EQ_PRESETS.plano.g : AUD.eq === 'custom' ? AUD
 const eqName = () => (eqPreset(AUD.eq) || EQ_PRESETS.plano).name;
 const MIX_ORDER = ['auto', 'dj', 'filtro', 'suave', 'eco', 'corte'];
 const MIX_STYLES = {
-  auto: { name: 'Automática', desc: 'Nova elige en cada cambio: mezcla de DJ si el ritmo encaja, filtro si las dos tienen golpe y un fundido largo si no. Siempre 6 s o más.' },
+  auto: { name: 'Automática', desc: 'Nova elige en cada cambio: mezcla de DJ si el ritmo encaja, filtro si las dos tienen golpe y un fundido si no. Cuánto dura, lo eliges tú abajo.' },
   dj: { name: 'DJ', desc: 'Iguala el tempo, cuadra los golpes y pasa los graves de una canción a la otra, como en una cabina.' },
   suave: { name: 'Fundido', desc: 'Una canción baja mientras la otra sube, sin silencios.' },
   eco: { name: 'Eco', desc: 'La canción se despide con un eco al ritmo y entra la siguiente.' },
@@ -1437,9 +1437,8 @@ function planMix(aA, bA, durA) {
   else if (style === 'auto') style = close ? 'dj' : (beatA && beatB ? 'filtro' : 'suave');
   else if (style === 'dj' && !tempoOK) style = 'suave';
   else if (style === 'filtro' && !beatA) style = 'suave';
-  if (AUD.mix !== style) len = Math.max(6, want);
-  /* 3.5b4 · Automatic, without squared beats: short, so the two songs don't step on each other */
-  if (AUD.mix === 'auto' && style !== 'dj') len = Math.min(len, 6);
+  /* 3.7 · the length you choose is the length you get, whatever kind of mix Nova picks (the engine no longer
+     distorts when the two songs overlap, so long mixes are fine) */
   const beat = a.bpm > 0 ? 60 / a.bpm : 0.5, bar = 4 * beat;
   /* Snap to beats, or to whole bars when the bar line is clear */
   const barsA = a.bpm > 0 && isFinite(a.downOut) && (a.barSure || 0) >= 0.15;
@@ -1448,7 +1447,8 @@ function planMix(aA, bA, durA) {
   const minStart = Math.max(durA * 0.4, 1);
   let bStart = Math.max(0, (b.introStart || 0) - 0.03), start, swap = 0, cut = 0, rateB = 1, aHold = 0;
   const bOne = b.bpm > 0 ? (isFinite(b.downIn) && (b.barSure || 0) >= 0.15 ? b.downIn : b.gridIn) : null;
-  const barsFor = () => { let n = 4; if (n * bar < 6) n = 8; if (n * bar > 14) n = 2; return n; };
+  /* 3.7 · as many whole bars as fit in the length you chose (an even number, so the bass changes hands in the middle) */
+  const barsFor = () => { let n = Math.max(2, Math.round(want / bar)); if (n > 2 && n % 2) n++; return Math.min(16, n); };
   if (style === 'corte') { len = 0.08; start = outEnd - len; }
   else if (style === 'suave') {
     /* A song that fades by itself keeps its own fade: the next one rises under it from a little before */
@@ -1467,10 +1467,10 @@ function planMix(aA, bA, durA) {
     rateB = close ? ratio : 1;
   } else if (style === 'filtro') {
     /* Four bars (6–14 s): this song sinks into the bass while the next rises from the treble, from a bar line */
-    const E = hasFade ? Math.min(outEnd, a.fadeStart + 2 * beat) : outEnd, bars = AUD.mix === 'auto' ? Math.max(2, Math.round(barsFor() / 2)) : barsFor();
+    const E = hasFade ? Math.min(outEnd, a.fadeStart + 2 * beat) : outEnd, bars = barsFor();
     start = snapBar(E - bars * bar - 0.2);
-    if (E - start < 6) start -= bar;
-    len = Math.max(4, Math.min(AUD.mix === 'auto' ? 8 : 14, E - start));
+    if (E - start < Math.min(6, want)) start -= bar;
+    len = Math.max(Math.min(4, want), Math.min(want + bar, E - start));
     if (bOne !== null && isFinite(bOne)) bStart = Math.max(0, bOne);
   } else {
     /* Echo-out: the next song enters on the cut while the last beat of this one repeats and fades */
@@ -1578,7 +1578,7 @@ function scheduleMixFx(p, from, to, L) {
     const xa = now + L * 0.45, xb = now + L * 0.65, hold = now + L * 0.3;
     fb.hp.frequency.setValueAtTime(250, now); fb.hp.frequency.setValueAtTime(250, xa); fb.hp.frequency.exponentialRampToValueAtTime(18, xb); fb.hp.frequency.setValueAtTime(0, xb + 0.05);
     fa.hp.frequency.setValueAtTime(12, now); fa.hp.frequency.setValueAtTime(12, xa); fa.hp.frequency.exponentialRampToValueAtTime(250, xb);
-    fb.xf.gain.setValueAtTime(0.0001, now); const up = curveAt(fb.xf.gain, mkCurve(C_UP), now, L * 0.7); fb.xf.gain.setValueAtTime(1, up);
+    fb.xf.gain.setValueAtTime(0.0001, now); const up = curveAt(fb.xf.gain, mkCurve(C_UP), now, L * 0.7); try { fb.xf.gain.setValueAtTime(1, up); } catch {}
     fa.xf.gain.setValueAtTime(1, now); curveAt(fa.xf.gain, mkCurve(C_DOWN), hold, end - hold);
   } else if (p.style === 'dj') {
     /* The next song creeps in without its bass, the low end changes hands over two beats on the bar line,
@@ -1589,7 +1589,7 @@ function scheduleMixFx(p, from, to, L) {
     fa.hp.frequency.setValueAtTime(12, now); fa.hp.frequency.setValueAtTime(12, xa); fa.hp.frequency.exponentialRampToValueAtTime(300, xb);
     fb.xf.gain.setValueAtTime(0.0001, now);
     const up = curveAt(fb.xf.gain, mkCurve(C_S, 0, 0.9), now, xa - now);
-    fb.xf.gain.setValueAtTime(0.9, up); fb.xf.gain.linearRampToValueAtTime(1, Math.max(up + 0.05, sw));
+    try { fb.xf.gain.setValueAtTime(0.9, up); fb.xf.gain.linearRampToValueAtTime(1, Math.max(up + 0.05, sw)); } catch {}
     fa.lp.frequency.setValueAtTime(G.nyq, now); fa.lp.frequency.setValueAtTime(G.nyq, sw); fa.lp.frequency.exponentialRampToValueAtTime(900, end);
     fa.xf.gain.setValueAtTime(1, now); curveAt(fa.xf.gain, mkCurve(C_DOWN), sw, end - sw);
   } else if (p.style === 'filtro') {
@@ -1933,8 +1933,38 @@ function renderNP() {
   const al = $('#npAlbum'); al.hidden = !(t && t.album); if (t && t.album) al.textContent = t.album;
   renderQueue();
 }
-function openNP() {
-  $('#np').hidden = false; updatePlayer(); renderNP(); $('#np .np-close').focus();
+const npMotion = () => !reduceMotion && state.anim !== 'lite' && !root.classList.contains('lite');
+let npAnimJob = null;
+function npRect(el) { if (!el || !el.getBoundingClientRect) return null; const r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4 && r.bottom > 0 && r.top < innerHeight ? r : null; }
+function npFly(open, fromEl, done) {
+  const np = $('#np'), art = $('#npArt'), inner = np.querySelector('.np-inner');
+  if (npAnimJob) { const j = npAnimJob; npAnimJob = null; j.stop(); }   // one still running (closing while it opens): cleaned up now
+  const r0 = npRect(fromEl) || npRect($('#plCover')) || npRect(document.querySelector('.player'));
+  const r1 = np.classList.contains('yt-on') ? null : npRect(art);
+  if (!npMotion() || !r0 || !np.animate) { done && done(); return; }
+  const D = open ? 380 : 300, ease = open ? 'cubic-bezier(.2,.8,.2,1)' : 'cubic-bezier(.4,0,.6,1)';
+  const top = Math.max(0, Math.min(innerHeight - 40, r0.top));
+  const sheet = [{ transform: `translateY(${top}px)`, borderRadius: '24px 24px 0 0' }, { transform: 'none', borderRadius: '0' }];
+  const fade = [{ opacity: 0, transform: 'translateY(26px)' }, { opacity: 0, transform: 'translateY(26px)', offset: 0.3 }, { opacity: 1, transform: 'none' }];
+  const anims = [np.animate(open ? sheet : sheet.slice().reverse(), { duration: D, easing: ease, fill: 'both' }),
+    inner.animate(open ? fade : fade.slice().reverse(), { duration: D, easing: ease, fill: 'both' })];
+  let ghost = null;
+  if (r1) {
+    ghost = document.createElement('div'); ghost.className = 'np-ghost'; ghost.setAttribute('aria-hidden', 'true'); ghost.innerHTML = art.innerHTML;
+    Object.assign(ghost.style, { left: r1.left + 'px', top: r1.top + 'px', width: r1.width + 'px', height: r1.height + 'px' });
+    document.body.appendChild(ghost); art.style.visibility = 'hidden';
+    const s = r0.width / r1.width, from = { transform: `translate(${r0.left - r1.left}px,${r0.top - r1.top}px) scale(${s})`, borderRadius: (12 / s) + 'px' }, to = { transform: 'none', borderRadius: '22px' };
+    anims.push(ghost.animate(open ? [from, to] : [to, from], { duration: D, easing: ease, fill: 'both' }));
+  }
+  const job = { stop() { if (ghost) ghost.remove(); art.style.visibility = ''; anims.forEach(a => { try { a.cancel(); } catch {} }); } };
+  npAnimJob = job;
+  anims[0].onfinish = () => { if (npAnimJob !== job) return; npAnimJob = null; job.stop(); done && done(); };
+}
+function openNP(fromEl) {
+  const wasHidden = $('#np').hidden;
+  if ($('#np').dataset.closing) { delete $('#np').dataset.closing; if (npAnimJob) { const j = npAnimJob; npAnimJob = null; j.stop(); } }   // reopened while closing
+  $('#np').hidden = false; updatePlayer(); renderNP(); $('#np .np-close').focus({ preventScroll: true });
+  if (wasHidden) { haptic(6); npFly(true, fromEl && fromEl.nodeType === 1 ? fromEl : null); }
   $('#np').classList.toggle('ly-open', LY.on); $('#npLyBtn').setAttribute('aria-pressed', LY.on);
   $('#np').classList.toggle('viz-open', VZ.np && !LY.on); $('#npVizBtn').setAttribute('aria-pressed', VZ.np && !LY.on); setTimeout(vizKick, 30);
   if (LY.on) { const t = current(); if (!t || LY.id !== t.id || !LY.rec) showLyrics(t); else lyricsTick(act().currentTime || 0, true); }
@@ -1942,8 +1972,9 @@ function openNP() {
   ytLayout();
 }
 function closeNP(fromPop) {
-  if ($('#np').hidden) return;
-  $('#np').hidden = true; setTimeout(vizKick, 30); ytLayout();
+  if ($('#np').hidden || $('#np').dataset.closing) return;
+  $('#np').dataset.closing = '1';
+  npFly(false, null, () => { delete $('#np').dataset.closing; $('#np').hidden = true; setTimeout(vizKick, 30); ytLayout(); });
   if (STANDALONE && !fromPop && history.state && history.state.np) { try { history.back(); } catch {} }
 }
 
@@ -2068,7 +2099,7 @@ function renderSound() {
   if (!$('#mixChips')) return;
   $('#mixChips').innerHTML = MIX_ORDER.map(id => [id, MIX_STYLES[id]]).map(([id, s]) => `<button class="chip" data-mix="${id}" aria-pressed="${AUD.mix === id}">${esc(s.name)}</button>`).join('');
   $('#mixDesc').textContent = MIX_STYLES[AUD.mix].desc;
-  $('#mixLenBox').hidden = !['suave', 'auto'].includes(AUD.mix);
+  $('#mixLenBox').hidden = ['corte', 'eco'].includes(AUD.mix);
   $('#mixLenIn').value = AUD.mixLen; setRange($('#mixLenIn')); $('#mixLenVal').textContent = AUD.mixLen + ' s';
   renderEq();
   setToggle($('#tLevel'), AUD.level); setToggle($('#tDirect'), AUD.direct); renderEngine();
@@ -2249,7 +2280,7 @@ function naFade(p, t) {
   const a = anaCache.get(p.id), b = anaCache.get(t.id), durA = p.duration || 0;
   const st = b && b.introStart > 0.3 ? Math.max(0, b.introStart - 0.03) : 0;
   if (AUD.mix === 'corte') { const end = a && a.outroEnd ? Math.min(durA || a.outroEnd, a.outroEnd) : 0; return { xf: 0, at: end > 0 && durA - end > 0.4 ? end : 0, st }; }
-  if (!durA || !a) return { xf: Math.max(2, Math.min(AUD.mix === 'auto' ? 6 : 12, AUD.mixLen)), at: 0, st, style: 0 };
+  if (!durA || !a) return { xf: Math.max(2, Math.min(16, AUD.mixLen)), at: 0, st, style: 0 };
   const pl = planMix(a, b, durA);
   /* 3.5b4 · the engine does the DJ styles too: «filtro», and «dj» with the beats squared (the echo-out becomes a short filter) */
   /* the engine squares the beat by changing the speed (and so, a little, the pitch): only up to 4 %; more than that, a filter mix */
@@ -2260,6 +2291,28 @@ function naFade(p, t) {
   if (style === 2) Object.assign(o, { rate: pl.rateB || 1, swap: pl.swap || 0, gridA: isFinite(pl.gridA) ? pl.gridA : 0, beatA: pl.beat || 0, gridB: isFinite(pl.gridB) ? pl.gridB : 0, beatB: pl.beatB || 0 });
   return o;
 }
+/* 3.7 · With the app asleep (screen off, another app in front) only the engine plays: it can't ask for more songs.
+   Radio and endless mixes used to keep 6-8 songs ahead, so after those the music stopped. Now, with the engine on,
+   they always keep NA_AHEAD songs ahead (the brain still re-picks the next ones each time the app is awake). */
+const NA_AHEAD = 40, NA_MAX = 120;
+function naRunway() {
+  if (!NA_ON || A > 1) return false;
+  const radio = state.source === 'radio', endless = !!state.mixEndless && state.source === 'mix';
+  if (!radio && !endless) return false;
+  const keep = Math.max(1, Math.min(12, Math.floor(poolTracks().length / 2)));   // never the same song too close
+  let added = false, guard = 0;
+  while (state.queue.length - state.qi - 1 < NA_AHEAD && guard++ < 14) {
+    const tail = state.queue.slice(-keep);
+    let more = [];
+    try { more = (radio ? radioBatch(state.queue.slice(-3)) : mixRefill()).filter(id => !tail.includes(id) && naOwn(trackById(id))); } catch { more = []; }
+    // small libraries: when the brain has nothing new, any phone song that didn't just play (better than silence)
+    if (!more.length) more = shuffleArr(poolTracks().filter(t => naOwn(t) && !tail.includes(t.id) && !BRAIN.ban.has(t.id)).map(t => t.id)).slice(0, 8);
+    if (!more.length) break;
+    state.queue.push(...more); added = true;
+  }
+  if (added) { try { renderQueue(); } catch {} diag('motor: cola alargada a ' + (state.queue.length - state.qi - 1) + ' por delante'); }
+  return added;
+}
 const naItem = (t, p) => Object.assign({ src: t.uri, title: t.title || '', artist: t.artist || '', album: t.album || '', dur: t.duration || 0, g: normGainFor(t) }, naFade(p, t));
 let naPlKey = '';
 function naSyncNext() {
@@ -2267,16 +2320,21 @@ function naSyncNext() {
   const t = current();
   if (!naOwn(t) || els[A].getAttribute('src') == null) return;
   if (!NA_PL) { const id = state.queue[state.qi + 1], n = id && trackById(id); NA_PLUGIN.setNext({ slot: A, src: naGapless(t, n) ? n.uri : null }).catch(() => {}); return; }
-  // a few before (for «previous» in the notification), this one and up to 40 after: as long as they are songs of the phone
+  // a few before (for «previous» in the notification), this one and up to NA_MAX after: as long as they are songs of the phone
+  naRunway();
   let from = state.qi; while (from > 0 && state.qi - from < 3 && naOwn(trackById(state.queue[from - 1]))) from--;
   const items = []; let prevT = null;
   /* 3.6 · repeat: «this one» — the engine starts it again by itself; «the whole list» — after the last one, the first
      (with the list complete, the engine goes round by itself as many times as needed) */
   const sleepTrack = sleepLeft() !== null && sleepEnd && sleepFade === 12000, rp = sleepTrack ? 'off' : state.repeat, L = state.queue.length;
   const wrap = rp === 'all' && L > 1 && state.source !== 'radio' && !state.mixEndless && state.queue.every(id => naOwn(trackById(id)));
-  const last = rp === 'one' || sleepTrack ? state.qi : state.qi + (wrap ? Math.min(40, L) : 40);
-  for (let k = from; k <= last; k++) { if (!wrap && k >= L) break; const n = trackById(state.queue[k % L]); if (!naOwn(n)) break; items.push(naItem(n, prevT)); prevT = n; }
-  const index = state.qi - from, repeat = rp === 'one' ? 'one' : wrap ? 'all' : 'off', cycle = wrap && L <= 40 ? L : 0;
+  const last = rp === 'one' || sleepTrack ? state.qi : state.qi + (wrap ? Math.min(NA_MAX, L) : NA_MAX);
+  /* 3.7 · the engine can only play the phone's own songs. With the app awake, the list stops at the first other one
+     (a demo song, one added inside the app, YouTube…) and the app plays that one itself. With the app asleep it can't:
+     the music used to stop right there. So in the background the others are skipped and the engine goes on. */
+  const skipOthers = !!document.hidden;
+  for (let k = from; k <= last; k++) { if (!wrap && k >= L) break; const n = trackById(state.queue[k % L]); if (!naOwn(n)) { if (skipOthers && k > state.qi) continue; break; } items.push(naItem(n, prevT)); prevT = n; }
+  const index = state.qi - from, repeat = rp === 'one' ? 'one' : wrap ? 'all' : 'off', cycle = wrap && L <= NA_MAX ? L : 0;
   const key = A + '|' + index + '|' + repeat + cycle + '|' + JSON.stringify(items);
   if (key === naPlKey) return;
   naPlKey = key;
@@ -5296,7 +5354,7 @@ document.addEventListener('click', e => {
   else if (a === 'clip-del') armOrRun(el, async () => { state.clips = state.clips.filter(c => c.id !== id); if (clipUrls.has(id)) { URL.revokeObjectURL(clipUrls.get(id)); clipUrls.delete(id); } await idbDel('voice', id); renderVoice(); });
   else if (a === 'voice-test') { const v = dj.all.find(x => x.name === el.dataset.name); if (v) speakTTS(`Hola, soy ${dj.name}. Así sonaría presentando tus canciones en Órbita FM.`, v); }
   else if (a === 'voice-use') { const v = dj.all.find(x => x.name === el.dataset.name); if (v) { dj.voice = v; LS.set('voiceName', v.name); renderVoices(); speakTTS('Perfecto. A partir de ahora sonaré así.'); } }
-  else if (a === 'np-open') openNP();
+  else if (a === 'np-open') openNP(el);
   else if (a === 'q-del') { const i = +el.dataset.i; if (i > state.qi && state.queue[i]) { state.queue.splice(i, 1); disarmMix(); prefetchNext(); renderQueue(); haptic(6); } }
   else if (a === 'q-up') { const i = +el.dataset.i, q = state.queue; if (i > state.qi + 1 && q[i]) { [q[i - 1], q[i]] = [q[i], q[i - 1]]; disarmMix(); prefetchNext(); renderQueue(); haptic(6); } }
   else if (a === 'q-jump') { const i = +el.dataset.i; if (state.queue[i]) { state.qi = i; loadCurrent(true, act().paused ? 0 : MANUAL_XF); } }
@@ -5711,6 +5769,13 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '3.7': [
+    '<b>Nova, con nueva aura</b>: un anillo de colores que gira y brilla más cuando te habla.',
+    '<b>El reproductor se abre con animación</b>: sube desde donde lo tocas y la portada crece hasta su sitio. Al cerrarlo, vuelve. (Con las animaciones ligeras o «reducir movimiento», se abre al momento.)',
+    '<b>Cambios de canción limpios</b>: cuando dos canciones fuertes se mezclaban, a veces sonaba distorsionado. El motor ahora baja las dos lo justo y vigila los picos antes de que lleguen: ya no cruje.',
+    '<b>La música no se para en segundo plano</b>: con la radio, las mezclas sin fin o una lista larga, el motor tiene siempre canciones de sobra por delante, aunque Android duerma la app.',
+    '<b>Elige cuánto dura cada cambio</b> (Ajustes › Sonido y mezclas): la duración del fundido vuelve a verse con todos los tipos de mezcla y ahora se respeta siempre, también en «Automática».'
+  ],
   '3.6': [
     '<b>Todo cuenta, también con la pantalla apagada</b>: las canciones que suenan con el móvil bloqueado suman en «Tú», en «Tu año en Órbita» y en lo que Nova aprende de ti. Y si pasas una desde el aviso, Nova lo nota.',
     '<b>Temporizador para dormir de verdad</b>: la música baja poco a poco y se para a su hora aunque Android haya dormido la app.',

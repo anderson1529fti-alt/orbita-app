@@ -137,6 +137,16 @@ svg{display:block}
 .dj-avatar .bars{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:3px}
 .dj-avatar .bars i{width:4px;height:6px;border-radius:calc(2px * var(--round,1));background:var(--fg)}
 .dj.speaking .bars i{animation:talk .5s ease-in-out infinite;background:var(--accent)}
+/* 3.7 · Nova's aura: a ring of colours (lime, the accent colours and teal) with a soft glow that turns with it;
+   when she talks the glow beats. Same size and place as before. */
+.dj-avatar .ring{background:conic-gradient(from 40deg,#a3e635,var(--accent),var(--accent-2),#21d4a8,#a3e635)}
+.dj-avatar::before{content:"";position:absolute;inset:-8px;border-radius:50%;background:conic-gradient(from 40deg,#a3e635,var(--accent),var(--accent-2),#21d4a8,#a3e635);filter:blur(10px);opacity:.7;animation:spin 7s linear infinite;pointer-events:none}
+.dj-avatar .core{inset:4px}
+.dj-avatar .bars i:nth-child(1),.dj-avatar .bars i:nth-child(5){height:8px}.dj-avatar .bars i:nth-child(2){height:16px}.dj-avatar .bars i:nth-child(3){height:22px}.dj-avatar .bars i:nth-child(4){height:14px}
+.dj.speaking .dj-avatar::before{animation:spin 3.5s linear infinite,auraBeat .55s ease-in-out infinite alternate}
+@keyframes auraBeat{from{opacity:.55}to{opacity:1}}
+html.lite .dj-avatar::before,html.booting .dj-avatar::before{animation:none!important}
+@media (prefers-reduced-motion:reduce){.dj-avatar::before{animation:none!important}}
 .dj.speaking .bars i:nth-child(2){animation-delay:-.2s}.dj.speaking .bars i:nth-child(3){animation-delay:-.35s}.dj.speaking .bars i:nth-child(4){animation-delay:-.1s}.dj.speaking .bars i:nth-child(5){animation-delay:-.27s}
 .dj.mine .ring{background:conic-gradient(from 0deg,var(--good),var(--accent),var(--good))}
 @keyframes talk{0%,100%{height:5px}50%{height:24px}}
@@ -437,6 +447,8 @@ html.booting .bg::before,html.booting .ticker-track,html.booting .dj-avatar .rin
 
 /* Now playing (full screen) */
 .np{position:fixed;inset:0;z-index:55;display:grid;place-items:center;background:var(--bg);overflow:hidden}
+.np-ghost{position:fixed;z-index:60;overflow:hidden;border-radius:22px;transform-origin:0 0;pointer-events:none;will-change:transform;box-shadow:0 30px 60px -20px rgba(0,0,0,.8)}
+.np-ghost img{width:100%;height:100%;object-fit:cover;display:block}.np-ghost .art-ph{width:100%;height:100%;display:grid;place-items:center;font-size:7rem}
 .np-bg{position:absolute;inset:-60px;background-size:cover;background-position:center;filter:blur(50px) saturate(1.4) brightness(.45);transform:scale(1.1)}
 .np-bg.ph{filter:none;background:radial-gradient(60% 50% at 30% 20%,var(--glow),transparent 70%),radial-gradient(60% 60% at 80% 90%,hsla(calc(var(--accent-h) - 45),90%,50%,.3),transparent 70%),var(--bg)}
 .np-inner{position:relative;width:min(460px,100%);max-height:100%;overflow-y:auto;display:flex;flex-direction:column;gap:18px;padding-block:max(20px,env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-bottom,0px));padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}

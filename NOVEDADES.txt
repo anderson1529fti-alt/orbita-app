@@ -1,3 +1,24 @@
+Órbita 3.7: cambios de canción limpios, la música ya no se para en segundo plano, vuelves a elegir cuánto dura cada cambio, Nova estrena aura y el reproductor se abre con animación.
+
+Nova y el reproductor
+- Nova estrena aura: un anillo de colores que gira despacio y brilla más cuando te habla.
+- El reproductor se abre con animación: sube desde donde lo tocas (la barra de abajo, el vinilo…) y la portada crece hasta su sitio. Al cerrarlo, hace lo mismo al revés.
+- Con las animaciones ligeras o con «reducir movimiento» del móvil, se abre al momento, como antes.
+
+Cambios de canción sin distorsión
+- Cuando dos canciones fuertes se mezclaban, a veces sonaba distorsionado. Ahora, mientras suenan las dos, el motor las baja juntas lo justo para que no pasen del máximo.
+- El limitador de seguridad mira 3 milésimas por delante: baja el volumen antes de que llegue el pico, en vez de recortarlo en seco. Esto también evita crujidos con el ecualizador muy subido.
+- Con «Sonido directo» la música sigue saliendo tal cual, pero durante los cambios de canción el limitador también la cuida.
+
+La música no se para en segundo plano
+- Con la radio y las mezclas sin fin, el motor de Android tiene siempre unas 40 canciones por delante. Antes tenía solo 6 u 8 y, si Android dormía la app, al acabarse se paraba la música.
+- Con la app en segundo plano, si en la cola hay una canción que el motor no puede poner (una de prueba, una añadida dentro de la app, de YouTube…), la salta y sigue con la siguiente en vez de pararse.
+- Las listas largas llegan al motor enteras hasta 120 canciones (antes 40).
+
+Elige cuánto dura cada cambio
+- Ajustes › Sonido y mezclas › «Duración del fundido» vuelve a verse con todos los tipos de mezcla (antes solo con «Automática» y «Fundido»).
+- Y ahora se respeta siempre: en «Automática» se quedaba en 6 u 8 s pusieras lo que pusieras.
+
 Órbita 3.6: lo que suena con la pantalla apagada también cuenta, temporizador y repetir que no fallan en segundo plano, y un widget al día.
 
 Todo cuenta, también con la pantalla apagada
