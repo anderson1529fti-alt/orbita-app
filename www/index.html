@@ -703,6 +703,15 @@ body.live .seek{pointer-events:none;opacity:.35}
 .viz-full .vf-info b{display:block;font-family:var(--f-display);font-weight:900;font-size:1.4rem;letter-spacing:-.03em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .viz-full .vf-info span{color:var(--muted)}
 .viz-full.chrome .vf-info{opacity:0}
+/* 4.0 · the visualizer's settings */
+.viz-full canvas{touch-action:none}
+.vf-panel{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(90px + env(safe-area-inset-bottom,0px));width:min(360px,calc(100% - 24px));max-height:70vh;overflow:auto;padding:16px;border-radius:20px;background:rgba(14,11,24,.92);border:1px solid var(--line-2);display:flex;flex-direction:column;gap:8px;z-index:2}
+.vf-panel .vf-h{margin:6px 0 0;font-family:var(--f-mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.vf-chips{display:flex;flex-wrap:wrap;gap:6px}
+.vf-chips button{padding:8px 12px;border-radius:999px;border:1px solid var(--line-2);background:transparent;color:var(--fg);font:inherit;font-size:.85rem;cursor:pointer}
+.vf-chips button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.vf-panel input[type=range]{width:100%;accent-color:var(--accent)}
+.viz-full.chrome .vf-panel{opacity:1}
 .np-brain{justify-content:center}
 .np-brain .btn{font-size:.8rem}
 .banned{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
@@ -1377,7 +1386,20 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
     <div class="btns"><button class="btn small" data-sleep="off" id="sleepOff" hidden>Desactivar</button><button class="btn small" data-act="sleep-close">Cerrar</button></div>
   </div>
 </div>
-<div class="viz-full" id="vizFull" hidden role="dialog" aria-label="Visualizador a pantalla completa"><canvas id="vizFS" aria-hidden="true"></canvas><div class="vf-info"><div><b id="vfTitle"></b><span id="vfArtist"></span></div><button class="btn small" data-act="viz-scene"><span data-viz-scene-label>Órbita</span></button><button class="btn small" data-act="viz-close">Cerrar</button></div></div>
+<div class="viz-full" id="vizFull" hidden role="dialog" aria-label="Visualizador a pantalla completa"><canvas id="vizFS" aria-hidden="true"></canvas><div class="vf-info"><div><b id="vfTitle"></b><span id="vfArtist"></span></div><button class="btn small" data-act="viz-scene"><span data-viz-scene-label>Órbita</span></button><button class="btn small" data-act="viz-opts" aria-label="Ajustes del visualizador">Ajustes</button><button class="btn small" data-act="viz-close">Cerrar</button></div>
+<div class="vf-panel" id="vfPanel" hidden role="group" aria-label="Ajustes del visualizador">
+  <p class="vf-h">Visualizador</p>
+  <div class="vf-chips"><button data-vz-scene="orbita">Órbita</button><button data-vz-scene="galaxia">Galaxia</button><button data-vz-scene="ondas">Ondas</button><button data-vz-scene="montanas">Montañas</button><button data-vz-scene="aurora">Aurora</button><button data-vz-scene="tunel">Túnel</button><button data-vz-scene="particulas">Partículas</button></div>
+  <p class="vf-h">Detalle</p>
+  <div class="seg"><button data-vz-detail="bajo">Bajo</button><button data-vz-detail="medio">Medio</button><button data-vz-detail="alto">Alto</button></div>
+  <label class="vf-h" for="vfSpeed">Velocidad</label><input type="range" id="vfSpeed" min="0.3" max="2" step="0.1">
+  <label class="vf-h" for="vfSens">Sensibilidad</label><input type="range" id="vfSens" min="0.5" max="2" step="0.1">
+  <p class="vf-h">Color</p>
+  <div class="seg"><button data-vz-color="portada">De la portada</button><button data-vz-color="orbita">De Órbita</button><button data-vz-color="libre">Elegir</button></div>
+  <div id="vfHueRow" hidden><label class="vf-h" for="vfHue">Tono</label><input type="range" id="vfHue" min="0" max="359" step="1"></div>
+  <p class="note" id="vfNote"></p>
+  <button class="link" data-act="vf-reset">Restablecer este visualizador</button>
+</div></div>
 <div class="chat" id="chat" hidden role="dialog" aria-labelledby="chatName">
   <div class="chat-head"><div class="row-text"><b id="chatName">Nova</b><span class="t-sub" id="chatNow"></span></div><span class="spacer"></span><button class="btn small" data-chat="clear">Borrar</button><button class="btn small" data-chat="close">Cerrar</button></div>
   <div class="chat-log" id="chatLog" aria-live="polite"></div>

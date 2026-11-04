@@ -1,3 +1,19 @@
+Órbita 4.0: visualizadores nuevos, hechos con la gráfica del móvil.
+
+Siete visualizadores
+- Galaxia: una espiral en 3D con miles de estrellas y nubes con los colores de la portada. El núcleo late con el bombo, los brazos de dentro brillan con los graves y los de fuera con los agudos, y con cada golpe de caja cruza una estrella fugaz.
+- Órbita: el planeta lleva la portada de la canción envuelta alrededor y gira; a su alrededor, anillos tipo Saturno hechos con la música y partículas en órbita.
+- Ondas: cintas de luz que tienen la forma del sonido.
+- Montañas: la música como un paisaje que avanza hacia ti, con los graves en el centro.
+- Aurora: cortinas de luz que se mecen con la música sobre un cielo estrellado.
+- Túnel: un viaje a la velocidad de la luz que acelera con el ritmo.
+- Partículas: la portada hecha de miles de puntos que saltan con la música y estallan con el bombo.
+
+Cada uno con sus ajustes
+- A pantalla completa, «Ajustes»: el visualizador, el detalle (bajo, medio, alto), la velocidad, la sensibilidad y el color (el de la portada, el de Órbita o el que tú elijas). Cada visualizador recuerda los suyos.
+- En Galaxia, Órbita y Partículas, arrastra con el dedo para girarlos y pellizca para acercarte.
+- Con las animaciones «Ligeras» se ven los tres visualizadores de siempre.
+
 Órbita 3.9: luces con la música, letras tipo karaoke, la música se pausa con suavidad cuando suena otra app o se desconectan los auriculares, y arrastrar el reproductor es más fluido.
 
 Luces con la música

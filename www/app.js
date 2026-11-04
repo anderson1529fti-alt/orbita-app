@@ -5849,7 +5849,7 @@ function draw(ts) {
 /* ---------- Dynamic visualizer: reacts to the frequencies, the beat and the volume in real time ----------
    Three looks: «Órbita» (planet, spectrum ring, orbiting particles, shock waves on each beat),
    «Ondas» (layered waveforms) and «Galaxia» (a spiral of stars that spins with the tempo). */
-const VIZ_SCENES = [['orbita', 'Órbita'], ['ondas', 'Ondas'], ['galaxia', 'Galaxia']];
+const VIZ_SCENES = [['orbita', 'Órbita'], ['galaxia', 'Galaxia'], ['ondas', 'Ondas'], ['montanas', 'Montañas'], ['aurora', 'Aurora'], ['tunel', 'Túnel'], ['particulas', 'Partículas']];
 const VZ = { scene: LS.get('vizScene', 'orbita'), np: LS.get('vizNP', false), bass: 0, mid: 0, high: 0, level: 0, avgBass: 0.2, lastBeat: 0, beatK: 0, phase: 0, lastPhase: 0, waves: [], parts: [], stars: [], wave: null, spec: new Float32Array(96), t: 0, last: 0, rot: 0, raf: 0 };
 function vizCanvases() {
   const out = [];
@@ -5981,6 +5981,379 @@ function vizGalaxia(g, W, H, f) {
   }
   g.globalCompositeOperation = 'source-over';
 }
+/* ================== 4.0 · Visualizers on the phone's graphics chip (WebGL) ==================
+   Seven looks. Each canvas gets its own WebGL context; with «Ligeras» or without WebGL the three classic ones are
+   drawn as before (2D). They hear the music by bands (VZ.spec, 96), its shape (VZ.wave), the beat (VZ.beatK) and the
+   instruments from the engine (PL.k kick, PL.s snare). Colours: the cover's (default), Órbita's, or one you choose.
+   Each look keeps its own settings: detail, speed, sensitivity and colour. Fullscreen: drag to turn, pinch to zoom. */
+const GLV = { ok: null, ctx: new Map(), cam: { yaw: 0.6, pitch: 0.5, zoom: 1, drag: false, dx: 0, dy: 0 }, rot: 0, travel: 0, pal: null, palKey: '', coverKey: '', S32: new Float32Array(32), wave: new Uint8Array(256), hist: [], histT: 0, shoot: [], lastSnare: 0 };
+const VIZ_OPTS_DEF = { detail: 'medio', speed: 1, sens: 1, color: 'portada', hue: 300 };
+function vizOpts(sc) { const all = LS.get('vizOpts', {}) || {}; return Object.assign({}, VIZ_OPTS_DEF, all[sc || VZ.scene] || {}); }
+function setVizOpt(k, v) { const all = LS.get('vizOpts', {}) || {}; const sc = VZ.scene; all[sc] = Object.assign({}, all[sc] || {}, { [k]: v }); LS.set('vizOpts', all); GLV.palKey = ''; GLV.rebuild = true; }
+const VIZ_2D = { orbita: 'orbita', galaxia: 'galaxia', ondas: 'ondas', montanas: 'ondas', aurora: 'ondas', tunel: 'orbita', particulas: 'orbita' };
+function glWanted() {
+  if (state.anim === 'lite' || root.classList.contains('lite')) return false;
+  if (GLV.ok === null) { try { const c = document.createElement('canvas'); GLV.ok = !!(c.getContext('webgl') || c.getContext('experimental-webgl')); } catch { GLV.ok = false; } }
+  return GLV.ok;
+}
+/* a canvas can only ever have one kind of drawing (2D or WebGL): to change, it's swapped for a fresh copy */
+function vizSwap(cv, kind) {
+  if ((cv.dataset.kind || '') === kind || !cv.dataset.kind) { cv.dataset.kind = kind; return cv; }
+  const n = cv.cloneNode(false); n.dataset.kind = kind; cv.replaceWith(n); GLV.ctx.delete(cv); return n;
+}
+/* ---- shaders ---- */
+const GLSL_HEAD = 'precision mediump float;\n';
+const VS_QUAD = 'attribute vec2 aXY; varying vec2 vUv; void main(){ vUv = aXY * 0.5 + 0.5; gl_Position = vec4(aXY, 0.0, 1.0); }';
+const FS_COMMON = GLSL_HEAD + `
+uniform vec2 uRes; uniform float uT; uniform vec4 uA; uniform vec4 uB; uniform vec3 uC1, uC2, uC3; uniform vec3 uCam;
+uniform vec4 uSp[8]; varying vec2 vUv;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
+float sb(int k){ float v = 0.0; for (int j = 0; j < 8; j++) { if (j == k / 4) { int c = k - (k / 4) * 4; vec4 q = uSp[j]; v = c == 0 ? q.x : c == 1 ? q.y : c == 2 ? q.z : q.w; } } return v; }
+float spec(float x){ float i = clamp(x, 0.0, 0.999) * 31.0; int k = int(i); return mix(sb(k), sb(k + 1 > 31 ? 31 : k + 1), fract(i)); }
+vec3 tone(vec3 c){ return vec3(1.0) - exp(-c * 1.35); }
+`;
+/* Ondas: ribbons of light that are the shape of the sound */
+const FS_ONDAS = FS_COMMON + `uniform sampler2D uWave;
+void main(){
+  vec2 uv = vUv; vec3 col = vec3(0.012, 0.01, 0.025);
+  col += mix(uC1, uC2, uv.x) * 0.10 * (0.35 + uA.x) * (1.0 - abs(uv.y - 0.5) * 2.0);
+  for (int k = 0; k < 6; k++) {
+    float fk = float(k);
+    float w = texture2D(uWave, vec2(fract(uv.x * 0.92 + fk * 0.061), 0.5)).r * 2.0 - 1.0;
+    float env = sin(uv.x * 3.14159);
+    float amp = (0.08 + uA.w * 0.32) * (1.0 - fk * 0.1);
+    float y = 0.5 + w * amp * env + sin(uT * (0.5 + fk * 0.13) + fk * 1.7 + uv.x * 2.6) * (0.025 + 0.02 * uA.y) * fk;
+    float d = abs(uv.y - y) * uRes.y / 600.0;
+    float th = 0.0022 + 0.004 * uB.x + 0.003 * uB.y;
+    vec3 c = mix(mix(uC1, uC2, fk / 5.0), uC3, 0.5 + 0.5 * sin(uT * 0.3 + fk));
+    col += c * (th / (d + th * 0.6)) * (0.42 - fk * 0.05) * (0.55 + uA.w);
+  }
+  gl_FragColor = vec4(tone(col), 1.0);
+}`;
+/* Aurora: curtains of light that sway with the music, over a starry sky */
+const FS_AURORA = FS_COMMON + `
+void main(){
+  vec2 uv = vUv; float asp = uRes.x / uRes.y;
+  vec3 col = mix(vec3(0.01, 0.012, 0.03), vec3(0.03, 0.02, 0.07), uv.y);
+  vec2 sg = uv * vec2(asp, 1.0) * 90.0, g = floor(sg); float st = hash(g);
+  col += vec3(1.0) * step(0.985, st) * smoothstep(0.12, 0.0, length(fract(sg) - 0.5)) * (0.5 + 0.5 * sin(uT * 2.0 + st * 40.0)) * (0.6 + uA.z);
+  for (int k = 0; k < 3; k++) {
+    float fk = float(k);
+    float x = uv.x * asp * (1.1 + fk * 0.35) + uT * 0.035 * (fk + 1.0) * uCam.z;
+    float n = noise(vec2(x * 1.6, uT * 0.12 + fk * 7.0)) * 0.7 + noise(vec2(x * 4.0, uT * 0.2 + fk)) * 0.3;
+    float yc = 0.42 + 0.22 * n + 0.08 * fk + 0.06 * spec(fract(x * 0.15));
+    float h = uv.y - yc;
+    float curtain = h < 0.0 ? exp(-h * h * 900.0) : exp(-h * (4.5 + fk));
+    float rays = pow(noise(vec2(x * 16.0, uT * 0.3 + fk * 3.0)), 1.5) * 1.1 + 0.35;
+    float k2 = curtain * rays * (0.16 + uA.y * 0.7 + uB.y * 0.4 + uA.x * 0.25);
+    vec3 c = mix(uC1, uC3, clamp((uv.y - yc) * 3.0 + 0.4, 0.0, 1.0)); c = mix(c, uC2, fk * 0.4);
+    col += c * k2 * (0.75 - fk * 0.15);
+  }
+  gl_FragColor = vec4(tone(col), 1.0);
+}`;
+/* Túnel: a trip at the speed of light that speeds up with the beat */
+const FS_TUNEL = FS_COMMON + `
+void main(){
+  vec2 p = (vUv - 0.5) * vec2(uRes.x / uRes.y, 1.0) / uCam.z;
+  p += vec2(sin(uT * 0.4), cos(uT * 0.3)) * 0.04;
+  float r = length(p) + 1e-4, a = atan(p.y, p.x);
+  float z = 0.28 / r + uB.w;
+  float ex = 8.0 + 260.0 * r * r;   /* the further out, the thinner (seen on screen, all rings look as fine) */
+  float rings = pow(0.5 + 0.5 * sin(z * 12.566), ex) + 0.3 * pow(0.5 + 0.5 * sin(z * 12.566 + 3.1416), ex * 1.6);
+  float seg = pow(0.5 + 0.5 * sin(a * 8.0 + z * 1.2), 24.0 + 60.0 * r);
+  float s = spec(fract(a / 6.2831 + 0.5));
+  vec3 c = mix(uC1, uC2, 0.5 + 0.5 * sin(z * 0.6)) * rings * (0.35 + s * 1.4);
+  c += uC3 * seg * (0.06 + uA.z * 0.4);
+  c *= smoothstep(0.02, 0.4, r);
+  c += mix(uC1, vec3(1.0), 0.3) * (0.12 + uB.y * 0.9) * exp(-r * 6.0);
+  gl_FragColor = vec4(tone(c * (0.7 + uA.w)), 1.0);
+}`;
+/* behind the 3D looks: dark sky, a glow that beats, and (Órbita) the planet with the cover wrapped around it */
+const FS_BACK = FS_COMMON + `uniform sampler2D uCover; uniform float uHasCover, uPlanet, uRot;
+void main(){
+  vec2 p = (vUv - 0.5) * vec2(uRes.x / uRes.y, 1.0);
+  float r = length(p);
+  vec3 col = vec3(0.012, 0.01, 0.026) + mix(uC1, uC2, 0.5) * 0.05;
+  col += mix(uC1, uC2, 0.4) * (0.08 + uA.x * 0.25 + uB.y * 0.35) * exp(-r * r * 9.0);
+  if (uPlanet > 0.5) {
+    float R = 0.17 * uCam.z * (1.0 + uA.x * 0.06 + uB.y * 0.05);
+    float q = r / R;
+    if (q < 1.0) {
+      vec3 n = vec3(p / R, sqrt(1.0 - q * q));
+      float u = fract(atan(n.x, n.z) / 6.2831 + uRot * 0.05), v = 0.5 - asin(n.y) / 3.14159;
+      vec3 tex = uHasCover > 0.5 ? texture2D(uCover, vec2(u, v)).rgb : mix(uC1, uC2, v + 0.2 * sin(u * 12.0));
+      float lit = 0.35 + 0.75 * max(0.0, dot(n, normalize(vec3(-0.5, 0.5, 0.7))));
+      col = tex * lit + mix(uC1, uC3, 0.5) * pow(1.0 - n.z, 3.0) * 0.8;
+    } else col += mix(uC1, uC3, 0.5) * exp(-(q - 1.0) * 9.0) * (0.35 + uB.y * 0.4);
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
+/* stars, rings and particles: points in 3D (seen by a camera that you can turn) */
+const VS_PTS = `attribute vec4 aP; attribute vec4 aQ;
+uniform vec2 uRes; uniform float uT, uRot, uSize, uDpr, uKind; uniform vec4 uA, uB; uniform vec3 uCam, uC1, uC2, uC3; uniform vec4 uSp[8];
+varying vec3 vCol; varying float vA;
+float band(float x){ int k = int(clamp(x, 0.0, 0.999) * 31.0); float v = 0.0; for (int j = 0; j < 8; j++) { if (j == k / 4) { int c = k - (k / 4) * 4; vec4 q = uSp[j]; v = c == 0 ? q.x : c == 1 ? q.y : c == 2 ? q.z : q.w; } } return v; }
+void main(){
+  vec3 pos; float s = band(aQ.y); vec3 c; float al;
+  if (uKind < 0.5) {                       /* galaxy: arms that turn faster inside than outside */
+    float r = aP.x, ang = aP.y + r * 4.6 + uRot * (1.3 - r);
+    float rr = r * (1.0 + uB.x * 0.03 + s * 0.04);
+    float th = r < 0.25 ? 0.11 * (1.0 - r / 0.25) * sqrt(1.0 - min(1.0, aP.z * aP.z)) : 0.025;
+    pos = vec3(cos(ang) * rr, aP.z * th, sin(ang) * rr);
+    c = mix(mix(uC1, uC2, r), uC3, aQ.x * 0.5); c = mix(c, vec3(1.0), 0.2 + s * 0.45);
+    al = (0.3 + s * 0.9) * (1.0 - r * 0.45) * (1.0 + (uA.x * 1.6 + uB.y) * (1.0 - smoothstep(0.0, 0.35, r)) + uA.z * 1.2 * smoothstep(0.55, 1.0, r));
+  } else if (uKind < 1.5) {               /* galaxy clouds (nebulae) */
+    float r = aP.x, ang = aP.y + r * 4.6 + uRot * (1.3 - r);
+    pos = vec3(cos(ang) * r, aP.z * 0.05, sin(ang) * r);
+    c = mix(uC1, uC2, aQ.x); al = 0.028 * (0.5 + uA.w + uB.y * 0.6);
+  } else if (uKind < 2.5) {               /* Órbita: rings made of the spectrum, and particles orbiting */
+    float rr = aP.x + s * 0.18 * aQ.z, ang = aP.y + uRot * (0.5 / aP.x) * (aQ.w > 0.5 ? -0.7 : 1.0);
+    pos = vec3(cos(ang) * rr, aP.z, sin(ang) * rr);
+    c = mix(mix(uC1, uC2, aQ.y), uC3, 0.3 + s * 0.7); al = (0.55 + s * 1.2) * (aQ.w > 0.5 ? 0.5 + uA.z : 1.0);
+  } else {                                /* the cover in particles: they jump with the music and burst on the kick */
+    vec2 g = aP.xy; float d = length(g);
+    float z = s * 0.45 * aQ.z + uB.y * 0.35 * aP.w * aQ.z;
+    pos = vec3(g.x * (1.0 + uB.y * 0.25 * aP.w), -g.y * (1.0 + uB.y * 0.25 * aP.w), z - d * 0.1);
+    c = vec3(aP.z, aQ.x, aQ.w); c = c * (0.75 + s * 0.6); al = 0.85;
+  }
+  float cy = cos(uCam.x), sy = sin(uCam.x), cp = cos(uCam.y), sp = sin(uCam.y);
+  pos = vec3(cy * pos.x + sy * pos.z, pos.y, -sy * pos.x + cy * pos.z);
+  pos = vec3(pos.x, cp * pos.y - sp * pos.z, sp * pos.y + cp * pos.z);
+  pos.z += 2.4 / uCam.z;
+  vec2 sc = pos.xy * 1.7 / pos.z; sc.x *= uRes.y / uRes.x;
+  if (uKind > 1.5 && uKind < 2.5) {       /* the planet hides what's behind it */
+    vec2 pp = sc; pp.x *= uRes.x / uRes.y; float R = 0.17 * uCam.z * 2.0;
+    if (pos.z > 2.4 / uCam.z && length(pp) < R) al = 0.0;
+  }
+  gl_Position = vec4(sc, 0.0, 1.0);
+  float big = uKind > 0.5 && uKind < 1.5 ? 16.0 : 1.0;
+  float grow = uKind > 2.5 ? 1.0 + s * 0.6 : 0.6 + aQ.x * 1.4 + s * 1.8;
+  gl_PointSize = clamp(uSize * big * grow * uDpr / pos.z, 1.0, 200.0);
+  vCol = c; vA = al;
+}`;
+const FS_PTS = GLSL_HEAD + 'uniform float uSolid; varying vec3 vCol; varying float vA; void main(){ vec2 d = gl_PointCoord - 0.5; float a = max(0.0, 1.0 - length(d) * 2.0); if (uSolid > 0.5) gl_FragColor = vec4(vCol, smoothstep(0.0, 0.35, a)); else gl_FragColor = vec4(vCol * a * a * vA, 1.0); }';
+/* lines (mountains, shooting stars): positions already on screen, each point with its colour */
+const VS_LN = 'attribute vec2 aXY; attribute vec4 aC; varying vec4 vC; void main(){ vC = aC; gl_Position = vec4(aXY, 0.0, 1.0); }';
+const FS_LN = GLSL_HEAD + 'varying vec4 vC; void main(){ gl_FragColor = vec4(vC.rgb * vC.a, 1.0); }';
+function glProg(gl, vs, fs) {
+  const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || 'shader'); return s; };
+  const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || 'link');
+  const u = {}, a = {};
+  for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) { const x = gl.getActiveUniform(p, i); u[x.name.replace('[0]', '')] = gl.getUniformLocation(p, x.name.replace('[0]', '')); }
+  for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) { const x = gl.getActiveAttrib(p, i); a[x.name] = gl.getAttribLocation(p, x.name); }
+  return { p, u, a };
+}
+function glInit(cv) {
+  let gl = null;
+  try { gl = cv.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' }); } catch {}
+  if (!gl) return null;
+  const S = { gl, P: {}, buf: {}, tex: {}, built: '', n: {} };
+  try {
+    S.P.ondas = glProg(gl, VS_QUAD, FS_ONDAS); S.P.aurora = glProg(gl, VS_QUAD, FS_AURORA); S.P.tunel = glProg(gl, VS_QUAD, FS_TUNEL);
+    S.P.back = glProg(gl, VS_QUAD, FS_BACK); S.P.pts = glProg(gl, VS_PTS, FS_PTS); S.P.ln = glProg(gl, VS_LN, FS_LN);
+  } catch (e) { diag('visualizador 3D: ' + String(e.message || e).slice(0, 120)); GLV.ok = false; return null; }
+  S.buf.quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, S.buf.quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  S.buf.ln = gl.createBuffer();
+  const mkTex = () => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  S.tex.wave = mkTex(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 256, 1, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, GLV.wave);
+  S.tex.cover = mkTex(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([120, 60, 200, 255]));
+  S.coverKey = '';
+  cv.addEventListener('webglcontextlost', e => { e.preventDefault(); GLV.ctx.delete(cv); cv.dataset.kind = 'lost'; }, { once: true });
+  return S;
+}
+/* the points of each look (built once per look and detail) */
+function glBuild(S, scene, o) {
+  const gl = S.gl, mult = o.detail === 'bajo' ? 0.4 : o.detail === 'alto' ? 1.8 : 1, R = Math.random;
+  const mk = (name, arr) => { if (!S.buf[name]) S.buf[name] = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, S.buf[name]); gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW); S.n[name] = arr.length / 8; };
+  if (scene === 'galaxia') {
+    const n = Math.round(16000 * mult), a = new Float32Array(n * 8);
+    for (let i = 0; i < n; i++) {
+      const arm = Math.floor(R() * 3), core = R() < 0.16, r = core ? Math.pow(R(), 1.5) * 0.25 : 0.12 + Math.pow(R(), 0.9) * 0.88;
+      const spread = core ? 6.28 : (R() < 0.75 ? 0.22 : 0.7) * (0.6 + 0.6 * r);
+      const j = i * 8; a[j] = r; a[j + 1] = arm * 2.094 + (R() - 0.5) * spread; a[j + 2] = (R() + R() + R() - 1.5) / 1.5; a[j + 3] = R();
+      a[j + 4] = Math.pow(R(), 3); a[j + 5] = Math.min(0.999, r * 0.85 + R() * 0.15); a[j + 6] = 0; a[j + 7] = 0;
+    }
+    mk('stars', a);
+    const m = Math.round(260 * Math.sqrt(mult)), b = new Float32Array(m * 8);
+    for (let i = 0; i < m; i++) { const j = i * 8, arm = Math.floor(R() * 3), r = 0.15 + R() * 0.75; b[j] = r; b[j + 1] = arm * 2.094 + (R() - 0.5) * 0.7; b[j + 2] = (R() - 0.5); b[j + 3] = R(); b[j + 4] = R(); b[j + 5] = r; }
+    mk('neb', b);
+  } else if (scene === 'orbita') {
+    const n = Math.round(14000 * mult), a = new Float32Array(n * 8);
+    for (let i = 0; i < n; i++) {
+      const j = i * 8, ring = i < n * 0.85;
+      const bands = [[0.62, 0.72], [0.76, 0.93], [0.97, 1.03]], bd = bands[R() < 0.3 ? 0 : R() < 0.75 ? 1 : 2];
+      const r = ring ? bd[0] + R() * (bd[1] - bd[0]) : 1.2 + R() * 0.45;
+      a[j] = r; a[j + 1] = R() * 6.2832; a[j + 2] = ring ? (R() - 0.5) * 0.004 : (R() - 0.5) * 0.3; a[j + 3] = R();
+      a[j + 4] = Math.pow(R(), 2); a[j + 5] = Math.min(0.999, (r - 0.64) / 1.0); a[j + 6] = ring ? 1 : 0.3; a[j + 7] = ring ? 0 : 1;
+    }
+    mk('ring', a);
+  } else if (scene === 'particulas') {
+    const side = o.detail === 'bajo' ? 70 : o.detail === 'alto' ? 160 : 110, a = new Float32Array(side * side * 8);
+    for (let y = 0, i = 0; y < side; y++) for (let x = 0; x < side; x++, i++) {
+      const j = i * 8, gx = (x / (side - 1) - 0.5) * 1.3, gy = (y / (side - 1) - 0.5) * 1.3;
+      a[j] = gx; a[j + 1] = gy; a[j + 2] = 0.5; a[j + 3] = R(); a[j + 4] = 0.5; a[j + 5] = Math.min(0.999, Math.hypot(gx, gy) / 0.92); a[j + 6] = 0.3 + R() * 0.7; a[j + 7] = 0.5;
+    }
+    S.side = side; S.partBase = a; mk('parts', a.slice()); S.partKey = '';
+  }
+  S.built = scene + ':' + o.detail;
+}
+/* the cover in particles: each particle takes the colour of its spot of the cover */
+function glPartColors(S, img) {
+  const key = img ? img.src : 'none';
+  if (S.partKey === key || !S.partBase) return;
+  S.partKey = key;
+  const side = S.side, a = S.partBase.slice();
+  let px = null;
+  if (img) { try { const c = document.createElement('canvas'); c.width = c.height = side; const g = c.getContext('2d'); g.drawImage(img, 0, 0, side, side); px = g.getImageData(0, 0, side, side).data; } catch { px = null; } }
+  for (let i = 0; i < side * side; i++) {
+    const j = i * 8;
+    if (px) { a[j + 2] = px[i * 4] / 255; a[j + 4] = px[i * 4 + 1] / 255; a[j + 7] = px[i * 4 + 2] / 255; }
+    else { const t = i / (side * side); const c = GLV.pal ? GLV.pal[t < 0.5 ? 0 : 1] : [0.8, 0.3, 0.9]; a[j + 2] = c[0]; a[j + 4] = c[1]; a[j + 7] = c[2]; }
+  }
+  const gl = S.gl; gl.bindBuffer(gl.ARRAY_BUFFER, S.buf.parts); gl.bufferData(gl.ARRAY_BUFFER, a, gl.STATIC_DRAW);
+}
+/* the colours: the cover's, Órbita's, or the one you chose */
+function glColors(o, t, img) {
+  const key = o.color + ':' + (o.color === 'libre' ? o.hue : o.color === 'portada' ? (t ? t.id : '') + ':' + !!img : hue);
+  if (GLV.palKey === key && GLV.pal) return GLV.pal;
+  const hsl = (h, s, l) => { h = ((h % 360) + 360) % 360 / 360; const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q, f = x => { x = (x + 1) % 1; return x < 1 / 6 ? p + (q - p) * 6 * x : x < 0.5 ? q : x < 2 / 3 ? p + (q - p) * (2 / 3 - x) * 6 : p; }; return [f(h + 1 / 3), f(h), f(h - 1 / 3)]; };
+  let c = null;
+  if (o.color === 'portada' && img) {
+    const pal = coverPalette(img);
+    if (pal) { const rgb = s => (s.match(/\d+/g) || [255, 255, 255]).slice(0, 3).map(x => x / 255); c = [rgb(pal[0]), rgb(pal[1])]; }
+  }
+  if (!c) { const h = o.color === 'libre' ? o.hue : hue; c = [hsl(h, 0.92, 0.6), hsl(h - 55, 0.9, 0.58)]; }
+  const c3 = [0, 1, 2].map(i => Math.min(1, (c[0][i] + c[1][i]) * 0.5 * 0.6 + 0.45));
+  GLV.pal = [c[0], c[1], c3]; GLV.palKey = key;
+  return GLV.pal;
+}
+function glDraw(cv, f, ts) {
+  if (cv.dataset.kind === 'lost') return false;
+  let S = GLV.ctx.get(cv);
+  if (!S) { S = glInit(cv); if (!S) return false; GLV.ctx.set(cv, S); }
+  const gl = S.gl, sc = VZ.scene, o = vizOpts(sc), t = current(), img = t && coverImg(t);
+  const full = cv.id === 'vizFS', heavy = sc === 'ondas' || sc === 'aurora' || sc === 'tunel';
+  const dpr = Math.min(window.devicePixelRatio || 1, o.detail === 'bajo' ? 0.75 : o.detail === 'alto' ? 2 : heavy ? 1 : 1.5);
+  const r = cv.getBoundingClientRect(), W = Math.max(2, Math.round(r.width * dpr)), H = Math.max(2, Math.round(r.height * dpr));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  gl.viewport(0, 0, W, H);
+  if (S.built !== sc + ':' + o.detail || GLV.rebuild) { glBuild(S, sc, o); }
+  const pal = glColors(o, t, img);
+  /* what the music says, by sensitivity */
+  const k = o.sens, cl = x => Math.min(1, x * k);
+  for (let i = 0; i < 32; i++) GLV.S32[i] = cl(Math.max(VZ.spec[i * 3], VZ.spec[i * 3 + 1], VZ.spec[i * 3 + 2]));
+  const kick = Math.max(cl(PL.k || 0), VZ.beatK * 0.8), snare = cl(PL.s || 0);
+  const A4 = [cl(VZ.bass), cl(VZ.mid), cl(VZ.high), cl(VZ.level)];
+  /* the wave (for Ondas) */
+  if (sc === 'ondas') {
+    const w = VZ.wave;
+    for (let i = 0; i < 256; i++) { const v = w ? w[Math.floor(i * w.length / 256)] : 128 + 70 * Math.sin(i * 0.12 + VZ.t * 3) * VZ.level; GLV.wave[i] += (Math.max(0, Math.min(255, 128 + (v - 128) * k)) - GLV.wave[i]) * 0.5; }
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, S.tex.wave); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.LUMINANCE, gl.UNSIGNED_BYTE, GLV.wave);
+  }
+  /* the cover (planet) */
+  if ((sc === 'orbita') && img && S.coverKey !== img.src) { try { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, S.tex.cover); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img); S.coverKey = img.src; S.hasCover = 1; } catch { S.coverKey = img.src; S.hasCover = 0; } }
+  if (!img) S.hasCover = 0;
+  const set = P => {
+    gl.useProgram(P.p); const u = P.u;
+    if (u.uRes) gl.uniform2f(u.uRes, W, H); if (u.uT) gl.uniform1f(u.uT, VZ.t * o.speed);
+    if (u.uA) gl.uniform4f(u.uA, A4[0], A4[1], A4[2], A4[3]); if (u.uB) gl.uniform4f(u.uB, VZ.beatK, kick, snare, GLV.travel);
+    if (u.uC1) gl.uniform3fv(u.uC1, pal[0]); if (u.uC2) gl.uniform3fv(u.uC2, pal[1]); if (u.uC3) gl.uniform3fv(u.uC3, pal[2]);
+    if (u.uCam) { const c = GLV.cam; if (sc === 'particulas') gl.uniform3f(u.uCam, c.dx + 0.32 * Math.sin(VZ.t * 0.25 * o.speed), c.dy + 0.12 * Math.sin(VZ.t * 0.2 * o.speed), c.zoom); else gl.uniform3f(u.uCam, c.yaw, sc === 'galaxia' ? Math.min(1.4, c.pitch + 0.5) : c.pitch, c.zoom); } if (u.uSp) gl.uniform4fv(u.uSp, GLV.S32);
+    if (u.uRot) gl.uniform1f(u.uRot, GLV.rot); if (u.uDpr) gl.uniform1f(u.uDpr, dpr * Math.min(W, H) / (360 * dpr));
+    return u;
+  };
+  const quad = P => { gl.bindBuffer(gl.ARRAY_BUFFER, S.buf.quad); gl.enableVertexAttribArray(P.a.aXY); gl.vertexAttribPointer(P.a.aXY, 2, gl.FLOAT, false, 0, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.disableVertexAttribArray(P.a.aXY); };
+  const pts = (name, kind, size) => {
+    const P = S.P.pts, u = set(P); gl.uniform1f(u.uKind, kind); gl.uniform1f(u.uSize, size); gl.uniform1f(u.uSolid, kind > 2.5 ? 1 : 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, S.buf[name]);
+    gl.enableVertexAttribArray(P.a.aP); gl.vertexAttribPointer(P.a.aP, 4, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(P.a.aQ); gl.vertexAttribPointer(P.a.aQ, 4, gl.FLOAT, false, 32, 16);
+    gl.drawArrays(gl.POINTS, 0, S.n[name] || 0);
+    gl.disableVertexAttribArray(P.a.aP); gl.disableVertexAttribArray(P.a.aQ);
+  };
+  const lines = (arr, mode) => {
+    const P = S.P.ln; gl.useProgram(P.p); gl.bindBuffer(gl.ARRAY_BUFFER, S.buf.ln); gl.bufferData(gl.ARRAY_BUFFER, arr, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(P.a.aXY); gl.vertexAttribPointer(P.a.aXY, 2, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(P.a.aC); gl.vertexAttribPointer(P.a.aC, 4, gl.FLOAT, false, 24, 8);
+    gl.drawArrays(mode, 0, arr.length / 6); gl.disableVertexAttribArray(P.a.aXY); gl.disableVertexAttribArray(P.a.aC);
+  };
+  gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+  if (sc === 'ondas' || sc === 'aurora' || sc === 'tunel') {
+    const P = S.P[sc], u = set(P); if (u.uWave) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, S.tex.wave); gl.uniform1i(u.uWave, 1); }
+    quad(P);
+  } else {
+    const B = S.P.back, u = set(B); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, S.tex.cover); gl.uniform1i(u.uCover, 0);
+    gl.uniform1f(u.uHasCover, S.hasCover ? 1 : 0); gl.uniform1f(u.uPlanet, sc === 'orbita' ? 1 : 0); quad(B);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    if (sc === 'galaxia') { pts('neb', 1, 3.0); pts('stars', 0, 1.45); }
+    else if (sc === 'orbita') pts('ring', 2, 1.05);
+    else if (sc === 'particulas') { glPartColors(S, img); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); pts('parts', 3, 560 / S.side); }
+    else if (sc === 'montanas') {
+      /* the sound as a landscape: each moment is a row that's born at the top (far) and comes down towards you;
+         the bass in the middle, the treble at the sides; each row hides what's behind it */
+      const rows = GLV.hist, NC = 64, NR = 40;
+      for (let ri = 0; ri < rows.length; ri++) {
+        const row = rows[ri], q = Math.min(1, (ri + GLV.histT) / NR);   // 0 = far (top), 1 = near (bottom)
+        if (q >= 1) continue;
+        const y0 = 0.62 - q * 1.45, sx = 0.55 + 0.5 * q, hs = 0.12 + 0.42 * q, fade = Math.min(1, q * 4) * (1 - Math.max(0, q - 0.85) / 0.15);
+        const ln = [];
+        for (let i = 0; i < NC; i++) {
+          const u = i / (NC - 1) * 2 - 1, env = Math.pow(Math.max(0, Math.cos(u * Math.PI / 2)), 1.6), v = row[Math.min(63, Math.floor(Math.abs(u) * 63))];
+          const x = u * sx, y = y0 + v * hs * env;
+          const m = Math.abs(u);
+          ln.push(x, y, pal[0][0] * (1 - m) + pal[1][0] * m, pal[0][1] * (1 - m) + pal[1][1] * m, pal[0][2] * (1 - m) + pal[1][2] * m, fade * (0.45 + v * 0.8));
+        }
+        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); lines(new Float32Array(ln), gl.LINE_STRIP);
+      }
+    }
+    /* shooting stars on the snare (galaxy) */
+    if (sc === 'galaxia') {
+      if (snare > 0.95 && ts - GLV.lastSnare > 180) { GLV.lastSnare = ts; const a = Math.random() * 6.28; GLV.shoot.push({ x: (Math.random() - 0.5) * 1.6, y: (Math.random() - 0.2) * 1.2, dx: Math.cos(a) * 1.6, dy: -Math.abs(Math.sin(a)) * 1.2, life: 1 }); if (GLV.shoot.length > 6) GLV.shoot.shift(); }
+      const ln = [];
+      for (const s of GLV.shoot) { s.life -= f.dt * 1.6; s.x += s.dx * f.dt * 0.6; s.y += s.dy * f.dt * 0.6; const L = 0.18; ln.push(s.x, s.y, 1, 1, 1, Math.max(0, s.life), s.x - s.dx * L * 0.3, s.y - s.dy * L * 0.3, pal[0][0], pal[0][1], pal[0][2], 0); }
+      GLV.shoot = GLV.shoot.filter(s => s.life > 0);
+      if (ln.length) { gl.blendFunc(gl.ONE, gl.ONE); lines(new Float32Array(ln), gl.LINES); }
+    }
+    gl.disable(gl.BLEND);
+  }
+  return true;
+}
+/* once per frame (not per canvas): turning, travelling, the landscape's rows, the camera */
+function glTick(f, ts) {
+  const o = vizOpts(), sp = o.speed, dt = f.dt;
+  GLV.rot += dt * sp * (0.12 + VZ.level * 0.6 + (VZ.bpm ? VZ.bpm / 700 : 0));
+  GLV.travel += dt * sp * (0.35 + VZ.level * 1.6 + (PL.k || 0) * 0.8 + (VZ.bpm ? VZ.bpm / 160 : 0));
+  if (!GLV.cam.drag) GLV.cam.yaw += dt * sp * 0.05;
+  if (VZ.scene === 'montanas') {
+    GLV.histT += dt * sp * 8;
+    while (GLV.histT >= 1) {
+      GLV.histT -= 1; const row = new Float32Array(64);
+      for (let i = 0; i < 64; i++) row[i] = Math.min(1, VZ.spec[Math.floor(i * 1.45)] * o.sens);
+      GLV.hist.unshift(row); if (GLV.hist.length > 41) GLV.hist.pop();
+    }
+  }
+}
+/* fullscreen: drag to turn the 3D looks, pinch to zoom; a tap without moving still shows/hides the info */
+(() => {
+  const el = $('#vizFull'), pts = new Map(); let moved = false, d0 = 0, z0 = 1;
+  el.addEventListener('pointerdown', e => { if (e.target.closest('button,.vf-panel')) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = false; if (pts.size === 2) { const [a, b] = [...pts.values()]; d0 = Math.hypot(a.x - b.x, a.y - b.y); z0 = GLV.cam.zoom; } });
+  el.addEventListener('pointermove', e => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    if (pts.size === 2) { p.x = e.clientX; p.y = e.clientY; const [a, b] = [...pts.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); if (d0 > 20) GLV.cam.zoom = Math.max(0.6, Math.min(2.2, z0 * d / d0)); moved = true; return; }
+    if (!moved && Math.hypot(dx, dy) < 8) return;
+    moved = true; GLV.cam.drag = true; p.x = e.clientX; p.y = e.clientY;
+    GLV.cam.yaw += dx * 0.006; GLV.cam.pitch = Math.max(0.05, Math.min(1.35, GLV.cam.pitch + dy * 0.004));
+    GLV.cam.dx = Math.max(-1, Math.min(1, GLV.cam.dx + dx * 0.004)); GLV.cam.dy = Math.max(-0.8, Math.min(0.8, GLV.cam.dy + dy * 0.003));
+  });
+  const up = e => { pts.delete(e.pointerId); if (!pts.size) GLV.cam.drag = false; };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  el.addEventListener('click', e => { if (moved) { e.stopImmediatePropagation(); moved = false; } }, true);
+})();
+
 function vizFrame(ts) {
   VZ.raf = 0;
   const cvs = document.hidden || root.classList.contains('booting') ? [] : vizCanvases();
@@ -5989,10 +6362,16 @@ function vizFrame(ts) {
   if ((state.anim === 'lite' || idleSlow()) && ts - (VZ.lastDraw || 0) < 31) return;
   VZ.lastDraw = ts;
   const f = vizRead(ts), t = current(), img = t && coverImg(t);
-  for (const cv of cvs) {
-    const [W, H] = vizSize(cv), g = cv.getContext('2d');
-    if (VZ.scene === 'ondas') vizOndas(g, W, H, f); else if (VZ.scene === 'galaxia') vizGalaxia(g, W, H, f); else vizOrbita(g, W, H, f, img);
+  try { plRead(ts); } catch {}
+  const useGL = glWanted(); if (useGL) glTick(f, ts);
+  for (let cv of cvs) {
+    if (useGL) { cv = vizSwap(cv, 'gl'); let ok = false; try { ok = glDraw(cv, f, ts); } catch (e) { diag('visualizador 3D: ' + String(e.message || e).slice(0, 100)); GLV.ok = false; } if (ok) continue; }
+    cv = vizSwap(cv, '2d');
+    const g = cv.getContext('2d'); if (!g) continue;
+    const [W, H] = vizSize(cv), sc = VIZ_2D[VZ.scene] || 'orbita';
+    if (sc === 'ondas') vizOndas(g, W, H, f); else if (sc === 'galaxia') vizGalaxia(g, W, H, f); else vizOrbita(g, W, H, f, img);
   }
+  GLV.rebuild = false;
 }
 function vizKick() { if (!VZ.raf && !document.hidden && vizCanvases().length) { wakeCtx(); ensureGraph(); VZ.raf = requestAnimationFrame(vizFrame); } }
 function setVizNP(on) {
@@ -6001,11 +6380,26 @@ function setVizNP(on) {
   $('#np').classList.toggle('viz-open', on); $('#npVizBtn').setAttribute('aria-pressed', on);
   vizKick();
 }
+function vizSetScene(sc) {
+  const it = VIZ_SCENES.find(s => s[0] === sc) || VIZ_SCENES[0];
+  VZ.scene = it[0]; LS.set('vizScene', VZ.scene); VZ.parts = []; VZ.stars = []; GLV.hist = []; GLV.palKey = '';
+  $$('[data-viz-scene-label]').forEach(e => { e.textContent = it[1]; });
+  renderVizPanel();
+}
+/* the settings of the look you're seeing (fullscreen › Ajustes) */
+function renderVizPanel() {
+  const p = $('#vfPanel'); if (!p) return;
+  const o = vizOpts(), gl = glWanted();
+  p.querySelectorAll('[data-vz-scene]').forEach(b => b.setAttribute('aria-pressed', b.dataset.vzScene === VZ.scene));
+  p.querySelectorAll('[data-vz-detail]').forEach(b => b.setAttribute('aria-pressed', b.dataset.vzDetail === o.detail));
+  p.querySelectorAll('[data-vz-color]').forEach(b => b.setAttribute('aria-pressed', b.dataset.vzColor === o.color));
+  $('#vfSpeed').value = o.speed; $('#vfSens').value = o.sens; $('#vfHue').value = o.hue;
+  $('#vfHueRow').hidden = o.color !== 'libre';
+  $('#vfNote').textContent = !gl ? 'Con las animaciones «Ligeras» (o si el móvil no puede) se ven los visualizadores clásicos.' : ['galaxia', 'orbita', 'particulas'].includes(VZ.scene) ? 'Arrastra para girarlo · pellizca para acercarlo.' : '';
+}
 function vizNextScene() {
   const i = VIZ_SCENES.findIndex(s => s[0] === VZ.scene), nx = VIZ_SCENES[(i + 1) % VIZ_SCENES.length];
-  VZ.scene = nx[0]; LS.set('vizScene', VZ.scene); VZ.parts = []; VZ.stars = [];
-  $$('[data-viz-scene-label]').forEach(e => { e.textContent = nx[1]; });
-  toast(`Visualizador: ${nx[1]}`);
+  vizSetScene(nx[0]); toast(`Visualizador: ${nx[1]}`);
 }
 function openVizFull() {
   const t = current();
@@ -6021,11 +6415,35 @@ function closeVizFull(fromPop) {
 }
 $('#npVizBtn').onclick = () => setVizNP(!VZ.np);
 $('#npViz').addEventListener('click', e => { if (e.target.closest('[data-act="viz-scene"]')) { vizNextScene(); return; } openVizFull(); });
-$('#vizFull').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b && b.dataset.act === 'viz-scene') { vizNextScene(); return; } if (b && b.dataset.act === 'viz-close') { closeVizFull(); return; } $('#vizFull').classList.toggle('chrome'); });
+$('#vizFull').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (b && b.dataset.act === 'viz-scene') { vizNextScene(); return; }
+  if (b && b.dataset.act === 'viz-close') { closeVizFull(); return; }
+  if (b && b.dataset.act === 'viz-opts') { const p = $('#vfPanel'); p.hidden = !p.hidden; renderVizPanel(); return; }
+  const pn = e.target.closest('.vf-panel');
+  if (pn) {
+    const x = e.target.closest('button'); if (!x) return;
+    if (x.dataset.vzScene) vizSetScene(x.dataset.vzScene);
+    else if (x.dataset.vzDetail) { setVizOpt('detail', x.dataset.vzDetail); renderVizPanel(); }
+    else if (x.dataset.vzColor) { setVizOpt('color', x.dataset.vzColor); renderVizPanel(); }
+    else if (x.dataset.act === 'vf-reset') { const all = LS.get('vizOpts', {}) || {}; delete all[VZ.scene]; LS.set('vizOpts', all); GLV.palKey = ''; GLV.rebuild = true; GLV.cam.zoom = 1; GLV.cam.pitch = 0.5; renderVizPanel(); }
+    return;
+  }
+  if (!$('#vfPanel').hidden) { $('#vfPanel').hidden = true; return; }
+  $('#vizFull').classList.toggle('chrome');
+});
+$('#vfSpeed').addEventListener('input', e => setVizOpt('speed', +e.target.value));
+$('#vfSens').addEventListener('input', e => setVizOpt('sens', +e.target.value));
+$('#vfHue').addEventListener('input', e => setVizOpt('hue', +e.target.value));
 $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '4.0': [
+    '<b>Visualizadores nuevos, con la gráfica del móvil</b>: una galaxia en 3D con miles de estrellas, nubes con los colores de la portada, un núcleo que late con el bombo y estrellas fugaces con la caja; Órbita con anillos hechos de música alrededor del planeta-portada; Ondas de luz; Montañas que avanzan hacia ti; Aurora; Túnel; y Partículas, la portada hecha de miles de puntos que bailan.',
+    '<b>Cada uno con sus ajustes</b>: a pantalla completa, «Ajustes»: detalle, velocidad, sensibilidad y color (el de la portada, el de Órbita o el que elijas). Arrastra para girar la galaxia, Órbita o la portada, y pellizca para acercarte.',
+    'Con las animaciones «Ligeras» se ven los tres visualizadores de siempre.'
+  ],
   '3.9': [
     '<b>Pausa suave cuando suena otra app</b>: si pones un vídeo de TikTok, una nota de voz o cualquier otro audio, la música se va apagando y se pausa (también con la pantalla apagada). Si era algo corto, vuelve sola subiendo poco a poco.',
     '<b>Auriculares desconectados</b>: si se apagan, se quedan sin batería o se desconectan, la música se pausa enseguida con un fundido corto y no sigue sonando por el altavoz.',
@@ -7924,7 +8342,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, naSyncNext, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, naSyncNext, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
 boot();
 })();
 }
