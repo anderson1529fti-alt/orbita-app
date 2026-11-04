@@ -2,7 +2,9 @@
 
 Nova y el reproductor
 - Nova estrena aura: un anillo de colores que gira despacio y brilla más cuando te habla.
-- El reproductor se abre con animación: sube desde donde lo tocas (la barra de abajo, el vinilo…) y la portada crece hasta su sitio. Al cerrarlo, hace lo mismo al revés.
+- El reproductor sigue a tu dedo: arrastra la barra de abajo hacia arriba y sube contigo; arrástralo hacia abajo y se cierra. Si lo sueltas a medias, termina o vuelve desde donde está.
+- Si lo tocas, se abre con animación: sube desde donde lo tocas (la barra de abajo, el vinilo…) y la portada crece hasta su sitio.
+- Más fluido: el fondo difuminado del reproductor se prepara una vez por canción (antes el móvil lo rehacía en cada fotograma mientras se movía) y el reproductor queda preparado aunque esté cerrado, así que se abre sin esperar.
 - Con las animaciones ligeras o con «reducir movimiento» del móvil, se abre al momento, como antes.
 
 Cambios de canción sin distorsión

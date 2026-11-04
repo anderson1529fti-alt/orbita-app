@@ -449,7 +449,17 @@ html.booting .bg::before,html.booting .ticker-track,html.booting .dj-avatar .rin
 .np{position:fixed;inset:0;z-index:55;display:grid;place-items:center;background:var(--bg);overflow:hidden}
 .np-ghost{position:fixed;z-index:60;overflow:hidden;border-radius:22px;transform-origin:0 0;pointer-events:none;will-change:transform;box-shadow:0 30px 60px -20px rgba(0,0,0,.8)}
 .np-ghost img{width:100%;height:100%;object-fit:cover;display:block}.np-ghost .art-ph{width:100%;height:100%;display:grid;place-items:center;font-size:7rem}
+/* while it moves: rounded top corners that don't change (changing them would repaint the whole player every frame) */
+.np.np-moving{will-change:transform;contain:layout paint;border-radius:24px 24px 0 0;box-shadow:0 -20px 50px -20px rgba(0,0,0,.7)}
+/* closed, the player stays built (invisible, below the screen) instead of being thrown away: opening it no longer
+   has to lay out and paint the whole screen first, which was the delay at the start of the drag */
+.np[hidden]{display:grid!important;visibility:hidden;transform:translate3d(0,100%,0);pointer-events:none;contain:layout paint style}
+/* the vertical drag belongs to the app: the bar below doesn't scroll anything, and the player doesn't bounce at the top */
+.player{touch-action:pan-x}.np-inner{overscroll-behavior-y:contain}
+.np.np-moving .np-inner{will-change:transform,opacity;pointer-events:none}
+.np.np-moving .np-bg{will-change:transform}
 .np-bg{position:absolute;inset:-60px;background-size:cover;background-position:center;filter:blur(50px) saturate(1.4) brightness(.45);transform:scale(1.1)}
+.np-bg.soft{filter:none;background-size:100% 100%}
 .np-bg.ph{filter:none;background:radial-gradient(60% 50% at 30% 20%,var(--glow),transparent 70%),radial-gradient(60% 60% at 80% 90%,hsla(calc(var(--accent-h) - 45),90%,50%,.3),transparent 70%),var(--bg)}
 .np-inner{position:relative;width:min(460px,100%);max-height:100%;overflow-y:auto;display:flex;flex-direction:column;gap:18px;padding-block:max(20px,env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-bottom,0px));padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
 .np-inner>*{flex-shrink:0}

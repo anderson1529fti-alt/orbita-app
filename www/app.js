@@ -1921,60 +1921,150 @@ function renderQueue() {
   };
   art.addEventListener('pointerup', end); art.addEventListener('pointercancel', () => { x0 = null; art.style.transform = ''; });
 })();
+(() => {
+  const bar = document.querySelector('.player'), np = $('#np'), inner = np.querySelector('.np-inner');
+  const skip = el => !!(el && el.closest && el.closest('input,select,textarea,.np-lyrics,.np-queue,.seek,[role="slider"]'));
+  let d = null;
+  const vel = (y, t) => { d.v = (y - d.ly) / Math.max(1, t - d.lt); d.ly = y; d.lt = t; };
+  /* up, on the bar below */
+  bar.addEventListener('touchstart', e => { if (e.touches.length !== 1 || skip(e.target) || !np.hidden) { d = null; return; } const t = e.touches[0]; d = { k: 'up', x0: t.clientX, y0: t.clientY, ly: t.clientY, lt: e.timeStamp, v: 0, on: false }; }, { passive: true });
+  bar.addEventListener('touchmove', e => {
+    if (!d || d.k !== 'up') return; const t = e.touches[0], dx = t.clientX - d.x0, dy = d.y0 - t.clientY;
+    if (!d.on) { if (dy > 10 && dy > Math.abs(dx) * 1.2) { d.on = true; d.base = t.clientY; openNP($('#plCover'), { drag: true }); } else if (Math.abs(dx) > 14 || dy < -14) { d = null; return; } else return; }
+    e.preventDefault(); vel(t.clientY, e.timeStamp);
+    cancelAnimationFrame(NPM.raf); npPaint((d.base - t.clientY) / NPM.top);
+  }, { passive: false });
+  const upEnd = () => {
+    if (!d || d.k !== 'up' || !d.on) { d = null; return; }
+    NPM.noClick = Date.now();
+    if (NPM.p > 0.3 || d.v < -0.45) npAnimate(1, npOpened); else closeNP();
+    d = null;
+  };
+  bar.addEventListener('touchend', upEnd); bar.addEventListener('touchcancel', upEnd);
+  bar.addEventListener('click', e => { if (Date.now() - NPM.noClick < 450) { e.stopPropagation(); e.preventDefault(); } }, true);
+  /* down, on the player (only when it's scrolled to the top, so reading the queue or the lyrics still scrolls) */
+  np.addEventListener('touchstart', e => { if (e.touches.length !== 1 || np.hidden || NPM.closing || skip(e.target) || inner.scrollTop > 2) { d = null; return; } const t = e.touches[0]; d = { k: 'down', x0: t.clientX, y0: t.clientY, ly: t.clientY, lt: e.timeStamp, v: 0, on: false }; }, { passive: true });
+  np.addEventListener('touchmove', e => {
+    if (!d || d.k !== 'down') return; const t = e.touches[0], dx = t.clientX - d.x0, dy = t.clientY - d.y0;
+    if (!d.on) { if (dy > 10 && dy > Math.abs(dx) * 1.2 && inner.scrollTop <= 2) { d.on = true; d.base = t.clientY; cancelAnimationFrame(NPM.raf); npStart(null); } else if (Math.abs(dx) > 14 || dy < -10) { d = null; return; } else return; }
+    e.preventDefault(); vel(t.clientY, e.timeStamp);
+    npPaint(1 - (t.clientY - d.base) / NPM.top);
+  }, { passive: false });
+  const downEnd = () => {
+    if (!d || d.k !== 'down' || !d.on) { d = null; return; }
+    if (NPM.p < 0.7 || d.v > 0.5) closeNP(); else npAnimate(1, npOpened);
+    d = null;
+  };
+  np.addEventListener('touchend', downEnd); np.addEventListener('touchcancel', downEnd);
+})();
+const npSoft = new Map();
+function npSoftBg(bg, u) {
+  if (bg.dataset.u === u) return;
+  bg.dataset.u = u;
+  const done = npSoft.get(u);
+  if (done) { bg.style.backgroundImage = `url("${done}")`; bg.classList.add('soft'); return; }
+  bg.classList.remove('soft'); bg.style.backgroundImage = `url("${u}")`;   // the old way until the small one is ready
+  const img = new Image();
+  img.onload = () => {
+    try {
+      /* the element is the screen plus 60 px each side; 1/8 of that, blurred 50/8 px: the same look */
+      const W = Math.max(8, Math.round((innerWidth + 120) / 8)), H = Math.max(8, Math.round((innerHeight + 120) / 8));
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'); if (!('filter' in g)) return;
+      const k = Math.max(W / img.naturalWidth, H / img.naturalHeight), w = img.naturalWidth * k, h = img.naturalHeight * k;
+      /* like the CSS blur: near the edges it mixes with nothing, so they get darker too */
+      g.filter = 'blur(8px) saturate(1.4) brightness(.45)';
+      g.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+      const url = c.toDataURL('image/jpeg', 0.85);
+      npSoft.set(u, url); if (npSoft.size > 30) npSoft.delete(npSoft.keys().next().value);
+      if (bg.dataset.u === u) { bg.style.backgroundImage = `url("${url}")`; bg.classList.add('soft'); }
+    } catch {}   // a cover from another site can't be read: the old blur stays
+  };
+  img.src = u;
+}
 function renderNP() {
   renderAbout(current());
   const t = current();
   $('#npArt').innerHTML = bigArtHTML(t);
   const u = coverUrl(t, 'full'); const bg = $('#npBg');
-  if (u) { bg.classList.remove('ph'); bg.style.backgroundImage = `url("${u}")`; } else { bg.classList.add('ph'); bg.style.backgroundImage = ''; }
+  if (u) { bg.classList.remove('ph'); npSoftBg(bg, u); } else { bg.classList.add('ph'); bg.classList.remove('soft'); bg.style.backgroundImage = ''; bg.dataset.u = ''; }
   $('#npTitle').textContent = t ? t.title : 'Nada sonando';
   $('#npArtist').textContent = t ? t.artist : 'Gira la ruleta o pídele algo a la DJ';
   $('#npSrc').textContent = !t ? 'Ahora suena' : t.kind === 'radio' ? 'Radio por internet · en directo' : t.kind === 'yt' ? (t.clipOf ? 'Videoclip · YouTube' : 'Vídeo de YouTube') : t.net ? 'Avance de 30 s por internet' : state.source === 'radio' ? 'Órbita FM · modo radio' : state.source === 'daily' ? 'Tu mezcla del día' : state.source === 'mix' ? `Mezcla · ${state.mix?.name || ''}` : 'Desde tu biblioteca';
   const al = $('#npAlbum'); al.hidden = !(t && t.album); if (t && t.album) al.textContent = t.album;
-  renderQueue();
+  if (!(NPM && NPM.defer)) renderQueue();
 }
+var NPM = { p: 1, on: false, raf: 0, defer: false, closing: false, ghost: null, top: 0, s: 1, dx: 0, dy: 0, after: [], drag: null, noClick: 0 };
 const npMotion = () => !reduceMotion && state.anim !== 'lite' && !root.classList.contains('lite');
-let npAnimJob = null;
 function npRect(el) { if (!el || !el.getBoundingClientRect) return null; const r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4 && r.bottom > 0 && r.top < innerHeight ? r : null; }
-function npFly(open, fromEl, done) {
-  const np = $('#np'), art = $('#npArt'), inner = np.querySelector('.np-inner');
-  if (npAnimJob) { const j = npAnimJob; npAnimJob = null; j.stop(); }   // one still running (closing while it opens): cleaned up now
-  const r0 = npRect(fromEl) || npRect($('#plCover')) || npRect(document.querySelector('.player'));
+const npEase = x => 1 - Math.pow(1 - x, 3);
+function npLater(fn) { if (NPM.on) NPM.after.push(fn); else setTimeout(fn, 30); }
+/* Gets the moving parts ready: measures where the cover is now (fromEl) and where it will be, and makes its stand-in */
+function npStart(fromEl) {
+  const np = $('#np'), inner = np.querySelector('.np-inner'), art = $('#npArt');
+  if (NPM.on) return;
+  NPM.on = true; np.classList.add('np-moving');
+  np.style.transform = ''; inner.style.transform = ''; inner.style.opacity = '';
+  const bar = npRect(document.querySelector('.player')), r0 = npRect(fromEl) || npRect($('#plCover')) || bar;
+  NPM.top = Math.max(60, Math.min(innerHeight - 40, bar ? bar.top : r0 ? r0.top : innerHeight * 0.8));
   const r1 = np.classList.contains('yt-on') ? null : npRect(art);
-  if (!npMotion() || !r0 || !np.animate) { done && done(); return; }
-  const D = open ? 380 : 300, ease = open ? 'cubic-bezier(.2,.8,.2,1)' : 'cubic-bezier(.4,0,.6,1)';
-  const top = Math.max(0, Math.min(innerHeight - 40, r0.top));
-  const sheet = [{ transform: `translateY(${top}px)`, borderRadius: '24px 24px 0 0' }, { transform: 'none', borderRadius: '0' }];
-  const fade = [{ opacity: 0, transform: 'translateY(26px)' }, { opacity: 0, transform: 'translateY(26px)', offset: 0.3 }, { opacity: 1, transform: 'none' }];
-  const anims = [np.animate(open ? sheet : sheet.slice().reverse(), { duration: D, easing: ease, fill: 'both' }),
-    inner.animate(open ? fade : fade.slice().reverse(), { duration: D, easing: ease, fill: 'both' })];
-  let ghost = null;
-  if (r1) {
-    ghost = document.createElement('div'); ghost.className = 'np-ghost'; ghost.setAttribute('aria-hidden', 'true'); ghost.innerHTML = art.innerHTML;
-    Object.assign(ghost.style, { left: r1.left + 'px', top: r1.top + 'px', width: r1.width + 'px', height: r1.height + 'px' });
-    document.body.appendChild(ghost); art.style.visibility = 'hidden';
-    const s = r0.width / r1.width, from = { transform: `translate(${r0.left - r1.left}px,${r0.top - r1.top}px) scale(${s})`, borderRadius: (12 / s) + 'px' }, to = { transform: 'none', borderRadius: '22px' };
-    anims.push(ghost.animate(open ? [from, to] : [to, from], { duration: D, easing: ease, fill: 'both' }));
+  if (r0 && r1) {
+    const g = document.createElement('div'); g.className = 'np-ghost'; g.setAttribute('aria-hidden', 'true'); g.innerHTML = art.innerHTML;
+    Object.assign(g.style, { left: r1.left + 'px', top: r1.top + 'px', width: r1.width + 'px', height: r1.height + 'px' });
+    document.body.appendChild(g); art.style.visibility = 'hidden';
+    NPM.ghost = g; NPM.s = r0.width / r1.width; NPM.dx = r0.left - r1.left; NPM.dy = r0.top - r1.top;
   }
-  const job = { stop() { if (ghost) ghost.remove(); art.style.visibility = ''; anims.forEach(a => { try { a.cancel(); } catch {} }); } };
-  npAnimJob = job;
-  anims[0].onfinish = () => { if (npAnimJob !== job) return; npAnimJob = null; job.stop(); done && done(); };
 }
-function openNP(fromEl) {
-  const wasHidden = $('#np').hidden;
-  if ($('#np').dataset.closing) { delete $('#np').dataset.closing; if (npAnimJob) { const j = npAnimJob; npAnimJob = null; j.stop(); } }   // reopened while closing
-  $('#np').hidden = false; updatePlayer(); renderNP(); $('#np .np-close').focus({ preventScroll: true });
-  if (wasHidden) { haptic(6); npFly(true, fromEl && fromEl.nodeType === 1 ? fromEl : null); }
+/* Draws the player at p (0 = down in the bar, 1 = open) */
+function npPaint(p) {
+  NPM.p = p = Math.max(0, Math.min(1, p));
+  const np = $('#np'), inner = np.querySelector('.np-inner'), q = 1 - p;
+  np.style.transform = q > 0.001 ? `translate3d(0,${(q * NPM.top).toFixed(1)}px,0)` : '';
+  const f = Math.max(0, Math.min(1, (p - 0.15) / 0.85));
+  inner.style.opacity = f < 1 ? f.toFixed(3) : '';
+  inner.style.transform = f < 1 ? `translate3d(0,${(26 * (1 - f)).toFixed(1)}px,0)` : '';
+  const g = NPM.ghost;
+  if (g) { const sc = NPM.s + (1 - NPM.s) * p; g.style.transform = `translate3d(${(NPM.dx * q).toFixed(1)}px,${(NPM.dy * q).toFixed(1)}px,0) scale(${sc.toFixed(4)})`; g.style.borderRadius = ((12 + 10 * p) / sc).toFixed(1) + 'px'; }
+}
+function npStop() {
+  cancelAnimationFrame(NPM.raf); NPM.raf = 0;
+  const np = $('#np'), inner = np.querySelector('.np-inner');
+  if (NPM.ghost) { NPM.ghost.remove(); NPM.ghost = null; }
+  $('#npArt').style.visibility = ''; np.style.transform = ''; inner.style.opacity = ''; inner.style.transform = '';
+  np.classList.remove('np-moving'); NPM.on = false;
+}
+/* From where it is now to `to`, with a soft stop. Quicker the less there is to go (and after a flick) */
+function npAnimate(to, done, ms) {
+  cancelAnimationFrame(NPM.raf);
+  const from = NPM.p, d = ms != null ? ms : Math.max(140, 360 * Math.abs(to - from));
+  if (!npMotion() || Math.abs(to - from) < 0.002) { npPaint(to); done(); return; }
+  const t0 = performance.now();
+  const step = t => { const x = Math.min(1, (t - t0) / d); npPaint(from + (to - from) * npEase(x)); if (x < 1) NPM.raf = requestAnimationFrame(step); else { NPM.raf = 0; done(); } };
+  NPM.raf = requestAnimationFrame(step);
+}
+function npOpened() {
+  npStop(); NPM.p = 1;
+  if (NPM.defer) { NPM.defer = false; renderQueue(); }
+  const a = NPM.after.splice(0); a.forEach(fn => { try { fn(); } catch {} });
+}
+function openNP(fromEl, opt) {
+  const np = $('#np'), wasHidden = np.hidden, back = NPM.closing, drag = !!(opt && opt.drag);
+  if (wasHidden) { NPM.defer = true; NPM.p = 0; }
+  np.hidden = false; updatePlayer(); renderNP(); $('#np .np-close').focus({ preventScroll: true });
+  if (wasHidden) { np.querySelector('.np-inner').scrollTop = 0; npStart(fromEl && fromEl.nodeType === 1 ? fromEl : null); npPaint(0); haptic(6); }
+  NPM.closing = false;
+  if ((wasHidden || back) && !drag) npAnimate(1, npOpened);
   $('#np').classList.toggle('ly-open', LY.on); $('#npLyBtn').setAttribute('aria-pressed', LY.on);
-  $('#np').classList.toggle('viz-open', VZ.np && !LY.on); $('#npVizBtn').setAttribute('aria-pressed', VZ.np && !LY.on); setTimeout(vizKick, 30);
+  $('#np').classList.toggle('viz-open', VZ.np && !LY.on); $('#npVizBtn').setAttribute('aria-pressed', VZ.np && !LY.on); npLater(vizKick);
   if (LY.on) { const t = current(); if (!t || LY.id !== t.id || !LY.rec) showLyrics(t); else lyricsTick(act().currentTime || 0, true); }
   if (STANDALONE) { try { history.pushState({ np: 1 }, '', location.hash || '#' + state.view); } catch {} }
   ytLayout();
 }
 function closeNP(fromPop) {
-  if ($('#np').hidden || $('#np').dataset.closing) return;
-  $('#np').dataset.closing = '1';
-  npFly(false, null, () => { delete $('#np').dataset.closing; $('#np').hidden = true; setTimeout(vizKick, 30); ytLayout(); });
+  if ($('#np').hidden || NPM.closing) return;
+  NPM.closing = true; NPM.after.length = 0;
+  if (!NPM.on) { npStart(null); npPaint(NPM.p = 1); }
+  npAnimate(0, () => { NPM.closing = false; npStop(); NPM.p = 1; if (NPM.defer) { NPM.defer = false; } $('#np').hidden = true; setTimeout(vizKick, 30); ytLayout(); });
   if (STANDALONE && !fromPop && history.state && history.state.np) { try { history.back(); } catch {} }
 }
 
@@ -5771,7 +5861,7 @@ $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
   '3.7': [
     '<b>Nova, con nueva aura</b>: un anillo de colores que gira y brilla más cuando te habla.',
-    '<b>El reproductor se abre con animación</b>: sube desde donde lo tocas y la portada crece hasta su sitio. Al cerrarlo, vuelve. (Con las animaciones ligeras o «reducir movimiento», se abre al momento.)',
+    '<b>El reproductor sigue a tu dedo</b>: arrastra la barra de abajo hacia arriba y sube contigo, con la portada creciendo hasta su sitio; arrástralo hacia abajo para cerrarlo. Un toque también lo abre con la misma animación.',
     '<b>Cambios de canción limpios</b>: cuando dos canciones fuertes se mezclaban, a veces sonaba distorsionado. El motor ahora baja las dos lo justo y vigila los picos antes de que lleguen: ya no cruje.',
     '<b>La música no se para en segundo plano</b>: con la radio, las mezclas sin fin o una lista larga, el motor tiene siempre canciones de sobra por delante, aunque Android duerma la app.',
     '<b>Elige cuánto dura cada cambio</b> (Ajustes › Sonido y mezclas): la duración del fundido vuelve a verse con todos los tipos de mezcla y ahora se respeta siempre, también en «Automática».'
