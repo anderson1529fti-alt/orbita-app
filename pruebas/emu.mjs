@@ -60,9 +60,11 @@ const playing = () => /state=(PLAYING\(3\)|3[,}])/.test((() => { const d = sessi
 const alive = () => /^\d+/.test(sh(`pidof ${PKG}`).trim());
 const fgService = () => { const d = sh(`dumpsys activity services ${PKG}`); return /isForeground=true/.test(d) ? 'en primer plano' : /ServiceRecord/.test(d) ? 'servicio sin primer plano' : 'sin servicio'; };
 // ---- lo que hay en pantalla según Android (también ve las pantallas nativas de Compose)
-function ui() {
+function ui(again = true) {
   sh('uiautomator dump /sdcard/ui.xml');
   const x = sh('cat /sdcard/ui.xml'), out = [];
+  // el emulador de pruebas va justo: si sale «tal app no responde» (del sistema, no de Órbita), «Esperar» y se mira otra vez
+  if (again && /isn&apos;t responding|isn't responding|no responde/.test(x)) { const m = x.match(/text="Wait"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/); log('  (aviso del sistema del emulador: ' + (x.match(/text="([^"]*respond[^"]*)"/) || [])[1] + ')'); if (m) sh(`input tap ${(+m[1] + +m[3]) / 2} ${(+m[2] + +m[4]) / 2}`); else sh('input keyevent KEYCODE_ENTER'); execSync('sleep 2'); return ui(false); }
   for (const m of x.matchAll(/<node [^>]*>/g)) {
     const g = k => { const r = m[0].match(new RegExp(' ' + k + '="([^"]*)"')); return r ? r[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)) : ''; };
     const b = (g('bounds').match(/\d+/g) || []).map(Number);
@@ -92,6 +94,8 @@ try {
   await sleep(4000);
   log('música en el emulador:', sh('content query --uri content://media/external/audio/media --projection title').split('\n').filter(l => /title=/.test(l)).length, 'canciones');
 
+  // que los avisos de «no responde» del propio emulador no tapen la pantalla
+  sh('settings put global hide_error_dialogs 1'); sh('settings put secure anr_show_background 0');
   // ---- instalar y abrir
   const apk = 'android/app/build/outputs/apk/debug/app-debug.apk';
   const inst = adb(`install -r -g ${apk}`, { timeout: 240000 });
@@ -242,6 +246,7 @@ try {
   sh(`dumpsys gfxinfo ${PKG} reset`);
   for (let k = 0; k < 4; k++) { sh('input swipe 540 1450 540 400 250'); await sleep(700); sh('input swipe 540 400 540 1450 250'); await sleep(700); }
   log('fluidez de la lista nativa:', gfx());
+  fs.writeFileSync(`${OUT}/gfx.txt`, adb(`shell dumpsys gfxinfo ${PKG}`).slice(0, 6000));
   shot('nativa-final');
   check('sin cierres por error en las pruebas de la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
   await goView('inicio'); await sleep(800);

@@ -123,7 +123,8 @@ internal class Pal(h: Float, s: Float, glowK: Float, black: Boolean) {
     val grad: Brush get() = Brush.horizontalGradient(listOf(accent, accent2))
 }
 
-internal class Skin(val pal: Pal, val round: Float, val tk: Float, val titles: String) {
+internal class Skin(val pal: Pal, val round: Float, val tk: Float, val titles: String, val b: Dp) {
+    // b: el grosor de un borde de «1 px» de la web (el navegador lo dibuja con píxeles enteros del móvil)
     val display: FontFamily get() = when (titles) { "limpia" -> Body; "retro" -> Mono; else -> Display }
     /** El peso «muy negro» de los títulos, según la letra elegida (como hace el navegador con lo que hay). */
     val displayWeight: FontWeight get() = when (titles) { "limpia" -> FontWeight.ExtraBold; "retro" -> FontWeight.SemiBold; else -> FontWeight.Black }
@@ -206,8 +207,8 @@ private fun Btn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: 
     var m = modifier
     if (primary) m = m.glow(p.glow, ((if (small) 11f else 14f) * sk.round).dp, 30.dp, 10.dp, (-10).dp)
     m = m.press(enabled = enabled, onClick = onClick).clip(shape)
-    m = if (primary) m.background(p.grad) else m.background(Color.White.copy(alpha = 0.04f)).border(1.dp, p.line2, shape)
-    Row(m.graphicsLayer { alpha = if (enabled) 1f else 0.5f }.padding(horizontal = if (small) 14.dp else 19.dp, vertical = if (small) 9.dp else 13.dp),
+    m = if (primary) m.background(p.grad) else m.background(Color.White.copy(alpha = 0.04f)).border(sk.b, p.line2, shape)
+    Row(m.graphicsLayer { alpha = if (enabled) 1f else 0.5f }.padding(horizontal = (if (small) 13.dp else 18.dp) + sk.b, vertical = (if (small) 8.dp else 12.dp) + sk.b),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (icon != null) Ico(icon, 18f, if (primary) p.onAccent else p.fg, sw = 2.4f)
         T(text, (if (small) 13.6f else 15f) * sk.tk, if (primary) p.onAccent else p.fg, weight = FontWeight.ExtraBold, maxLines = 1)
@@ -263,8 +264,8 @@ private fun TrackRow(t: UiTrack, playing: Boolean, sk: Skin, onPlay: () -> Unit)
     var armed by remember(t.id) { mutableStateOf(false) }
     if (armed) LaunchedEffect(t.id) { delay(3000); armed = false }
     var m = Modifier.fillMaxWidth().padding(bottom = 2.dp).clip(shape)
-    if (playing) m = m.background(Brush.horizontalGradient(0f to p.wash, 0.7f to Color.Transparent)).border(1.dp, p.accent.copy(alpha = 0.25f), shape)
-    Row(m.padding(horizontal = 7.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    if (playing) m = m.background(Brush.horizontalGradient(0f to p.wash, 0.7f to Color.Transparent)).border(sk.b, p.accent.copy(alpha = 0.25f), shape)
+    Row(m.padding(horizontal = 6.dp + sk.b, vertical = 5.dp + sk.b), verticalAlignment = Alignment.CenterVertically) {
         // la canción (tocar = ponerla)
         Row(Modifier.weight(1f).press(0.98f, onClick = onPlay).padding(horizontal = 2.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
             Cover(t, sk)
@@ -288,7 +289,7 @@ private fun TrackRow(t: UiTrack, playing: Boolean, sk: Skin, onPlay: () -> Unit)
         if (t.demo) Spacer(Modifier.width(40.dp))
         else if (armed) {
             // segundo toque para confirmar (como en la app)
-            Box(Modifier.height(34.dp).press { armed = false; UiState.send("del") { it.put("id", t.id) } }.clip(sk.r(10f)).border(1.dp, p.bad, sk.r(10f)).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.height(34.dp).press { armed = false; UiState.send("del") { it.put("id", t.id) } }.clip(sk.r(10f)).border(sk.b, p.bad, sk.r(10f)).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
                 T("¿Borrar?", 12.8f * sk.tk, p.bad, weight = FontWeight.ExtraBold, maxLines = 1)
             }
         } else Row(Modifier.width(40.dp)) {
@@ -300,7 +301,7 @@ private fun TrackRow(t: UiTrack, playing: Boolean, sk: Skin, onPlay: () -> Unit)
 
 @Composable
 private fun Pill(text: String, color: Color, border: Color, sk: Skin) {
-    Box(Modifier.padding(start = 7.dp).border(1.dp, border, RoundedCornerShape(999.dp)).padding(horizontal = 7.dp, vertical = 2.dp)) {
+    Box(Modifier.padding(start = 7.dp).border(sk.b, border, RoundedCornerShape(999.dp)).padding(horizontal = 7.dp + sk.b, vertical = 2.dp + sk.b)) {
         T(text.uppercase(), 9.92f * sk.tk, color, family = Mono, weight = FontWeight.SemiBold, ls = 0.1f, lh = 1.3f, maxLines = 1)
     }
 }
@@ -320,7 +321,8 @@ fun LibraryScreen() {
     val h by animateFloatAsState(look.h, tween(1100), label = "h")
     val s by animateFloatAsState(look.s, tween(1100), label = "s")
     val pal = remember(h, s, look.glowK, look.black) { Pal(h, s, look.glowK, look.black) }
-    val sk = remember(pal, look.round, look.tk, look.titles) { Skin(pal, look.round, look.tk, look.titles) }
+    val dens = LocalDensity.current.density
+    val sk = remember(pal, look.round, look.tk, look.titles, dens) { Skin(pal, look.round, look.tk, look.titles, (maxOf(1f, kotlin.math.floor(dens)) / dens).dp) }
     val all = UiState.tracks
     val filter = UiState.filter
     val sort = UiState.sort
@@ -357,7 +359,7 @@ fun LibraryScreen() {
             // ---- aviso de canciones con poca calidad
             if (UiState.warn.isNotEmpty()) item(key = "#warn") {
                 val shape = sk.r(14f)
-                Box(Modifier.fillMaxWidth().clip(shape).background(hsl(350f, 1f, 0.60f, 0.08f)).border(1.dp, hsl(350f, 1f, 0.70f, 0.35f), shape).padding(horizontal = 17.dp, vertical = 15.dp)) {
+                Box(Modifier.fillMaxWidth().clip(shape).background(hsl(350f, 1f, 0.60f, 0.08f)).border(sk.b, hsl(350f, 1f, 0.70f, 0.35f), shape).padding(horizontal = 16.dp + sk.b, vertical = 14.dp + sk.b)) {
                     BasicText(buildAnnotatedString {
                         withStyle(SpanStyle(color = pal.bad, fontWeight = FontWeight.Bold)) { append(UiState.warn) }
                         append(" " + UiState.warnText)
@@ -370,7 +372,7 @@ fun LibraryScreen() {
                 item(key = "#dev") {
                     val shape = sk.r(16f)
                     Row(Modifier.fillMaxWidth().glow(pal.glow, (16f * sk.round).dp, 30.dp, 0.dp, (-12).dp).clip(shape)
-                        .background(Brush.horizontalGradient(listOf(pal.wash, Color.Black.copy(alpha = 0.35f)))).border(1.dp, pal.accent, shape).padding(horizontal = 17.dp, vertical = 15.dp),
+                        .background(Brush.horizontalGradient(listOf(pal.wash, Color.Black.copy(alpha = 0.35f)))).border(sk.b, pal.accent, shape).padding(horizontal = 16.dp + sk.b, vertical = 14.dp + sk.b),
                         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             T(b.title, 15f * sk.tk, pal.fg, family = sk.display, weight = sk.displayWeight, ls = -0.01f)
@@ -401,7 +403,7 @@ fun LibraryScreen() {
                 }
                 Spacer(Modifier.height(26.dp))
                 // la cabecera de la tabla
-                Row(Modifier.fillMaxWidth().drawBehind { drawLine(pal.line, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }.padding(start = 6.dp, end = 6.dp, bottom = 8.dp)) {
+                Row(Modifier.fillMaxWidth().drawBehind { drawLine(pal.line, Offset(0f, size.height - sk.b.toPx() / 2), Offset(size.width, size.height - sk.b.toPx() / 2), sk.b.toPx()) }.padding(start = 6.dp, end = 6.dp, bottom = 8.dp + sk.b)) {
                     T("CANCIÓN", 10.88f * sk.tk, pal.faint, Modifier.weight(1f), family = Mono, ls = 0.12f, maxLines = 1)
                     Spacer(Modifier.width(10.dp))
                     T("DUR.", 10.88f * sk.tk, pal.faint, Modifier.width(46.dp), family = Mono, ls = 0.12f, align = TextAlign.End, maxLines = 1)
@@ -460,7 +462,7 @@ private fun SearchBox(sk: Skin, onFocus: () -> Unit) {
     val p = sk.pal
     val shape = sk.r(13f)
     val focus = LocalFocusManager.current
-    Row(Modifier.fillMaxWidth().height((22.5f + 21.75f * sk.tk).dp).clip(shape).background(Color.Black.copy(alpha = 0.35f)).border(1.dp, p.line2, shape).padding(horizontal = 15.dp),
+    Row(Modifier.fillMaxWidth().height(20.dp + sk.b * 2 + (23.75f * sk.tk).dp).clip(shape).background(Color.Black.copy(alpha = 0.35f)).border(sk.b, p.line2, shape).padding(horizontal = 14.dp + sk.b),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Ico(I_SEARCH, 16f, p.muted, sw = 2.2f)
         BasicTextField(
@@ -485,10 +487,10 @@ private fun Seg(sk: Skin) {
     val opts = ArrayList<Pair<String, String>>()
     opts.add("all" to "Todas"); opts.add("liked" to "Favoritas"); opts.add("mine" to "Mi voz")
     if (UiState.showDev) opts.add("dev" to "Del móvil")
-    Row(Modifier.clip(shape).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, p.line2, shape).padding(1.dp).height(IntrinsicSize.Min)) {
+    Row(Modifier.clip(shape).background(Color.Black.copy(alpha = 0.3f)).border(sk.b, p.line2, shape).padding(sk.b).height(IntrinsicSize.Min)) {
         opts.forEachIndexed { i, (id, name) ->
             val on = UiState.filter == id
-            if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(p.line2))
+            if (i > 0) Box(Modifier.width(sk.b).fillMaxHeight().background(p.line2))
             Box(Modifier.background(if (on) p.fg else Color.Transparent).clickable(remember { MutableInteractionSource() }, null) {
                 UiState.filter = id
                 UiState.send("pref") { it.put("filter", id) }
@@ -506,14 +508,14 @@ private fun SortSelect(sk: Skin) {
     var open by remember { mutableStateOf(false) }
     val label = SORTS.firstOrNull { it.first == UiState.sort }?.second ?: SORTS[0].second
     Box {
-        Row(Modifier.width(137.dp).clip(shape).background(p.panelSolid).border(1.dp, p.line2, shape).clickable(remember { MutableInteractionSource() }, null) { open = true }.padding(start = 13.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+        Row(Modifier.width(138.1.dp).clip(shape).background(p.panelSolid).border(sk.b, p.line2, shape).clickable(remember { MutableInteractionSource() }, null) { open = true }.padding(start = 13.dp, end = 6.dp, top = 7.dp + sk.b, bottom = 7.dp + sk.b),
             verticalAlignment = Alignment.CenterVertically) {
-            T(label, 13.12f * sk.tk, p.fg, Modifier.weight(1f), lh = 1.3f, maxLines = 1)
+            T(label, 13.12f * sk.tk, p.fg, Modifier.weight(1f), lh = 1.335f, maxLines = 1)
             Ico(I_DOWN, 14f, p.fg, sw = 2f)
         }
         if (open) Popup(alignment = Alignment.TopStart, offset = IntOffset(0, with(LocalDensity.current) { 36.dp.roundToPx() }), onDismissRequest = { open = false }) {
             val ps = sk.r(12f)
-            Column(Modifier.width(200.dp).glow(Color.Black.copy(alpha = 0.6f), 12.dp, 30.dp, 10.dp, 0.dp).clip(ps).background(p.panelSolid).border(1.dp, p.line2, ps).padding(vertical = 6.dp)) {
+            Column(Modifier.width(200.dp).glow(Color.Black.copy(alpha = 0.6f), 12.dp, 30.dp, 10.dp, 0.dp).clip(ps).background(p.panelSolid).border(sk.b, p.line2, ps).padding(vertical = 6.dp)) {
                 for ((id, name) in SORTS) {
                     val on = id == UiState.sort
                     Box(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {
