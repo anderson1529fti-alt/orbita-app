@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.result.ActivityResult
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +64,8 @@ object UiState {
     var toast by mutableStateOf("")
     var toastN by mutableStateOf(0)
     var toastMs = 2600L
+    /** Por dónde va la lista (fuera de la pantalla, para que la app pueda subirla al entrar en «Mi música»). */
+    val list = LazyListState()
     val covers = mutableStateMapOf<String, ImageBitmap>()
     val asked = HashSet<String>()
 
@@ -155,7 +158,7 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 1)
+        r.put("available", true); r.put("v", 2)
         call.resolve(r)
     }
 
@@ -163,9 +166,12 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun show(call: PluginCall) {
         readRect(call)
+        val top = call.getBoolean("top", false) == true
         activity.runOnUiThread {
             try {
                 ensureHost(); place()
+                // al entrar desde otra pestaña, la lista empieza arriba (como la pantalla de siempre)
+                if (top) UiState.list.requestScrollToItem(0)
                 host?.visibility = View.VISIBLE
                 call.resolve()
             } catch (t: Throwable) {
@@ -196,6 +202,19 @@ class OrbitaUiPlugin : Plugin() {
         call.resolve()
     }
 
+    /** Mover la lista: arriba del todo o al final. */
+    @PluginMethod
+    fun scroll(call: PluginCall) {
+        val end = call.getString("to", "top") == "end"
+        activity.runOnUiThread {
+            try {
+                val st = UiState.list
+                st.requestScrollToItem(if (end) maxOf(0, st.layoutInfo.totalItemsCount - 1) else 0)
+            } catch (ignored: Throwable) { }
+        }
+        call.resolve()
+    }
+
     @PluginMethod
     fun look(call: PluginCall) {
         val l = UiLook(num(call, "h", 276f), num(call, "s", 1f), num(call, "glowK", 1f), num(call, "round", 1f), num(call, "tk", 1f),
@@ -216,8 +235,10 @@ class OrbitaUiPlugin : Plugin() {
             var list: ArrayList<UiTrack>? = null
             if (arr != null) {
                 list = ArrayList(arr.length())
+                val seen = HashSet<String>()
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
+                    if (!seen.add(o.optString("id"))) continue   // (cada canción, una sola vez: la lista no admite repetidas)
                     list.add(UiTrack(o.optString("id"), o.optString("t"), o.optString("a"), o.optString("al"), o.optString("f"),
                         o.optDouble("d", 0.0), o.optDouble("ad", 0.0), o.optInt("p", 0), o.optDouble("lp", 0.0),
                         o.optInt("l") == 1, o.optInt("dm") == 1, o.optInt("mn") == 1, o.optInt("dv") == 1, o.optInt("c") == 1, o.optDouble("h", 280.0).toFloat()))

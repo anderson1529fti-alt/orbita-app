@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -39,8 +38,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,6 +67,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
@@ -95,7 +95,9 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.window.Popup
 import com.getcapacitor.JSArray
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
+import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------- el aspecto de Órbita (los mismos valores que su CSS)
 private val Body = FontFamily(
@@ -141,7 +143,20 @@ private fun T(
     text: String, size: Float, color: Color, modifier: Modifier = Modifier, family: FontFamily = Body, weight: FontWeight = FontWeight.Normal,
     lh: Float = 1.45f, ls: Float = 0f, maxLines: Int = Int.MAX_VALUE, align: TextAlign = TextAlign.Start, brush: Brush? = null
 ) {
-    BasicText(text, modifier, style = style(size, color, family, weight, lh, ls, align, brush), maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+    BasicText(text, modifier.lines(size * lh), style = style(size, color, family, weight, lh, ls, align, brush), maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+}
+
+/**
+ * El alto que ocupa el texto en la web: cada renglón mide justo lo que dice su CSS (con decimales). Android redondea
+ * cada renglón hacia arriba a píxeles enteros, y en una pantalla larga eso se va sumando.
+ */
+private fun Modifier.lines(lineDp: Float): Modifier = layout { measurable, constraints ->
+    val p = measurable.measure(constraints)
+    val exact = lineDp * density
+    val each = maxOf(1f, ceil(exact - 0.01f))
+    val n = maxOf(1, (p.height / each).roundToInt())
+    val hgt = maxOf(1, (n * exact).roundToInt())
+    layout(p.width, hgt) { p.place(0, (hgt - p.height) / 2) }
 }
 
 @Composable
@@ -336,9 +351,20 @@ fun LibraryScreen() {
     val rows = remember(all, filter, sort, search) { UiState.filtered(all, filter, sort, search) }
     val now = UiState.nowId
     val focus = LocalFocusManager.current
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
+    val listState = UiState.list
     val toolsIndex = 1 + (if (UiState.warn.isNotEmpty()) 1 else 0) + (if (UiState.dev != null) 1 else 0) + (if (UiState.drop.isNotEmpty()) 1 else 0)
+
+    // al buscar, la caja sube arriba del todo para que se vean los resultados con el teclado abierto (se repite cuando
+    // el teclado termina de abrirse y la pantalla encoge)
+    var searching by remember { mutableStateOf(false) }
+    val toolsUp = with(LocalDensity.current) { 18.dp.roundToPx() }
+    LaunchedEffect(searching, toolsIndex) {
+        if (!searching) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.viewportSize.height }.collectLatest {
+            delay(140)
+            listState.animateScrollToItem(toolsIndex, toolsUp)
+        }
+    }
 
     fun play(index: Int) {
         focus.clearFocus()
@@ -369,7 +395,7 @@ fun LibraryScreen() {
                     BasicText(buildAnnotatedString {
                         withStyle(SpanStyle(color = pal.bad, fontWeight = FontWeight.Bold)) { append(UiState.warn) }
                         append(" " + UiState.warnText)
-                    }, style = style(14.08f * sk.tk, pal.fg))
+                    }, Modifier.lines(14.08f * sk.tk * 1.45f), style = style(14.08f * sk.tk, pal.fg))
                 }
                 Spacer(Modifier.height(26.dp))
             }
@@ -393,14 +419,14 @@ fun LibraryScreen() {
             if (UiState.drop.isNotEmpty()) item(key = "#drop") {
                 val r = (20f * sk.round)
                 Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.25f), RoundedCornerShape(r.dp)).dashed(pal.line2, r.dp, 1.5.dp).padding(22.dp)) {
-                    BasicText(dropText(UiState.drop, pal.fg), style = style(15f * sk.tk, pal.muted))
+                    BasicText(dropText(UiState.drop, pal.fg), Modifier.lines(15f * sk.tk * 1.45f), style = style(15f * sk.tk, pal.muted))
                 }
                 Spacer(Modifier.height(26.dp))
             }
             // ---- buscar, filtrar, ordenar
             item(key = "#tools") {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SearchBox(sk) { scope.launch { try { listState.animateScrollToItem(toolsIndex) } catch (ignored: Throwable) { } } }
+                    SearchBox(sk) { searching = it }
                     Seg(sk)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         SortSelect(sk)
@@ -427,7 +453,7 @@ fun LibraryScreen() {
                     }, 15f * sk.tk, pal.muted)
                 }
             }
-            items(rows.size, key = { rows[it].id }) { i ->
+            items(rows.size, key = { "t:" + rows[it].id }) { i ->
                 val t = rows[i]
                 TrackRow(t, t.id == now, sk) { play(i) }
             }
@@ -464,7 +490,7 @@ private fun Modifier.dashed(color: Color, radius: Dp, width: Dp): Modifier = dra
 }
 
 @Composable
-private fun SearchBox(sk: Skin, onFocus: () -> Unit) {
+private fun SearchBox(sk: Skin, onFocus: (Boolean) -> Unit) {
     val p = sk.pal
     val shape = sk.r(13f)
     val focus = LocalFocusManager.current
@@ -472,7 +498,7 @@ private fun SearchBox(sk: Skin, onFocus: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Ico(I_SEARCH, 16f, p.muted, sw = 2.2f)
         BasicTextField(
-            value = UiState.search, onValueChange = { UiState.search = it.take(80) }, modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) onFocus() }, singleLine = true,
+            value = UiState.search, onValueChange = { UiState.search = it.take(80) }, modifier = Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) }, singleLine = true,
             textStyle = style(15f * sk.tk, p.fg), cursorBrush = SolidColor(p.accent),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
             decorationBox = { inner ->

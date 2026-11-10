@@ -5903,6 +5903,7 @@ function setView(v, push = true) {
   if (v === 'tu') renderTu();
   if (v === 'inicio') { renderForYou(); setTimeout(vizKick, 30); }
   if (v === 'listas') renderNovaLists();
+  if (changed && v === 'biblioteca') NUI.top = true;   // (like the screen of always: entering from another tab starts at the top)
   if (v === 'biblioteca') nuiLoop(); else nuiHide();
   if (v === 'ajustes') { renderNui(); renderAlarm(); if (AL_PLUGIN) alarmCheckPerms(false); renderSound(); renderThemes(); renderLook(); renderDjPersona(); renderVoices(); renderVoiceStyle(); updateStorage(); renderPerms(); renderBackup(); }
 }
@@ -6018,7 +6019,7 @@ function renderLists() {
    stays underneath, rendered as before but invisible: if anything covers the content area (a dialog, the full player…)
    or the native screen fails, the one of always is there at once. Phones only (the wide layout stays as it was). */
 const NUI_PLUGIN = capPlugin('OrbitaUi');
-const NUI = { on: !!NUI_PLUGIN && LS.get('nativeUi', true) && !LS.get('nativeUiBroken', false), shown: false, classic: false, raf: 0, rect: '', trKey: '', boxKey: '', lookKey: '', nowId: null, cov: new Map(), syncT: 0, err: '' };
+const NUI = { on: !!NUI_PLUGIN && LS.get('nativeUi', true) && !LS.get('nativeUiBroken', false), shown: false, classic: false, raf: 0, top: false, rect: '', trKey: '', boxKey: '', lookKey: '', nowId: null, cov: new Map(), syncT: 0, err: '' };
 function nuiBroken(e) {
   NUI.err = String(e && (e.message || e.code) || e || 'fallo'); NUI.on = false; LS.set('nativeUiBroken', true); nuiHide();
   diag('pantalla nativa: ' + NUI.err + ' → vuelvo a la de siempre');
@@ -6038,7 +6039,7 @@ function nuiLoop() {
     const want = NUI.on && state.ready && state.view === 'biblioteca' && !NUI.classic && innerWidth <= 760 && nuiFree();
     if (want) {
       const r = $('#main').getBoundingClientRect(), o = { x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 }, k = JSON.stringify(o);
-      if (!NUI.shown) { NUI.shown = true; NUI.rect = k; nuiLook(); nuiSync(); root.classList.add('nui-lib'); NUI_PLUGIN.show({ screen: 'biblioteca', ...o }).catch(nuiBroken); }
+      if (!NUI.shown) { NUI.shown = true; NUI.rect = k; nuiLook(); nuiSync(); root.classList.add('nui-lib'); NUI_PLUGIN.show({ screen: 'biblioteca', top: NUI.top, ...o }).catch(nuiBroken); NUI.top = false; }
       else if (k !== NUI.rect) { NUI.rect = k; NUI_PLUGIN.rect(o).catch(() => {}); }
     } else if (NUI.shown) nuiHide();
     if (NUI.on && state.view === 'biblioteca') NUI.raf = requestAnimationFrame(step);
