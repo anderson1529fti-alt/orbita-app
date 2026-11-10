@@ -270,6 +270,9 @@ public final class NovaAudioEngine {
     public static final class Item {
         /** Cómo se entra: suave (sin ritmo claro), filtro (la anterior se apaga por arriba y esta entra sin graves) o dj (ritmos cuadrados). */
         public static final int SUAVE = 0, FILTRO = 1, DJ = 2;
+        /** 4.1 · eco: la que se va se corta en un pulso y deja un eco que se apaga mientras entra la otra (para dos
+         *  canciones que no pegan de tono ni de ritmo: lo que hace un DJ para cambiar de golpe sin que choquen) */
+        public static final int ECO = 3;
         public final String src; public final double xf, at, st; public final float g;
         public int style = SUAVE;
         /** dj: en qué segundo del fundido cambian los graves de manos; la velocidad de esta para cuadrar el ritmo; las rejillas de pulsos. */
@@ -497,6 +500,7 @@ public final class NovaAudioEngine {
                                     bPos = xf.st; bRate = xf.rate > 0 ? xf.rate : 1;
                                     hpA.reset(); lpA.reset(); hpB.reset(); hpA.identity(); lpA.identity();
                                     wA = 0f; wL = 0f; wB = 1f;
+                                    if (xf.style == Item.ECO) ecoStart(xf);
                                     overlapping = true; addMark(r, xf, d2);
                                     continue;
                                 }
@@ -587,7 +591,19 @@ public final class NovaAudioEngine {
                             float bl = f2.l(i) * gB, br = f2.r(i) * gB;
                             float fl = hpB.l(bl), fr = hpB.r(br);
                             wB = step(wB, hpBOn); bl += (fl - bl) * wB; br += (fr - br) * wB;
-                            outb[2 * i] = al * gOut + bl * gIn; outb[2 * i + 1] = ar * gOut + br * gIn;
+                            float el = 0, er = 0;
+                            if (xf.style == Item.ECO && ecN > 0) {
+                                /* 4.1 · el eco: lo que suena de la que se va entra en un retraso de un pulso que se repite cada
+                                   vez más bajo; al cortarse, solo queda el eco (sin graves, para que no embarre a la que entra) */
+                                final long at0 = xfDone + i;   // se le manda solo el último pulso antes del corte: es lo que se repite
+                                ecSend += ((at0 >= ecFrom * xfLen && at0 < ecCut * xfLen) ? 1f - ecSend : -ecSend) * 0.0015f;
+                                float dl = ecL[ecW], dr = ecR[ecW];
+                                ecL[ecW] = al * ecSend + dl * 0.48f; ecR[ecW] = ar * ecSend + dr * 0.48f;
+                                if (++ecW == ecN) ecW = 0;
+                                ecHL = 0.985f * (ecHL + dl - ecPL); ecPL = dl; ecHR = 0.985f * (ecHR + dr - ecPR); ecPR = dr;
+                                el = ecHL * 0.6f; er = ecHR * 0.6f;
+                            }
+                            outb[2 * i] = al * gOut + bl * gIn + el; outb[2 * i + 1] = ar * gOut + br * gIn + er;
                         }
                         if (my != gen) return;
                         r.write(outb, m); f1.drop(m); f2.drop(m); xfDone += m;
@@ -629,6 +645,21 @@ public final class NovaAudioEngine {
         private boolean lpOn, hpBOn;
         /* 4.0b3 · cuánto se oye cada filtro (0 = nada, 1 = del todo): va hacia donde toca en 30 ms */
         private float wA, wL, wB;
+        /* 4.1 · el eco: su memoria (un pulso), por dónde va, cuánto se le manda y su filtro de graves */
+        private float[] ecL = new float[0], ecR = new float[0];
+        private int ecN, ecW;
+        private float ecSend, ecHL, ecHR, ecPL, ecPR;
+        private double ecCut, ecFrom;
+        private double ecoCut(Item it) { return Math.max(0.1, Math.min(0.4, (it.beatA > 0 ? 2 * it.beatA : 1.0) / Math.max(0.5, it.xf))); }
+        private void ecoStart(Item it) {
+            double beat = it.beatA > 0 ? it.beatA : 0.375;
+            while (beat > 0.75) beat /= 2;
+            while (beat < 0.25) beat *= 2;
+            ecN = (int) Math.max(1, Math.round(beat * rate));
+            if (ecL.length < ecN) { ecL = new float[ecN]; ecR = new float[ecN]; } else { java.util.Arrays.fill(ecL, 0f); java.util.Arrays.fill(ecR, 0f); }
+            ecW = 0; ecSend = 0f; ecHL = ecHR = ecPL = ecPR = 0f; ecCut = ecoCut(it);
+            ecFrom = Math.max(0, ecCut - ecN / (rate * Math.max(0.5, it.xf)));
+        }
         private float step(float w, boolean on) { final float k = 1f / (0.03f * rate); return on ? Math.min(1f, w + k) : Math.max(0f, w - k); }
         private float cUp(double x) { x = Math.max(0, Math.min(1, x)); return (float) Math.sin(x * Math.PI / 2); }
         private float cDown(double x) { x = Math.max(0, Math.min(1, x)); return (float) Math.cos(x * Math.PI / 2); }
@@ -638,6 +669,10 @@ public final class NovaAudioEngine {
 
         /** Volumen de la que se va [0] y de la que entra [1] en el punto p (0…1) del fundido. */
         private float[] gains(Item it, double p) {
+            if (it.style == Item.ECO) {
+                double c = ecoCut(it);
+                return new float[] { p < c ? 1f : (float) Math.max(0, 1 - (p - c) / 0.012), p < c * 0.85 ? 0f : cUp((p - c * 0.85) / 0.3) };
+            }
             if (it.style == Item.FILTRO) return new float[] { p < 0.2 ? 1f : cDown((p - 0.2) / 0.75), cUp(p / 0.8) };
             if (it.style == Item.DJ) {
                 double sw = swapAt(it), bf = it.beatA > 0 ? it.beatA / it.xf : 0.08;
@@ -652,6 +687,7 @@ public final class NovaAudioEngine {
         /** Los filtros en el punto p: los graves nunca suenan dos veces a la vez. Devuelve si el paso-altos de la que se va está puesto. */
         private boolean shape(Item it, double p, Biquad hpA, Biquad lpA, Biquad hpB) {
             double nyq = rate * 0.45;
+            if (it.style == Item.ECO) { lpOn = false; hpBOn = false; return false; }
             if (it.style == Item.FILTRO) {
                 lpOn = true; lpA.now(Biquad.LOWPASS, sweep(nyq, 420, p), rate);
                 hpBOn = p < 0.75; if (hpBOn) hpB.now(Biquad.HIGHPASS, sweep(1500, 20, p / 0.75), rate);

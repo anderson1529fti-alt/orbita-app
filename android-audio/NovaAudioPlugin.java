@@ -420,7 +420,7 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
                 it.title = j.optString("title", ""); it.artist = j.optString("artist", ""); it.album = j.optString("album", "");
                 it.dur = j.optDouble("dur", 0); it.xf = j.optDouble("xf", 0); it.at = j.optDouble("at", 0); it.st = j.optDouble("st", 0);
                 double g = j.optDouble("g", Double.NaN); it.g = Double.isNaN(g) ? Float.NaN : (float) g;
-                it.style = Math.max(0, Math.min(2, j.optInt("style", 0)));
+                it.style = Math.max(0, Math.min(3, j.optInt("style", 0)));   // 4.1: 3 = eco
                 it.swap = j.optDouble("swap", -1); it.rate = Math.max(0.85, Math.min(1.15, j.optDouble("rate", 1)));
                 it.gridA = j.optDouble("gridA", 0); it.beatA = j.optDouble("beatA", 0); it.gridB = j.optDouble("gridB", 0); it.beatB = j.optDouble("beatB", 0);
                 list.add(it);

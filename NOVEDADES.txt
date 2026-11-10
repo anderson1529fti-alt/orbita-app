@@ -1,3 +1,28 @@
+Órbita 4.1: todas tus canciones, mezclas armónicas, canciones nuevas para ti y una Nova más lista.
+
+Todas mis canciones
+- Botón nuevo en «Ahora», junto a «Modo radio», y una tarjeta en «Para ti hoy». Pone todas tus canciones sin repetir ninguna hasta que hayan sonado todas.
+- Nova las ordena para que una lleve a la otra: ritmo, energía y tono parecidos, nunca el mismo artista dos veces seguidas, y la energía sube y baja por olas.
+- Recuerda por dónde vas, también si las pone el motor con la pantalla apagada o si cierras la app. Cuando suenan todas, empieza otra vuelta en otro orden.
+- También se lo puedes pedir a Nova: «pon todas mis canciones».
+
+Mezclas armónicas
+- Nova aprende el tono de cada canción (las que ya conocía, poco a poco, mientras usas la app o el móvil se carga).
+- Une las que están en tonos que pegan, como hacen los DJ. Si dos chocan, no las solapa: usa un fundido con filtro o, si el ritmo tampoco encaja, un corte con eco: la canción se corta en un pulso que se repite cada vez más bajo mientras entra la otra.
+- La radio y «¿por qué esta?» también tienen en cuenta el tono.
+
+Descubre: canciones nuevas para ti
+- En «Para ti hoy», canciones que no tienes y que probablemente te gusten, con muestras de 30 segundos.
+- Salen de los artistas que más escuchas y de sus parecidos; un artista que se parece a varios de los tuyos cuenta más.
+- ♡ la guarda en «Por conseguir» y le enseña a Nova; ✕ hace que ese artista no vuelva; el botón de vídeo la busca en YouTube.
+- De vez en cuando, Nova te propone una entre canciones: «Has escuchado mucho a… ¿Te pongo 30 segundos?». Y puedes pedírsela: «recomiéndame algo».
+- Se puede apagar en Ajustes › Personaliza Órbita. Solo salen del móvil los nombres de los artistas.
+
+Los cerebros de Nova dejan de ser beta
+- Nunca se quedan «pensando» para siempre: si un cerebro tarda, Nova contesta con lo que ya sabe.
+- El cerebro grande se prepara en cuanto tocas la caja para escribirle o el micrófono, y en los móviles donde va lento se reserva para lo que Nova no entiende de otra forma.
+- En Ajustes › Tu DJ, «Comprobar» mide cuántas frases de prueba entiende el cerebro de comprensión y cuánto tarda en contestar el grande.
+
 Órbita 4.0: visualizadores nuevos, hechos con la gráfica del móvil.
 
 Siete visualizadores

@@ -614,6 +614,17 @@ html.no-ticker .ticker,html.no-foryou #forYou,html.no-mixer #mixer{display:none!
 .fy-mini button:hover{background:var(--panel-2)}
 .fy-mini .cover{width:38px;height:38px;border-radius:calc(8px * var(--round,1))}
 .fy-mini [data-track].is-playing .t-title,.fy-mini .is-playing .t-title{color:var(--accent)}
+/* 4.1 · Todo mi Órbita and Descubre */
+.todo-bar{height:6px;border-radius:999px;background:var(--line-2);overflow:hidden;margin-top:8px}
+.todo-bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--accent),var(--accent-2,var(--accent)))}
+.fy-rec{grid-column:1/-1}
+.rec-row{display:flex;align-items:center;gap:4px}
+.rec-row>button{flex:1;min-width:0}
+.rec-row .t-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.rec-acts{display:flex;gap:2px;flex:0 0 auto}
+.rec-b{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--muted);font-size:1rem}
+.rec-b:hover,.rec-b[aria-pressed="true"]{color:var(--accent);background:var(--panel-2)}
+.rec-row.liked .t-title{color:var(--accent)}
 
 /* ---------- 2.0: Tú ---------- */
 .tu-hero{display:flex;flex-direction:column;gap:10px}
@@ -999,6 +1010,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
         <div class="dj-actions">
           <button class="btn roulette big" id="btnRoulette"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg>Girar la ruleta</button>
           <button class="btn big" id="btnRadio" aria-pressed="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 010 8.4M7.8 16.2a6 6 0 010-8.4M19.1 4.9a10 10 0 010 14.2M4.9 19.1a10 10 0 010-14.2"/></svg>Modo radio</button>
+          <button class="btn big" id="btnAll" aria-pressed="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h11M4 12h11M4 18h7"/><path d="M17 15v6l4-3z"/></svg>Todas mis canciones</button>
           <span class="ai-note" id="aiNote"><span class="dot"></span><span>Comprobando la IA…</span></span>
         </div>
         <div class="settings">
@@ -1227,6 +1239,8 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
           </div>
           <label class="slider" style="max-width:420px"><span class="row-wrap"><span>Brillo de los efectos</span><span class="mono" id="lkGlowVal"></span></span><input class="range" type="range" id="lkGlowIn" min="0" max="1.6" step="0.05"></label>
           <div class="eyebrow">En la pantalla Ahora</div>
+          <div class="row-wrap"><button class="toggle" id="tRecs"><span class="sw"></span>Descubre: canciones nuevas para ti</button><button class="toggle" id="tRecNova"><span class="sw"></span>Que la DJ me proponga canciones</button></div>
+          <p class="note">«Descubre» busca en Deezer artistas parecidos a los que escuchas y te pone muestras de 30 segundos. Solo salen del móvil los nombres de los artistas.</p>
           <div class="row-wrap"><button class="toggle" id="tForYou"><span class="sw"></span>Para ti hoy</button><button class="toggle" id="tMixer"><span class="sw"></span>Mezcla a medida</button><button class="toggle" id="tTicker"><span class="sw"></span>Cinta de titulares</button></div>
           <div class="eyebrow">Detalles</div>
           <div class="row-wrap"><button class="toggle" id="tIntro"><span class="sw"></span>Animación al abrir</button><button class="toggle" id="tHaptics"><span class="sw"></span>Vibración al tocar</button></div>

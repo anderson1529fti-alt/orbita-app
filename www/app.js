@@ -1128,11 +1128,11 @@ async function getAnalysis(t) {
   if (r && r.v === ANA_V && (!t.size || !r.size || r.size === t.size)) { anaCache.set(t.id, r); return r; }
   return null;
 }
-function scheduleAnalysis(t) {
-  if (!t || t.net || anaPending.has(t.id) || anaCache.has(t.id) || (t.duration && t.duration > 900)) return;
+function scheduleAnalysis(t, rekey) {
+  if (!t || t.net || anaPending.has(t.id) || (anaCache.has(t.id) && !rekey) || (t.duration && t.duration > 900)) return;
   anaPending.add(t.id);
   anaQueue = anaQueue.then(async () => {
-    try { if (!(await getAnalysis(t))) await analyzeTrack(t); } catch {}
+    try { if (rekey || !(await getAnalysis(t))) await analyzeTrack(t); } catch {}
     anaPending.delete(t.id);
   });
 }
@@ -1263,8 +1263,39 @@ function analyzeBuffer(buf) {
   const c01 = x => Math.max(0, Math.min(1, x));
   const bright = c01((Math.log10(hfAll / (allE + 1e-12) + 1e-6) + 2) / 1.6);
   const energy = c01(0.45 * c01((rmsDb + 28) / 19) + 0.35 * c01((rate - 1) / 6) + 0.2 * c01((bpm - 70) / 80) * (conf >= 1.5 ? 1 : 0.5));
+  /* 4.1 · The key, for harmonic mixes: what notes sound most (chroma) over up to 180 moments of the song, compared
+     with the 24 keys (Krumhansl's profiles). key: 0-11 major (C…B), 12-23 minor (Cm…Bm); keyConf: how sure (0…1). */
+  let key = -1, keyConf = 0;
+  try {
+    const KN = 4096, KH = KN >> 1, k0 = Math.floor(introStart * sr), k1 = Math.min(n - KN, Math.floor(outroEnd * sr) - KN), span = k1 - k0;
+    const nw = span > 0 ? Math.min(180, Math.floor(span / 2048)) : 0;
+    if (nw >= 16) {
+      const win = new Float32Array(KN); for (let i = 0; i < KN; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (KN - 1));
+      const pcOf = new Int8Array(KH).fill(-1), wOf = new Float32Array(KH);
+      for (let b = 1; b < KH; b++) { const f = b * sr / KN; if (f < 60 || f > 2100) continue; const m = 12 * Math.log2(f / 440) + 69, nr = Math.round(m); if (Math.abs(m - nr) > 0.4) continue; pcOf[b] = ((nr % 12) + 12) % 12; wOf[b] = 1 - Math.abs(m - nr) * 1.5; }
+      const re = new Float64Array(KN), im = new Float64Array(KN), fc = new Float64Array(12), chroma = new Float64Array(12);
+      const fftK = () => {
+        for (let i = 1, j = 0; i < KN; i++) { let bit = KN >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+        for (let len = 2; len <= KN; len <<= 1) { const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+          for (let i = 0; i < KN; i += len) { let cr = 1, ci = 0; for (let j = 0; j < len / 2; j++) { const u = i + j, v = u + len / 2, xr = re[v] * cr - im[v] * ci, xi = re[v] * ci + im[v] * cr; re[v] = re[u] - xr; im[v] = im[u] - xi; re[u] += xr; im[u] += xi; const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } } }
+      };
+      const stepK = Math.floor(span / nw);
+      for (let w = 0; w < nw; w++) {
+        const off = k0 + w * stepK;
+        for (let i = 0; i < KN; i++) { const j = off + i; re[i] = (c1 ? (c0[j] + c1[j]) * 0.5 : c0[j]) * win[i]; im[i] = 0; }
+        fftK(); fc.fill(0); let tot = 0;
+        for (let b = 1; b < KH; b++) { const pc = pcOf[b]; if (pc < 0) continue; const v = Math.sqrt(Math.sqrt(re[b] * re[b] + im[b] * im[b])) * wOf[b]; fc[pc] += v; tot += v; }
+        if (tot > 1e-6) for (let p = 0; p < 12; p++) chroma[p] += fc[p] / tot;
+      }
+      const MAJ = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], MIN = [6.33, 2.68, 3.52, 5.38, 2.6, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+      const pear = (prof, r) => { let ma = 0, mb = 0; for (let i = 0; i < 12; i++) { ma += chroma[(i + r) % 12]; mb += prof[i]; } ma /= 12; mb /= 12; let s = 0, sa = 0, sb = 0; for (let i = 0; i < 12; i++) { const x = chroma[(i + r) % 12] - ma, y = prof[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / Math.sqrt(sa * sb + 1e-12); };
+      const sc = []; for (let r = 0; r < 12; r++) { sc.push([r, pear(MAJ, r)]); sc.push([12 + r, pear(MIN, r)]); }
+      sc.sort((a, b) => b[1] - a[1]);
+      key = sc[0][0]; keyConf = Math.max(0, Math.min(1, (sc[0][1] - sc[1][1]) * 4 + (sc[0][1] - 0.5)));
+    }
+  } catch { key = -1; keyConf = 0; }
   const r2 = x => Math.round(x * 100) / 100;
-  return { dur: r1(dur), introStart: r1(introStart), introLoud: r1(introLoud), fadeStart: r1(fadeStart), outroEnd: r1(outroEnd), rms: Math.round(rmsDb * 10) / 10, bpm: Math.round(bpm * 10) / 10, conf: Math.round(conf * 100) / 100, gridIn: r1(gridIn), gridOut: r1(gridOut), downIn: r1(dIn.at), downOut: r1(dOutRaw.at), barSure: r2(Math.min(dIn.sure, dOutRaw.sure)), energy: r2(energy), bright: r2(bright), rate: r2(rate) };
+  return { key, keyConf: r2(keyConf), dur: r1(dur), introStart: r1(introStart), introLoud: r1(introLoud), fadeStart: r1(fadeStart), outroEnd: r1(outroEnd), rms: Math.round(rmsDb * 10) / 10, bpm: Math.round(bpm * 10) / 10, conf: Math.round(conf * 100) / 100, gridIn: r1(gridIn), gridOut: r1(gridOut), downIn: r1(dIn.at), downOut: r1(dOutRaw.at), barSure: r2(Math.min(dIn.sure, dOutRaw.sure)), energy: r2(energy), bright: r2(bright), rate: r2(rate) };
 }
 
 /* ---------- Playback ---------- */
@@ -1331,7 +1362,7 @@ async function startOn(url, xf, isNet) {
 function playQueue(ids, start = 0, opts = {}) {
   ids = ids.filter(id => trackById(id)); if (!ids.length) return;
   let q = ids.slice(); let i = Math.max(0, Math.min(start, q.length - 1));
-  if (state.shuffle && !['radio', 'online', 'daily'].includes(opts.source)) { const first = q[i]; q = [first, ...shuffleArr(q.filter((_, k) => k !== i))]; i = 0; }
+  if (state.shuffle && !['radio', 'online', 'daily', 'todo'].includes(opts.source)) { const first = q[i]; q = [first, ...shuffleArr(q.filter((_, k) => k !== i))]; i = 0; }
   markManual();
   state.queue = q; state.qi = i; state.source = opts.source || 'library'; state.mixEndless = null;
   state.intros = opts.intros || {};
@@ -1414,6 +1445,7 @@ function next(auto) {
   }
   if (state.source === 'radio' && state.qi + 2 >= state.queue.length) state.queue.push(...radioBatch(state.queue.slice(-3)));
   if (state.mixEndless && state.qi + 2 >= state.queue.length) { const more = mixRefill(); if (more.length) { state.queue.push(...more); renderQueue(); } }
+  if (state.source === 'todo' && state.qi + 2 >= state.queue.length) { const more = todoRefill(); if (more.length) { state.queue.push(...more); renderQueue(); } }
   const xf = auto ? 0 : (d.paused ? 0 : MANUAL_XF);
   if (state.qi + 1 < state.queue.length) { state.qi++; loadCurrent(true, xf); }
   else if (state.repeat === 'all' || !auto) { state.qi = 0; loadCurrent(true, xf); }
@@ -1434,6 +1466,7 @@ function nextForMix() {
   let i = state.qi + 1;
   if (i >= state.queue.length) {
     if (state.source === 'radio') state.queue.push(...radioBatch(state.queue.slice(-3)));
+    else if (state.source === 'todo') { const more = todoRefill(); if (more.length) { state.queue.push(...more); renderQueue(); } else return null; }
     else if (state.mixEndless) { const more = mixRefill(); if (more.length) { state.queue.push(...more); renderQueue(); } else return null; }
     else if (state.repeat === 'all' && state.queue.length > 1) i = 0; else return null;
   }
@@ -1450,11 +1483,14 @@ function planMix(aA, bA, durA) {
   /* Up to 7 % apart is always matched; up to 10 % when both beats are very clear */
   const dev = Math.abs(ratio - 1), close = tempoOK && (dev <= 0.07 || (dev <= 0.1 && a.conf >= 3 && b.conf >= 3));
   const beatA = a.bpm > 0 && a.conf >= 1.5, beatB = b.bpm > 0 && b.conf >= 1.5;
+  /* 4.1 · the keys: two songs that clash don't overlap for long (a filter mix, or the echo cut if the beat doesn't
+     match either); in the same key or neighbours, they can mix as long as you chose */
+  const hk = keyCompat(anaKey(a), anaKey(b));
   const want = Math.max(2, Math.min(16, AUD.mixLen));
   let style = AUD.mix, len = want;
   /* Automatic choices never rush: at least 6 s, and the echo cut is only used when you pick it */
   if ((!G && !NA_ON) || AUD.direct) style = style === 'corte' ? 'corte' : 'suave';
-  else if (style === 'auto') style = close ? 'dj' : (beatA && beatB ? 'filtro' : 'suave');
+  else if (style === 'auto') style = close ? (hk === 0 ? 'filtro' : 'dj') : (beatA && beatB ? (hk === 0 && a.conf >= 2 ? 'eco' : 'filtro') : 'suave');
   else if (style === 'dj' && !tempoOK) style = 'suave';
   else if (style === 'filtro' && !beatA) style = 'suave';
   /* 3.7 · the length you choose is the length you get, whatever kind of mix Nova picks (the engine no longer
@@ -1468,7 +1504,7 @@ function planMix(aA, bA, durA) {
   let bStart = Math.max(0, (b.introStart || 0) - 0.03), start, swap = 0, cut = 0, rateB = 1, aHold = 0;
   const bOne = b.bpm > 0 ? (isFinite(b.downIn) && (b.barSure || 0) >= 0.15 ? b.downIn : b.gridIn) : null;
   /* 3.7 · as many whole bars as fit in the length you chose (an even number, so the bass changes hands in the middle) */
-  const barsFor = () => { let n = Math.max(2, Math.round(want / bar)); if (n > 2 && n % 2) n++; return Math.min(16, n); };
+  const barsFor = () => { let n = Math.max(2, Math.round(want / bar)); if (n > 2 && n % 2) n++; if (hk === 0) n = Math.min(n, 4); return Math.min(16, n); };
   if (style === 'corte') { len = 0.08; start = outEnd - len; }
   else if (style === 'suave') {
     /* A song that fades by itself keeps its own fade: the next one rises under it from a little before */
@@ -1497,7 +1533,7 @@ function planMix(aA, bA, durA) {
     start = Math.min(snap(outEnd - 0.3), outEnd - 0.1); cut = 0.02; len = 2.8;
   }
   if (start < minStart) { const d = minStart - start; start = minStart; len = Math.max(0.08, len - d); swap = Math.min(swap, len / 2); cut = Math.min(cut, len / 2); }
-  return { style, start, len, bStart, rateB, swap, cut, aHold, beat, gridA: a.gridOut, gridB: b.gridIn, beatB: b.bpm > 0 ? 60 / b.bpm : 0, bpmA: a.bpm, bpmB: b.bpm };
+  return { style, start, len, bStart, rateB, swap, cut, aHold, beat, hk, gridA: a.gridOut, gridB: b.gridIn, beatB: b.bpm > 0 ? 60 / b.bpm : 0, bpmA: a.bpm, bpmB: b.bpm };
 }
 function checkAutoMix(d) {
   if (advancing || mixing || d.paused) return;
@@ -1677,6 +1713,7 @@ function trackListen(d) {
 }
 function finishListen() {
   const l = listen; listen = null;
+  try { if (l && l.net) recHeard(trackById(l.id), l.acc); } catch {}
   if (l && l.nat && NA_LOG) { naListenMeta(l); return; }   // the engine knows how long it sounded
   if (!l || l.acc < 1) return;
   recordEvent(makeEvent(l, Date.now()));
@@ -2479,9 +2516,11 @@ function naFade(p, t) {
   /* the engine squares the beat by changing the speed (and so, a little, the pitch): only up to 3 % (4.0b3, was 4 %: the
      song coming in sounded out of tune); more than that, a filter mix */
   const djOk = pl.style === 'dj' && Math.abs((pl.rateB || 1) - 1) <= 0.03;
-  const style = djOk ? 2 : pl.style === 'dj' || pl.style === 'filtro' || pl.style === 'eco' ? 1 : 0;
+  const style = djOk ? 2 : pl.style === 'eco' ? 3 : pl.style === 'dj' || pl.style === 'filtro' ? 1 : 0;
   if (pl.style === 'dj' && !djOk) pl.len = Math.min(pl.len, 6);
-  const o = { xf: Math.max(1, Math.min(16, pl.style === 'eco' ? 4 : pl.len)), at: pl.start > 1 ? pl.start : 0, st: Math.max(0, pl.bStart || 0), style };
+  /* 4.1 · eco: the engine starts two beats before the cut (the last beat is the one that echoes) */
+  const o = { xf: Math.max(1, Math.min(16, pl.style === 'eco' ? 4 : pl.len)), at: pl.style === 'eco' ? Math.max(1, pl.start - 2 * (pl.beat || 0.5)) : pl.start > 1 ? pl.start : 0, st: Math.max(0, pl.bStart || 0), style };
+  if (style === 3) o.beatA = pl.beat || 0.5;
   if (style === 2) Object.assign(o, { rate: pl.rateB || 1, swap: pl.swap || 0, gridA: isFinite(pl.gridA) ? pl.gridA : 0, beatA: pl.beat || 0, gridB: isFinite(pl.gridB) ? pl.gridB : 0, beatB: pl.beatB || 0 });
   return o;
 }
@@ -2491,14 +2530,14 @@ function naFade(p, t) {
 const NA_AHEAD = 40, NA_MAX = 120;
 function naRunway() {
   if (!NA_ON || A > 1) return false;
-  const radio = state.source === 'radio', endless = !!state.mixEndless && state.source === 'mix';
-  if (!radio && !endless) return false;
+  const radio = state.source === 'radio', endless = !!state.mixEndless && state.source === 'mix', todo = state.source === 'todo';
+  if (!radio && !endless && !todo) return false;
   const keep = Math.max(1, Math.min(12, Math.floor(poolTracks().length / 2)));   // never the same song too close
   let added = false, guard = 0;
   while (state.queue.length - state.qi - 1 < NA_AHEAD && guard++ < 14) {
     const tail = state.queue.slice(-keep);
     let more = [];
-    try { more = (radio ? radioBatch(state.queue.slice(-3)) : mixRefill()).filter(id => !tail.includes(id) && naOwn(trackById(id))); } catch { more = []; }
+    try { more = (radio ? radioBatch(state.queue.slice(-3)) : todo ? todoRefill() : mixRefill()).filter(id => !tail.includes(id) && naOwn(trackById(id))); } catch { more = []; }
     // small libraries: when the brain has nothing new, any phone song that didn't just play (better than silence)
     if (!more.length) more = shuffleArr(poolTracks().filter(t => naOwn(t) && !tail.includes(t.id) && !BRAIN.ban.has(t.id)).map(t => t.id)).slice(0, 8);
     if (!more.length) break;
@@ -2521,7 +2560,7 @@ function naSyncNext() {
   /* 3.6 · repeat: «this one» — the engine starts it again by itself; «the whole list» — after the last one, the first
      (with the list complete, the engine goes round by itself as many times as needed) */
   const sleepTrack = sleepLeft() !== null && sleepEnd && sleepFade === 12000, rp = sleepTrack ? 'off' : state.repeat, L = state.queue.length;
-  const wrap = rp === 'all' && L > 1 && state.source !== 'radio' && !state.mixEndless && state.queue.every(id => naOwn(trackById(id)));
+  const wrap = rp === 'all' && L > 1 && state.source !== 'radio' && state.source !== 'todo' && !state.mixEndless && state.queue.every(id => naOwn(trackById(id)));
   const last = rp === 'one' || sleepTrack ? state.qi : state.qi + (wrap ? Math.min(NA_MAX, L) : NA_MAX);
   /* 3.7 · the engine can only play the phone's own songs. With the app awake, the list stops at the first other one
      (a demo song, one added inside the app, YouTube…) and the app plays that one itself. With the app asleep it can't:
@@ -3086,7 +3125,414 @@ function memFacts() {
   return f;
 }
 
-/* ---------- "Para ti hoy" on the home screen ---------- */
+/* ===================================================================================================================
+   4.1 · Harmonic mixes: the key of each song, on the Camelot wheel (the one DJs use). Two songs mix well when they
+   are in the same key, a neighbour on the wheel (a fifth away) or its relative (same notes, major ↔ minor).
+   =================================================================================================================== */
+const KEY_NAMES = ['Do', 'Do♯', 'Re', 'Mi♭', 'Mi', 'Fa', 'Fa♯', 'Sol', 'La♭', 'La', 'Si♭', 'Si'];
+const CAM_MAJ = [8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1], CAM_MIN = [5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10];
+/* the key of an analysis (or -1 when it isn't sure) */
+const anaKey = a => a && a.key >= 0 && (a.keyConf || 0) >= 0.1 ? a.key : -1;
+const keyOf = t => anaKey(t && anaCache.get(t.id));
+const camelot = k => k < 0 ? null : k < 12 ? { n: CAM_MAJ[k], m: 'B' } : { n: CAM_MIN[k - 12], m: 'A' };
+const keyName = k => k < 0 ? '' : KEY_NAMES[k % 12] + (k >= 12 ? ' menor' : ' mayor');
+/* 1 same key · 0.85 a neighbour or its relative · 0.5 don't know · 0.35 two steps away · 0 they clash */
+function keyCompat(ka, kb) {
+  if (ka < 0 || kb < 0) return 0.5;
+  const a = camelot(ka), b = camelot(kb), d0 = Math.abs(a.n - b.n) % 12, d = Math.min(d0, 12 - d0);
+  if (a.m === b.m) return d === 0 ? 1 : d === 1 ? 0.85 : d === 2 ? 0.35 : 0;
+  return d === 0 ? 0.85 : d === 1 ? 0.5 : 0;
+}
+
+/* ===================================================================================================================
+   4.1 · «Todo mi Órbita»: all your songs. None repeats until all of them have sounded; Nova puts them in an order where
+   each one leads into the next (tempo, energy and key), never the same artist twice in a row, with the energy going up
+   and down in waves. It remembers where you were (also if the engine played them with the screen off), and when they
+   have all sounded it starts another round, in another order.
+   =================================================================================================================== */
+const TODO = { o: LS.get('todo', null), idx: null, saveT: 0 };
+function todoPool() {
+  const all = poolTracks({ free: true }), own = all.filter(t => !t.demo);
+  return own.length >= 2 ? own : all;
+}
+function todoIndex() {
+  const o = TODO.o; if (!o) return null;
+  if (!TODO.idx || TODO.idx.o !== o) { TODO.idx = new Map(o.order.map((id, i) => [id, i])); TODO.idx.o = o; }
+  return TODO.idx;
+}
+function todoSave(now) {
+  clearTimeout(TODO.saveT);
+  const w = () => LS.set('todo', TODO.o);
+  if (now) w(); else TODO.saveT = setTimeout(w, 4000);
+}
+/* the order: each next song chosen among a sample of the ones left, the one that follows best */
+function todoTransition(a, b, wave) {
+  let s = 0;
+  if (a.ar && a.ar === b.ar) s -= 2;
+  if (a.v && b.v) { s += (1 - Math.min(1, Math.abs(a.v[0] - b.v[0]) * 2.5)) * 0.8; s += (1 - Math.min(1, Math.abs(a.v[1] - b.v[1]) * 2)) * 0.2; s -= Math.abs(b.v[0] - wave) * 0.45; }
+  if (a.bpm && b.bpm) { let r = a.bpm / b.bpm; if (r > 1.6) r /= 2; else if (r < 0.625) r *= 2; const d = Math.abs(r - 1); s += d <= 0.04 ? 0.8 : d <= 0.08 ? 0.4 : 0; }
+  s += (keyCompat(a.k, b.k) - 0.5) * 1.2;
+  return s;
+}
+function todoOrder(ids, first) {
+  const feat = new Map();
+  for (const id of ids) { const t = trackById(id); if (!t) continue; const a = anaCache.get(id); feat.set(id, { v: trackVec(t), bpm: a && a.conf >= 1.5 ? a.bpm : 0, k: keyOf(t), ar: artistKey(t.artist) || id }); }
+  const rest = [...feat.keys()]; if (!rest.length) return [];
+  const take = i => { const id = rest[i]; rest[i] = rest[rest.length - 1]; rest.pop(); return id; };
+  let fi = first && feat.has(first) ? rest.indexOf(first) : Math.floor(Math.random() * rest.length);
+  let cur = take(fi < 0 ? 0 : fi); const out = [cur], recent = [feat.get(cur).ar];
+  const K = 48, phase = Math.random() * 6.28;
+  while (rest.length) {
+    const cf = feat.get(cur), wave = 0.5 + 0.22 * Math.sin(phase + out.length * 2 * Math.PI / 14);
+    let best = -1, bs = -Infinity;
+    const n = Math.min(K, rest.length);
+    for (let j = 0; j < n; j++) {
+      const i = rest.length <= K ? j : Math.floor(Math.random() * rest.length), cf2 = feat.get(rest[i]);
+      let sc = todoTransition(cf, cf2, wave) + Math.random() * 0.3;
+      if (recent.includes(cf2.ar)) sc -= 1.5;
+      if (sc > bs) { bs = sc; best = i; }
+    }
+    cur = take(best); out.push(cur);
+    recent.unshift(feat.get(cur).ar); recent.length = Math.min(recent.length, 3);
+  }
+  return out;
+}
+/* the order of this round, with the songs you've added since and without the ones that are gone */
+function todoSync() {
+  const pool = todoPool(), ids = pool.map(t => t.id);
+  let o = TODO.o;
+  if (!o || !Array.isArray(o.order) || !o.order.length || o.pos >= o.order.length - 1) {
+    const cycle = o && o.order && o.order.length ? (o.cycle || 1) + 1 : 1;
+    const last = o && o.order ? new Set(o.order.slice(-10)) : new Set();
+    let first = null; { const c = shuffleArr(ids.filter(id => !last.has(id))); first = c[0] || null; }
+    TODO.o = o = { order: todoOrder(ids, first), pos: -1, cycle, ts: Date.now() };
+    TODO.idx = null; todoSave(true);
+    return o;
+  }
+  const have = new Set(o.order), fresh = ids.filter(id => !have.has(id));
+  if (fresh.length) {   // new songs: into what's left, each in a random spot
+    for (const id of shuffleArr(fresh)) { const at = o.pos + 1 + Math.floor(Math.random() * (o.order.length - o.pos)); o.order.splice(at, 0, id); }
+    TODO.idx = null; todoSave(true);
+  }
+  return o;
+}
+const todoAlive = id => { const t = trackById(id); return !!t && !t.net && !BRAIN.ban.has(id); };
+function todoTotal() { const o = TODO.o; return o ? o.order.filter(todoAlive).length : todoPool().length; }
+/* the next k songs after a given one (in this round); at the end of the round, the first ones of the next */
+function todoAfter(id, k = 12) {
+  let o = TODO.o; if (!o) o = todoSync();
+  const ix = todoIndex(); let i = ix.has(id) ? ix.get(id) + 1 : o.pos + 1;
+  const out = [];
+  for (; i < o.order.length && out.length < k; i++) if (todoAlive(o.order[i])) out.push(o.order[i]);
+  if (out.length < k) {
+    if (!TODO.next) {   // all heard (or about to be): the next round, in another order, starts after the last one
+      const ids = todoPool().map(t => t.id), last = new Set(o.order.slice(-12));
+      const first = shuffleArr(ids.filter(x => !last.has(x)))[0] || null;
+      TODO.next = { order: todoOrder(ids, first), pos: -1, cycle: (o.cycle || 1) + 1, ts: Date.now() };
+    }
+    for (const x of TODO.next.order) { if (out.length >= k) break; if (todoAlive(x) && !out.includes(x)) out.push(x); }
+  }
+  return out;
+}
+function todoRefill() {
+  if (state.source !== 'todo') return [];
+  const last = state.queue[state.queue.length - 1];
+  const tail = new Set(state.queue.slice(-20));
+  return todoAfter(last, 12).filter(id => !tail.has(id));
+}
+/* a song began: where you are in the round */
+function todoOnBegin(t) {
+  todoUI();
+  if (state.source !== 'todo' || !t || t.net || !TODO.o) return;
+  const i = todoIndex().get(t.id);
+  /* the round is over (none left after where we are) and a song of the next one begins: the next round */
+  const nx = TODO.next, j = nx ? nx.order.indexOf(t.id) : -1;
+  if (nx && j >= 0 && j < 60 && (i === undefined || i <= TODO.o.pos) && !TODO.o.order.slice(TODO.o.pos + 1).some(todoAlive)) {
+    TODO.o = nx; TODO.next = null; TODO.idx = null; TODO.o.pos = j; todoSave(true);
+    if (dj.voiceOn) setTimeout(() => { if (current() === t) novaSay(`Ya han sonado todas tus canciones, las ${TODO.o.order.length}. Empezamos otra vuelta, en otro orden.`); }, 4000);
+    renderForYouSoon(); return;
+  }
+  if (i !== undefined && i > TODO.o.pos && i - TODO.o.pos < 400) { TODO.o.pos = i; todoSave(); renderForYouSoon(); }
+}
+let fySoonT = 0;
+function renderForYouSoon() { clearTimeout(fySoonT); fySoonT = setTimeout(() => { try { renderForYou(); } catch {} }, 1500); }
+function todoUI() { const b = $('#btnAll'); if (b) b.setAttribute('aria-pressed', state.source === 'todo'); }
+function startAll(fresh) {
+  if (fresh) { TODO.o = null; TODO.next = null; }
+  const pool = todoPool();
+  if (pool.length < 2) { novaSay('Todavía tienes muy pocas canciones para esto. Añade música a la biblioteca y te las pongo todas.'); return; }
+  const o = todoSync(), n = o.order.filter(todoAlive).length, begun = o.pos >= 0;
+  const ids = [];
+  for (let i = o.pos + 1; i < o.order.length && ids.length < 40; i++) if (todoAlive(o.order[i])) ids.push(o.order[i]);
+  if (!ids.length) { TODO.o = null; startAll(); return; }
+  const talk = begun ? `Seguimos con todas tus canciones: van ${o.pos + 1} de ${n}.`
+    : pickFresh([`Vamos con todas tus canciones: ${n}, sin repetir ninguna hasta que suenen todas. Las he ordenado para que una lleve a la otra.`, `Todo tu Órbita: ${n} canciones, ninguna repetida. Te las pongo en un orden que fluye.`]);
+  playQueue(ids, 0, { source: 'todo', talk: dj.voiceOn ? talk : null });
+  if (!dj.voiceOn) toast(talk, 4200);
+  todoUI(); renderForYouSoon();
+}
+function stopAll() {
+  if (state.source !== 'todo') return;
+  state.source = 'library'; todoUI();
+  toast('Todas tus canciones: en pausa. Cuando vuelvas, sigo por donde iba.', 3600);
+}
+function todoCardHTML() {
+  const pool = todoPool(); if (pool.length < 8) return '';
+  const o = TODO.o, n = o ? todoTotal() : pool.length, done = o ? Math.max(0, Math.min(n, o.pos + 1)) : 0, on = state.source === 'todo';
+  const nextIds = o ? todoAfter(state.source === 'todo' && current() ? current().id : (o.order[o.pos] || ''), 4) : shuffleArr(pool.map(t => t.id)).slice(0, 4);
+  const pct = n ? Math.round(done / n * 100) : 0;
+  return `<article class="fy-card fy-daily fy-todo">${coversGrid(nextIds.map(trackById).filter(Boolean))}<div class="fy-body"><div class="eyebrow">Todo mi Órbita · ${n} canciones${o && o.cycle > 1 ? ` · vuelta ${o.cycle}` : ''}</div><h3>Todas tus canciones</h3><p class="t-sub">Sin repetir ninguna hasta que suenen todas, en un orden que fluye</p>${done ? `<div class="todo-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${done}"><i style="width:${pct}%"></i></div><p class="note">Van ${done} de ${n}${on ? ' · sonando ahora' : ''}</p>` : ''}<div class="fy-btns"><button class="btn small primary" data-act="todo-go">${ICON.playS}${done && !on ? 'Seguir' : on ? 'Sonando' : 'Empezar'}</button>${done ? '<button class="btn small" data-act="todo-new">Empezar de nuevo</button>' : ''}</div></div></article>`;
+}
+
+/* ===================================================================================================================
+   4.1 · Recommendations: songs you don't have, that you'd probably like. From what you listen to (time, favourites,
+   what you skip), Nova takes your artists, asks Deezer which artists are like them (an artist that resembles several
+   of yours counts more: that's the correlation) and picks their best songs with a 30-second sample. You say «me gusta»
+   (it goes to «Por conseguir») or «no es para mí» (that artist doesn't come back), and that teaches her.
+   Without keys, without an account; only the names of artists leave the phone.
+   =================================================================================================================== */
+const DZ = 'https://api.deezer.com';
+const REC = {
+  on: LS.get('recOn', true), nova: LS.get('recNova', true), list: LS.get('recList', []), at: LS.get('recAt', 0),
+  seen: LS.get('recSeen', {}), banA: LS.get('recBanA', {}), good: LS.get('recGood', {}), busy: false, err: '', offeredAt: LS.get('recOfferAt', 0)
+};
+const recKey = (title, artist) => norm(cleanTitle(title || '')) + '|' + artistKey(artist || '');
+function recPrune() {
+  const now = Date.now(), cut = (m, days) => { for (const k of Object.keys(m)) if (now - m[k] > days * 864e5) delete m[k]; };
+  cut(REC.seen, 45); cut(REC.banA, 120);
+  LS.set('recSeen', REC.seen); LS.set('recBanA', REC.banA);
+}
+/* your artists, by how much they matter to you */
+function recProfile() {
+  const st = memStats(60), arts = st.artists.filter(a => a.name && a.key && !/demo/i.test(a.name)).slice(0, 30);
+  const likes = new Map(); for (const t of poolTracks({ free: true })) if (liked(t) && !t.demo) { const k = artistKey(t.artist); if (k) likes.set(k, (likes.get(k) || 0) + 1); }
+  const out = new Map(), max = (arts[0] && arts[0].sec) || 1;
+  for (const a of arts) out.set(a.key, { key: a.key, name: a.name, w: a.sec / max + 0.25 * Math.min(3, likes.get(a.key) || 0) });
+  /* few listens yet: the artists with most songs in your library */
+  if (out.size < 4) {
+    const cnt = new Map(); for (const t of poolTracks({ free: true })) { if (t.demo) continue; const k = artistKey(t.artist); if (k && t.artist) { const c = cnt.get(k) || { key: k, name: t.artist, n: 0 }; c.n++; cnt.set(k, c); } }
+    const top = [...cnt.values()].sort((a, b) => b.n - a.n).slice(0, 12), m2 = (top[0] && top[0].n) || 1;
+    for (const c of top) if (!out.has(c.key)) out.set(c.key, { key: c.key, name: c.name, w: 0.4 * c.n / m2 + 0.25 * Math.min(3, likes.get(c.key) || 0) });
+  }
+  /* and the new artists you liked from the recommendations */
+  for (const [k, g] of Object.entries(REC.good)) if (g && g.name && !out.has(k)) out.set(k, { key: k, name: g.name, w: Math.min(0.8, 0.3 * (g.n || 1)) });
+  return [...out.values()].sort((a, b) => b.w - a.w);
+}
+async function dzArtistId(name) {
+  const cache = LS.get('dzArt', {}), k = norm(name);
+  if (Object.prototype.hasOwnProperty.call(cache, k)) return cache[k];
+  const j = await netJSON(`${DZ}/search/artist?q=${encodeURIComponent(name)}&limit=5`, { timeout: 9000 });
+  const list = (j && Array.isArray(j.data) ? j.data : []);
+  const hit = list.find(a => norm(a.name) === k) || list.find(a => { const n = norm(a.name); return n.length >= 3 && (n.includes(k) || k.includes(n)); });
+  cache[k] = hit ? hit.id : 0;
+  const keys = Object.keys(cache); if (keys.length > 400) for (const x of keys.slice(0, keys.length - 400)) delete cache[x];
+  LS.set('dzArt', cache);
+  return cache[k];
+}
+async function recRefresh(force) {
+  if (REC.busy || !ONLINE || !REC.on) return false;
+  if (!force && REC.list.length >= 4 && Date.now() - REC.at < 20 * 3600e3) return false;
+  const prof = recProfile(); if (!prof.length) { REC.err = 'Escucha unas cuantas canciones y te recomiendo otras parecidas.'; return false; }
+  REC.busy = true; REC.err = ''; renderForYouSoon();
+  recPrune();
+  try {
+    /* the seeds: your 4 most important artists and 2 more, by chance (each day a different angle) */
+    const seeds = [...prof.slice(0, 4), ...shuffleArr(prof.slice(4, 14)).slice(0, 2)];
+    const lib = new Set(poolTracks({ free: true }).map(t => artistKey(t.artist)));
+    const cand = new Map();
+    for (const sd of seeds) {
+      let id = 0; try { id = await dzArtistId(sd.name); } catch {}
+      if (!id) continue;
+      let rel = null; try { rel = await netJSON(`${DZ}/artist/${id}/related?limit=20`, { timeout: 9000 }); } catch {}
+      ((rel && rel.data) || []).forEach((a, i) => {
+        const k = artistKey(a && a.name); if (!k || REC.banA[k]) return;
+        const c = cand.get(a.id) || { id: a.id, name: a.name, key: k, s: 0, from: [], known: lib.has(k) };
+        c.s += sd.w * (1 - i / 24); if (!c.from.includes(sd.name)) c.from.push(sd.name); cand.set(a.id, c);
+      });
+      /* and songs of that same artist that you don't have yet */
+      const own = cand.get(id) || { id, name: sd.name, key: sd.key, s: 0, from: [sd.name], known: true, own: true };
+      own.own = true; own.s += sd.w * 0.3; cand.set(id, own);
+    }
+    const arts = [...cand.values()].map(c => ({ ...c, s: c.s * (1 + 0.45 * (c.from.length - 1)) * (c.known && !c.own ? 0.75 : 1) * (REC.good[c.key] ? 1.3 : 1) }))
+      .sort((a, b) => b.s - a.s).slice(0, 16);
+    const out = [];
+    for (const a of arts) {
+      if (out.length >= 12) break;
+      let top = null; try { top = await netJSON(`${DZ}/artist/${a.id}/top?limit=10`, { timeout: 9000 }); } catch {}
+      const songs = ((top && top.data) || []).filter(x => x && x.preview && x.readable !== false && !inLibrary(x.title_short || x.title, (x.artist && x.artist.name) || a.name) && !REC.seen[recKey(x.title_short || x.title, (x.artist && x.artist.name) || a.name)] && !out.some(o => o.key === recKey(x.title_short || x.title, (x.artist && x.artist.name) || a.name)));
+      for (const x of shuffleArr(songs.slice(0, 5)).slice(0, a.own ? 1 : 2)) {
+        const artist = (x.artist && x.artist.name) || a.name, title = x.title_short || x.title;
+        out.push({ id: 'dz:' + x.id, key: recKey(title, artist), title, artist, album: (x.album && x.album.title) || '', art: (x.album && (x.album.cover_medium || x.album.cover)) || '', artBig: (x.album && (x.album.cover_xl || x.album.cover_big)) || '', url: x.preview, full: x.duration || 0, link: x.link || '',
+          akey: a.key, from: a.from.slice(0, 3), own: !!a.own, s: a.s,
+          why: a.own ? `De ${a.name}, que escuchas mucho: esta aún no la tienes` : a.from.length > 1 ? `Porque escuchas ${a.from.slice(0, 2).join(' y ')}` : `Si te gusta ${a.from[0]}` });
+      }
+    }
+    if (out.length) { REC.list = out; REC.at = Date.now(); LS.set('recList', REC.list); LS.set('recAt', REC.at); }
+    else REC.err = 'Hoy no he encontrado nada nuevo que encaje contigo. Mañana lo vuelvo a intentar.';
+  } catch { REC.err = 'No he podido buscar recomendaciones ahora. Lo intento más tarde.'; }
+  REC.busy = false; renderForYouSoon();
+  return REC.list.length > 0;
+}
+function recTrack(r) { return netTrack({ id: r.id, kind: 'preview', title: r.title, artist: r.artist, album: r.album, art: r.art, artBig: r.artBig, url: r.url, duration: 30, full: r.full || 0, link: r.link || '', rec: true }); }
+function recShown() { const now = Date.now(); let ch = false; for (const r of REC.list.slice(0, 5)) if (!REC.seen[r.key]) { REC.seen[r.key] = now; ch = true; } if (ch) LS.set('recSeen', REC.seen); }
+/* play a sample: now (the rest of the queue goes on after it), or all the samples if nothing is playing */
+function recPlay(i, next) {
+  const r = REC.list[i]; if (!r) return;
+  const t = recTrack(r);
+  if (!current() || !state.queue.length) { const all = REC.list.map(recTrack).map(x => x.id); playQueue(all, i, { source: 'online' }); return; }
+  state.queue = state.queue.filter((id, k) => id !== t.id || k === state.qi);
+  state.queue.splice(state.qi + 1, 0, t.id);
+  if (next) { renderQueue(); toast(`Después de esta: «${r.title}» (muestra de 30 s)`); return; }
+  state.qi++; markManual(); loadCurrent(true, act().paused ? 0 : MANUAL_XF);
+}
+function recLike(i) {
+  const r = REC.list[i]; if (!r) return;
+  if (!state.wishlist.some(w => norm(w.title) === norm(r.title) && norm(w.artist) === norm(r.artist))) {
+    const w = { id: uid('w'), title: r.title, artist: r.artist, why: r.why, addedAt: Date.now() }; state.wishlist.push(w); idbPut('wishlist', w);
+    try { renderWishlist(); } catch {}
+  }
+  const g = REC.good[r.akey] || { name: r.artist, n: 0 }; g.n++; REC.good[r.akey] = g; LS.set('recGood', REC.good);
+  r.liked = true; LS.set('recList', REC.list);
+  toast(`«${r.title}» guardada en Por conseguir. Te buscaré más como esta.`, 3600); haptic(8); renderForYouSoon();
+}
+function recNo(i) {
+  const r = REC.list[i]; if (!r) return;
+  REC.banA[r.akey] = Date.now(); LS.set('recBanA', REC.banA);
+  REC.list = REC.list.filter(x => x.akey !== r.akey); LS.set('recList', REC.list);
+  toast(`Vale: no te recomiendo más de ${r.artist}.`, 3200); haptic(6); renderForYou();
+}
+function recYT(i) { const r = REC.list[i]; if (r) ytFind(`${r.artist} ${r.title}`); }
+/* what you did with a sample counts: heard to the end, you probably liked it */
+function recHeard(t, sec) {
+  if (!t || !t.rec || sec < 24) return;
+  const r = REC.list.find(x => x.id === t.id); if (!r || r.heard) return;
+  r.heard = true; const g = REC.good[r.akey] || { name: r.artist, n: 0 }; g.n += 0.5; REC.good[r.akey] = g; LS.set('recGood', REC.good); LS.set('recList', REC.list);
+}
+function recCardHTML() {
+  if (!REC.on || !ONLINE) return '';
+  if (!REC.list.length) return REC.busy ? `<article class="fy-card fy-list fy-rec"><div class="fy-body"><div class="eyebrow">Descubre</div><p class="note">Buscando canciones nuevas para ti…</p></div></article>` : REC.err ? `<article class="fy-card fy-list fy-rec"><div class="fy-body"><div class="eyebrow">Descubre</div><p class="note">${esc(REC.err)}</p></div></article>` : '';
+  const show = REC.list.slice(0, 5); recShown();
+  return `<article class="fy-card fy-list fy-rec"><div class="fy-body"><div class="eyebrow">Descubre · muestras de 30 s</div><h3>Podrían gustarte</h3><ul class="fy-mini">${show.map((r, i) => `<li class="rec-row${r.liked ? ' liked' : ''}"><button data-act="rec-play" data-i="${i}">${coverHTML(recTrack(r))}<span class="row-text"><span class="t-title">${esc(r.title)}</span><span class="t-sub" title="${esc(r.why)}">${esc(r.artist)} · ${esc(r.why)}</span></span></button><span class="rec-acts"><button class="rec-b" data-act="rec-like" data-i="${i}" aria-label="Me gusta: guardarla en Por conseguir" aria-pressed="${!!r.liked}">${r.liked ? '♥' : '♡'}</button><button class="rec-b" data-act="rec-no" data-i="${i}" aria-label="No es para mí: no recomendar más de ${esc(r.artist)}">✕</button><button class="rec-b" data-act="rec-yt" data-i="${i}" aria-label="Ver en YouTube"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5.5" width="19" height="13" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 9.2l5 2.8-5 2.8z" fill="currentColor"/></svg></button></span></li>`).join('')}</ul><div class="fy-btns"><button class="btn small primary" data-act="rec-all">${ICON.playS}Escuchar las muestras</button><button class="btn small" data-act="rec-more"${REC.busy ? ' disabled' : ''}>${REC.busy ? 'Buscando…' : 'Otras'}</button></div></div></article>`;
+}
+/* Nova suggests one, now and then: «has escuchado mucho a X; esta podría gustarte. ¿Te pongo 30 segundos?» */
+function recMaybeOffer(t) {
+  if (!REC.on || !REC.nova || !ONLINE || !REC.list.length || !t || t.net || document.hidden) return;
+  if (Date.now() - REC.offeredAt < 4 * 3600e3) return;
+  const session = memEvents.filter(e => Date.now() - e.ts < 90 * 60000).reduce((a, e) => a + e.sec, 0);
+  if (session < 15 * 60 || Math.random() > 0.35) return;
+  const r = REC.list.find(x => !x.liked && !x.offered && !x.heard); if (!r) return;
+  REC.offeredAt = Date.now(); LS.set('recOfferAt', REC.offeredAt); r.offered = true; LS.set('recList', REC.list);
+  setTimeout(() => {
+    if (current() !== t || act().paused || $('#dj').classList.contains('speaking')) return;
+    const by = r.from && r.from[0];
+    novaSay(by ? `Has escuchado mucho a ${by} últimamente. Creo que te gustaría «${r.title}», de ${r.artist}. ¿Te pongo una muestra de 30 segundos después de esta?` : `Tengo una canción que creo que te gustaría: «${r.title}», de ${r.artist}. ¿Te pongo una muestra después de esta?`);
+    NB.offer = { rec: r.id, until: Date.now() + 120000 };
+  }, 28000);
+}
+function recOfferDo(id) { const i = REC.list.findIndex(x => x.id === id); if (i >= 0) { recPlay(i, true); novaSay('Hecho: suena después de esta. Si te gusta, dímelo y la guardo.'); } }
+/* «recomiéndame algo» */
+async function recAsk() {
+  if (!ONLINE) { novaSay('Para recomendarte canciones nuevas necesito internet.'); return; }
+  if (!REC.on) { novaSay('Tienes las recomendaciones apagadas. Puedes encenderlas en Ajustes › Personaliza Órbita › «Descubre».'); return; }
+  if (!REC.list.length) { setBubble('Buscando algo para ti…', dj.name); await recRefresh(true); }
+  const r = REC.list.find(x => !x.liked && !x.heard) || REC.list[0];
+  if (!r) { novaSay(REC.err || 'Ahora mismo no encuentro nada nuevo que encaje contigo.'); return; }
+  const by = r.from && r.from[0];
+  novaSay(`${by ? `Como escuchas ${by}, ` : ''}te propongo «${r.title}», de ${r.artist}. ¿Te pongo una muestra?`);
+  NB.offer = { rec: r.id, now: true, until: Date.now() + 120000 };
+}
+
+/* ===================================================================================================================
+   4.1 · Nova's brains, out of beta. Three things:
+   · Never stuck: each brain has a time limit; if it doesn't answer in time, Nova answers with what she already knows.
+   · The big brain only when it's worth it: on a phone where it's slow, it's kept for what nothing else understands.
+   · Checked: a set of test phrases measures how often the comprehension brain gets it right and how long the big one
+     takes; it runs by itself after installing, and you can run it again in Ajustes › Tu DJ.
+   =================================================================================================================== */
+const NB_TEST = [
+  ['para un momento la música', 'pausa'], ['espera que no oigo nada, pon pausa', 'pausa'], ['ya puedes volver a ponerla', 'seguir'], ['dale otra vez que ya estoy aquí', 'seguir'],
+  ['esta me tiene harto, otra', 'saltar'], ['pásala que no me apetece', 'saltar'], ['vuelve a poner la que sonaba antes', 'anterior'], ['algo con más caña que me duermo', 'mas_ritmo'],
+  ['sube un poco el ritmo', 'mas_ritmo'], ['algo más relajado, que es muy tarde', 'mas_calma'], ['más canciones de este estilo', 'parecidas'], ['sigue con este rollo', 'parecidas'],
+  ['esta canción es un temazo', 'me_gusta'], ['me encanta esta, guárdala', 'me_gusta'], ['no quiero oír esta nunca más', 'no_mas'], ['súbele que no se escucha', 'subir_vol'],
+  ['bájale un poco que está muy fuerte', 'bajar_vol'], ['¿cómo se llama la canción que suena?', 'que_suena'], ['¿por qué has puesto esta canción?', 'por_que'], ['enséñame la letra', 'letra'],
+  ['¿va a hacer frío hoy?', 'tiempo'], ['algo tranquilo para relajarme en el sofá', 'm_relax'], ['música para concentrarme estudiando', 'm_focus'], ['pon algo para bailar en la fiesta', 'm_fiesta'],
+  ['música para salir a correr', 'm_deporte'], ['música triste para llorar un rato', 'm_triste'], ['buenas tardes nova', 'c_saludo'], ['muchísimas gracias', 'c_gracias'],
+  ['cuéntame algo gracioso', 'c_chiste'], ['estoy agotado de trabajar', 'c_cansado'], ['¿y tú quién eres?', 'c_quien_eres'], ['elige tú lo que quieras', 'sorpresa'],
+  ['pon las canciones que más me gustan', 'favoritas'], ['qué aburrimiento de tarde', 'c_aburrido'], ['ponte en modo radio', 'radio'], ['pon todas mis canciones sin repetir', 'todas'],
+  ['¿qué me recomiendas de nuevo?', 'recomendar'], ['algo para la carretera', 'm_coche'], ['¿qué hora tenemos?', 'hora'], ['estoy muy contento hoy', 'c_feliz']
+];
+const BRAIN_CHECK_V = 1;
+async function nbCheck(quiet) {
+  if (!nbUsable()) return null;
+  if (!(window.ORBITA_DEBUG && window.__nbFake)) { try { await nbWithin(nbInit(), 20000); } catch { return null; } }
+  const known = NB.intents.length ? NB.intents : Object.keys(NB_INTENTS);
+  let ok = 0, sure = 0, ms = 0, n = 0; const miss = [];
+  for (const [text, want] of NB_TEST) {
+    if (!known.includes(want)) continue;
+    const t0 = performance.now(); let r = null;
+    try { r = await nbClassify(text); } catch {}
+    ms += performance.now() - t0; n++;
+    if (r && r.intent === want) { ok++; if (r.ok) sure++; } else miss.push(text);
+  }
+  NB.check = { v: BRAIN_CHECK_V, ok, sure, n, ms: Math.round(ms / Math.max(1, n)), miss: miss.slice(0, 6), ts: Date.now(), model: NB.st && NB.st.repo };
+  LS.set('nbCheck', NB.check);
+  if (!quiet) renderNB();
+  return NB.check;
+}
+const BB_TEST = ['¿qué tal estás hoy?', 'estoy cansado de tanto trabajar', 'pon algo para estudiar sin distraerme'];
+async function bbCheck(quiet) {
+  if (!bbUsable()) return null;
+  let good = 0, ms = 0, n = 0, worst = 0;
+  for (const text of BB_TEST) {
+    const t0 = performance.now(); let o = null;
+    try { o = bbParse(await bbComplete(bbPrompt(text), { grammar: BB_PROMPT.grammar, timeout: 45000 })); } catch {}
+    const d = performance.now() - t0; ms += d; n++; worst = Math.max(worst, d);
+    if (o && o.accion && (o.respuesta || o.accion !== 'charla')) good++;
+  }
+  BB.check = { v: BRAIN_CHECK_V, good, n, ms: Math.round(ms / Math.max(1, n)), worst: Math.round(worst), ts: Date.now() };
+  LS.set('bbCheck', BB.check);
+  if (!quiet) renderBB();
+  return BB.check;
+}
+/* how long the big brain should take for one answer, from what it has measured on this phone */
+function bbExpectMs() {
+  const c = BB.check, tps = BB.speed && BB.speed.tps;
+  if (c && c.ms) return c.ms;
+  return tps ? 1200 + 85 / tps * 1000 : 9000;
+}
+/* the big brain for chatting only when it answers in a reasonable time on this phone */
+const bbQuick = () => bbExpectMs() <= 12000;
+/* As soon as you start writing or talking to Nova, her brains get ready (the first answer no longer waits for them) */
+function brainWarm() {
+  try { if (nbUsable() && !NB.ready) nbInit().catch(() => {}); } catch {}
+  try { if (bbUsable() && !BB.ready && !document.hidden) bbInit().catch(() => {}); } catch {}
+}
+function brainCheckLine(kind) {
+  if (kind === 'nb') {
+    const c = NB.check; if (!c || !c.n) return '';
+    return `En la prueba entiende ${c.ok} de ${c.n} frases${c.ms ? ` · ${c.ms} ms cada una` : ''}`;
+  }
+  const c = BB.check; if (!c || !c.n) return '';
+  return `En la prueba contesta en ${(c.ms / 1000).toFixed(1).replace('.', ',')} s de media${c.good < c.n ? ` (${c.n - c.good} de ${c.n} sin respuesta útil)` : ''}${c.ms > 12000 ? ' · en este móvil va lento: Nova lo usa solo para lo que no entiende de otra forma' : ''}`;
+}
+
+/* the buttons of all this */
+$('#btnAll').addEventListener('click', () => { if (state.source === 'todo' && current() && !act().paused) stopAll(); else startAll(); });
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act^="todo-"],[data-act^="rec-"]'); if (!el) return;
+  const a = el.dataset.act, i = +el.dataset.i;
+  if (a === 'todo-go') { if (state.source === 'todo' && current() && !act().paused) toast('Ya están sonando todas tus canciones'); else startAll(); }
+  else if (a === 'todo-new') { if (el.dataset.sure) { startAll(true); } else { el.dataset.sure = '1'; el.textContent = '¿Seguro? Toca otra vez'; setTimeout(() => { if (el.isConnected) { delete el.dataset.sure; el.textContent = 'Empezar de nuevo'; } }, 3000); } }
+  else if (a === 'rec-play') recPlay(i, false);
+  else if (a === 'rec-like') recLike(i);
+  else if (a === 'rec-no') recNo(i);
+  else if (a === 'rec-yt') recYT(i);
+  else if (a === 'rec-all') { const all = REC.list.map(recTrack).map(x => x.id); if (all.length) playQueue(all, 0, { source: 'online', talk: dj.voiceOn ? `Te pongo las muestras de lo que creo que te gustaría. Si alguna te encanta, guárdala.` : null }); }
+  else if (a === 'rec-more') { REC.list = []; LS.set('recList', []); recRefresh(true); }
+});
+document.addEventListener('focusin', e => { const id = e.target && e.target.id; if (id === 'djInput' || id === 'chatIn') brainWarm(); });
+document.addEventListener('pointerdown', e => { if (e.target.closest && e.target.closest('#djMic')) brainWarm(); }, { passive: true });
+/* "Para ti hoy" on the home screen */
 function coversGrid(list) { const c = list.slice(0, 4); while (c.length < 4) c.push(null); return `<div class="fy-covers" aria-hidden="true">${c.map(t => coverHTML(t)).join('')}</div>`; }
 function renderForYou() {
   const box = $('#fyOut'); if (!box) return;
@@ -3102,6 +3548,9 @@ function renderForYou() {
     if (so) cards.push(`<article class="fy-card">${coverHTML(so, 'xl')}<div class="fy-body"><div class="eyebrow">Canción del día</div><h3>${esc(so.title)}</h3><p class="t-sub">${esc(so.artist)}</p><p class="note">${esc(d.song.why)}</p><div class="fy-btns"><button class="btn small primary" data-act="sotd-play" data-id="${so.id}">${ICON.playS}Escuchar</button></div></div></article>`);
     if (!d.ai && !d.aiTried && aiState === 'ready') idle(() => aiDaily(d));
   }
+  /* 4.1 · all your songs, and songs you don't have that you'd probably like */
+  try { const h = todoCardHTML(); if (h) cards.push(h); } catch {}
+  try { const h = recCardHTML(); if (h) cards.push(h); if (REC.on && ONLINE && !REC.busy && Date.now() - REC.at > 20 * 3600e3 && Date.now() - (REC.tried || 0) > 30 * 60000) { REC.tried = Date.now(); idle(() => recRefresh()); } } catch {}
   const red = rediscover(), nw = newArrivals();
   const mini = (title, list, act) => `<article class="fy-card fy-list"><div class="fy-body"><div class="eyebrow">${title}</div><ul class="fy-mini">${list.map(t => `<li><button data-act="${act}" data-id="${t.id}">${coverHTML(t)}<span class="row-text"><span class="t-title">${esc(t.title)}</span><span class="t-sub">${esc(t.artist)}</span></span></button></li>`).join('')}</ul></div></article>`;
   if (red.length) cards.push(mini('Redescubre', red, 'fy-play-red'));
@@ -3605,6 +4054,9 @@ $('#diagCopy').onclick = async () => {
   let txt = diagText();
   if (NA_ON) { try { const st = await NA_PLUGIN.status(); txt += `
 Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda en oírse ${st.lat} ms` : ''}`; } catch {} }
+  try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
+  try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
+  try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
   if (GLV.scale && GLV.scale < 1) txt += `
 Visualizador 3D: resolución ×${GLV.scale.toFixed(2)} (el móvil no llegaba)`;
   try { await navigator.clipboard.writeText(txt); }
@@ -4131,6 +4583,7 @@ function brainRank(pool, prev, { target = null, exclude = new Set(), explore = 0
     if (target !== null && v) s -= Math.abs(v[0] - target) * strength; else if (target !== null) s -= 0.25 * strength;
     const a = anaCache.get(t.id);
     if (a && pa && a.bpm && pa.bpm && a.conf >= 2 && pa.conf >= 2) { let r = a.bpm / pa.bpm; if (r > 1.6) r /= 2; else if (r < 0.625) r *= 2; if (Math.abs(r - 1) <= 0.07) s += 0.35; }
+    if (a && pa) s += (keyCompat(anaKey(pa), anaKey(a)) - 0.5) * 0.5;   // 4.1 · in a key that goes with the one before
     s += Math.random() * explore;
     return { t, s };
   }).sort((a, b) => b.s - a.s);
@@ -4159,7 +4612,9 @@ function radioBatch(avoid = []) {
   return radioNext(prev, 8).filter(id => !avoid.includes(id));
 }
 function brainOnBegin(t) {
+  try { todoOnBegin(t); } catch {}
   if (t.net) return;
+  try { recMaybeOffer(t); } catch {}
   const v = trackVec(t), pe = prefEnergy(); if (BRAIN.target === null && (v || pe !== null)) BRAIN.target = pe ?? v[0];
   if (state.source === 'radio') { state.queue = state.queue.slice(0, state.qi + 1).concat(radioNext(t, 6)); }
 }
@@ -4266,10 +4721,13 @@ function bgAnalysis(delay = 8000) {
     const charging = await isCharging();
     if (document.hidden || job || mixing || mixArm || NV.running || $('#dj').classList.contains('speaking')) { bgAnalysis(15000); return; }
     if (!charging && bgDone >= 24) return;
-    const todo = state.tracks.filter(t => !t.net && !anaCache.has(t.id) && !anaPending.has(t.id) && !t.anaFail && (!t.duration || t.duration <= 900) && (!t.size || t.size < 60e6));
+    const fits = t => !t.net && !anaPending.has(t.id) && !t.anaFail && (!t.duration || t.duration <= 900) && (!t.size || t.size < 60e6);
+    let todo = state.tracks.filter(t => fits(t) && !anaCache.has(t.id)), rekey = false;
+    /* 4.1 · then the ones analysed before, to learn their key (for the harmonic mixes) */
+    if (!todo.length) { todo = state.tracks.filter(t => fits(t) && !t.demo && anaCache.has(t.id) && anaCache.get(t.id).key === undefined); rekey = true; }
     if (!todo.length) return;
     const t = todo.sort((a, b) => plays(b) - plays(a))[0]; bgDone++;
-    scheduleAnalysis(t); await anaQueue; if (!anaCache.has(t.id)) t.anaFail = true;
+    scheduleAnalysis(t, rekey); await anaQueue; if (!anaCache.has(t.id) || (rekey && anaCache.get(t.id).key === undefined)) t.anaFail = true;
     if (state.view === 'tu') renderTuSoon();
     bgAnalysis(charging ? 4000 : 12000);
   }, delay);
@@ -5098,6 +5556,10 @@ $('#lkGlowIn').addEventListener('input', e => { LOOK.glow = +e.target.value; LS.
 const lookToggle = (id, key, ls, after) => { $(id).onclick = () => { LOOK[key] = !LOOK[key]; if (key === 'intro') LS.set('introOff', !LOOK.intro); else LS.set(ls, LOOK[key]); setToggle($(id), LOOK[key]); applyLook(); if (after) after(); }; };
 lookToggle('#tTicker', 'ticker', 'lkTicker');
 lookToggle('#tForYou', 'foryou', 'lkForYou', () => renderForYou());
+/* 4.1 · Descubre */
+setToggle($('#tRecs'), REC.on); setToggle($('#tRecNova'), REC.nova);
+$('#tRecs').addEventListener('click', () => { REC.on = !REC.on; LS.set('recOn', REC.on); setToggle($('#tRecs'), REC.on); renderForYou(); toast(REC.on ? 'Descubre encendido: te buscaré canciones nuevas' : 'Descubre apagado'); });
+$('#tRecNova').addEventListener('click', () => { REC.nova = !REC.nova; LS.set('recNova', REC.nova); setToggle($('#tRecNova'), REC.nova); });
 lookToggle('#tMixer', 'mixer', 'lkMixer');
 lookToggle('#tIntro', 'intro', null, () => toast(LOOK.intro ? 'La animación de entrada vuelve la próxima vez que abras Órbita' : 'Órbita se abrirá sin animación de entrada'));
 lookToggle('#tHaptics', 'haptics', 'haptics', () => haptic(12));
@@ -6499,6 +6961,12 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '4.1': [
+    '<b>Todas mis canciones</b>: un botón nuevo en «Ahora» (y una tarjeta en «Para ti hoy») pone todas tus canciones sin repetir ninguna hasta que suenen todas, en un orden en el que una lleva a la otra. Recuerda por dónde vas, también con la pantalla apagada.',
+    '<b>Mezclas armónicas</b>: Nova aprende el tono de cada canción y une las que pegan. Si dos chocan, no las solapa: usa un filtro o un corte con eco, como un DJ.',
+    '<b>Descubre</b>: en «Para ti hoy», canciones que no tienes y que probablemente te gusten, con muestras de 30 segundos. Salen de los artistas que más escuchas (y de los que se parecen a varios de ellos). Con ♡ se guardan en «Por conseguir»; con ✕, ese artista no vuelve. De vez en cuando, Nova te propone alguna: «¿Te pongo 30 segundos?».',
+    '<b>Los cerebros de Nova dejan de ser beta</b>: nunca se quedan «pensando» para siempre (si tardan, Nova contesta con lo que ya sabe), el grande se prepara en cuanto empiezas a hablarle y, en móviles donde va lento, se reserva para lo que no entiende de otra forma. En Ajustes › Tu DJ, «Comprobar» mide cuánto aciertan y cuánto tardan.'
+  ],
   '4.0': [
     '<b>Visualizadores nuevos, con la gráfica del móvil</b>: una galaxia en 3D con miles de estrellas, nubes con los colores de la portada, un núcleo que late con el bombo y estrellas fugaces con la caja; Órbita con anillos hechos de música alrededor del planeta-portada; Ondas de luz; Montañas que avanzan hacia ti; Aurora; Túnel; y Partículas, la portada hecha de miles de puntos que bailan.',
     '<b>Cada uno con sus ajustes</b>: a pantalla completa, «Ajustes»: detalle, velocidad, sensibilidad y color (el de la portada, el de Órbita o el que elijas). Arrastra para girar la galaxia, Órbita o la portada, y pellizca para acercarte.',
@@ -6708,6 +7176,9 @@ function novaRun(raw, viaBrain) {
   if (is(/^(pon |ensename |muestrame |abre )?(la )?letra$|karaoke/)) { if (t) { openNP(); setLyricsOpen(true); } return; }
   if (is(/visualizador|^(pon )?(el )?visual$/)) { openVizFull(); return; }
   if (is(/(resumen|repaso) (de mi|del|de este|de tu|de todo el) ano|(mi|tu) ano en orbita|(^| )wrapped$|que (he|e) escuchado este ano/)) { openRecap(0); return; }
+  /* 4.1 */
+  if (is(/^(pon |ponme |reproduce |quiero (oir|escuchar) )?(todas (mis|las) canciones|toda mi (musica|biblioteca)|todo mi orbita|todo orbita)( sin repetir)?$|^(ponlas|ponmelas|reproducelas) todas$|^(pon|reproduce|ponme) todas( sin repetir)?$/)) { startAll(); return; }
+  if (is(/(recomienda(me|s)?|que me recomiendas|alguna recomendacion|sugiereme|descubreme (algo|canciones|musica)|(canciones?|algo) nuev[oa]s? (de internet )?que me (puedan? )?gust)/)) { recAsk(); return; }
   if (memoryCommand(q, raw)) return;
   const qn = q.match(/^(despues|luego|a continuacion) pon (.+)$|^pon (.+) (despues|luego|a continuacion|la siguiente)$/);
   if (qn && t) { queueNextByName(qn[2] || qn[3]); return; }
@@ -6749,6 +7220,7 @@ function explainPick(t) {
   if (v && BRAIN.target !== null && Math.abs(v[0] - BRAIN.target) < 0.12) r.push('tiene justo la energía que llevamos');
   const a = anaCache.get(t.id), pa = prv && anaCache.get(prv.id);
   if (a && pa && a.bpm && pa.bpm && a.conf >= 2 && pa.conf >= 2 && Math.abs(a.bpm / pa.bpm - 1) < 0.06) r.push(`su ritmo, ${Math.round(a.bpm)} pulsaciones por minuto, encaja con la anterior para mezclarlas`);
+  if (pa && keyCompat(anaKey(pa), anaKey(a)) >= 0.85) r.push(anaKey(pa) === anaKey(a) ? `está en ${keyName(anaKey(a))}, el mismo tono que la anterior, y se mezclan sin chocar` : `su tono, ${keyName(anaKey(a))}, pega con el de la anterior`);
   if (plays(t) >= 3 && pSkip(t, brainCtx(prv)) < 0.25) r.push('casi nunca la saltas');
   if (weatherNow() && v) { const k = wxDesc(weatherNow().code)[1]; if ((k === 'lluvia' || k === 'tormenta') && v[0] < 0.4) r.push('con este tiempo pega algo tranquilo'); }
   if (!r.length) r.push(state.source === 'radio' ? 'en modo radio voy probando cosas para conocerte mejor' : 'va en la lista que estás escuchando');
@@ -6769,7 +7241,7 @@ function removeArtistFromQueue(name) {
   state.queue = state.queue.slice(0, state.qi + 1).concat(up.filter(id => !hit.includes(id)));
   if (state.source === 'radio' && state.queue.length - state.qi < 4) state.queue.push(...radioNext(current(), 6).filter(id => { const x = trackById(id); return x && artistKey(x.artist) !== artistKey(artist); }));
   disarmMix(); prefetchNext(); renderQueue();
-  novaSay(`Quito ${hit.length === 1 ? 'la canción' : 'las ' + hit.length + ' canciones'} de ${artist} que venían.`);
+  novaSay(`Quito ${hit.length === 1 ? 'la canción' : 'las ' + hit.length + ' canciones'} de ${artist} que ${hit.length === 1 ? 'venía' : 'venían'}.`);
   return true;
 }
 /* What Nova knows about your artists: Wikipedia in Spanish, only for musicians, cached on the phone */
@@ -7337,7 +7809,7 @@ $('#nvBox').addEventListener('click', async e => {
 });
 renderNV();
 const NB_WORKER_SRC = "/* Nova's understanding, in a worker so the app never stutters:\n   a multilingual sentence model (ONNX Runtime) turns each phrase into a vector of meaning,\n   and phrases that mean the same land close together, whatever the words. */\nlet session = null, tok = null, cfg = null, bank = null;\n\n/* ---- Tokenizer: SentencePiece Unigram read from tokenizer.json (the format of XLM-R models) ---- */\nconst NMT_DROP = /[\\u0001-\\u0008\\u000B\\u000E-\\u001F\\u007F\\u008F\\u009F]/g;\nconst NMT_SPACE = /[\\u0009\\u000A\\u000C\\u000D\\u1680\\u200B-\\u200F\\u2028\\u2029\\u2581\\uFEFF\\uFFFD]/g;\nfunction normalizer(n) {\n  if (!n) return s => s;\n  switch (n.type) {\n    case 'Sequence': { const fs = (n.normalizers || []).map(normalizer); return s => fs.reduce((a, f) => f(a), s); }\n    case 'NFKC': return s => s.normalize('NFKC');\n    case 'NFC': return s => s.normalize('NFC');\n    case 'NFKD': return s => s.normalize('NFKD');\n    case 'NFD': return s => s.normalize('NFD');\n    case 'Nmt': return s => s.replace(NMT_DROP, '').replace(NMT_SPACE, ' ');\n    /* SentencePiece's compiled table is essentially NFKC plus the Nmt clean-up */\n    case 'Precompiled': return s => s.replace(NMT_DROP, '').replace(NMT_SPACE, ' ').normalize('NFKC');\n    case 'Lowercase': return s => s.toLowerCase();\n    case 'Strip': return s => { if (n.strip_left !== false) s = s.replace(/^\\s+/, ''); if (n.strip_right !== false) s = s.replace(/\\s+$/, ''); return s; };\n    case 'StripAccents': return s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');\n    case 'Replace': {\n      const p = n.pattern || {}; const re = p.Regex !== undefined ? new RegExp(p.Regex, 'gu') : new RegExp(String(p.String).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'g');\n      return s => s.replace(re, n.content);\n    }\n    case 'Prepend': return s => n.prepend + s;\n    case 'BertNormalizer': return s => {\n      if (n.clean_text !== false) s = s.replace(NMT_DROP, '').replace(/\\s/g, ' ');\n      if (n.lowercase !== false) s = s.toLowerCase();\n      if (n.strip_accents || (n.strip_accents == null && n.lowercase !== false)) s = s.normalize('NFD').replace(/[̀-ͯ]/g, '');\n      return s;\n    };\n    default: return s => s;\n  }\n}\nfunction metaspaceOf(pre) {\n  if (!pre) return null;\n  if (pre.type === 'Metaspace') return pre;\n  if (pre.type === 'Sequence') for (const p of pre.pretokenizers || []) { const m = metaspaceOf(p); if (m) return m; }\n  return null;\n}\nfunction specialIds(j, ids) {\n  const p = j.post_processor, look = name => { const a = (j.added_tokens || []).find(t => t.content === name); return a ? a.id : ids.get(name); };\n  const fromTemplate = pp => {\n    const pre = [], post = []; let seen = false;\n    for (const it of pp.single || []) {\n      if (it.Sequence) { seen = true; continue; }\n      if (it.SpecialToken) { const st = (pp.special_tokens || {})[it.SpecialToken.id]; const v = st ? st.ids : [look(it.SpecialToken.id)]; (seen ? post : pre).push(...v); }\n    }\n    return { pre, post };\n  };\n  if (p) {\n    const list = p.type === 'Sequence' ? p.processors || [] : [p];\n    for (const pp of list) {\n      if (pp.type === 'TemplateProcessing') return fromTemplate(pp);\n      if (pp.type === 'RobertaProcessing' || pp.type === 'BertProcessing') return { pre: [pp.cls[1]], post: [pp.sep[1]] };\n    }\n  }\n  const cls = look('<s>') ?? look('[CLS]'), sep = look('<\/s>') ?? look('[SEP]');\n  return { pre: cls != null ? [cls] : [], post: sep != null ? [sep] : [] };\n}\nfunction buildTok(j) {\n  const m = j.model; if (!m || m.type !== 'Unigram' || !Array.isArray(m.vocab)) throw new Error('El tokenizador no es de tipo Unigram');\n  const ids = new Map(), scores = new Float32Array(m.vocab.length); let min = Infinity, maxLen = 1;\n  m.vocab.forEach(([p, s], i) => { if (!ids.has(p)) ids.set(p, i); scores[i] = s; if (s < min) min = s; const l = [...p].length; if (l > maxLen) maxLen = l; });\n  const ms = metaspaceOf(j.pre_tokenizer), rep = ms ? ms.replacement || '\\u2581' : '\\u2581';\n  const prefix = !ms || ms.add_prefix_space !== false && ms.prepend_scheme !== 'never';\n  return { ids, scores, unk: m.unk_id ?? ids.get('<unk>') ?? 0, unkScore: min - 10, maxLen: Math.min(maxLen, 48), norm: normalizer(j.normalizer), rep, prefix, sp: specialIds(j, ids) };\n}\n/* Best split of one word into pieces (Viterbi over the piece scores) */\nfunction viterbi(T, word) {\n  const ch = [...word], n = ch.length, best = new Float64Array(n + 1).fill(-Infinity), from = new Int32Array(n + 1), pid = new Int32Array(n + 1);\n  best[0] = 0;\n  for (let i = 0; i < n; i++) {\n    if (best[i] === -Infinity) continue;\n    let s = '', single = false;\n    for (let l = 1; l <= T.maxLen && i + l <= n; l++) {\n      s += ch[i + l - 1];\n      const id = T.ids.get(s); if (id === undefined) continue;\n      if (l === 1) single = true;\n      const v = best[i] + T.scores[id];\n      if (v > best[i + l]) { best[i + l] = v; from[i + l] = i; pid[i + l] = id; }\n    }\n    if (!single) { const v = best[i] + T.unkScore; if (v > best[i + 1]) { best[i + 1] = v; from[i + 1] = i; pid[i + 1] = T.unk; } }\n  }\n  const out = []; for (let k = n; k > 0; k = from[k]) out.push(pid[k]);\n  out.reverse();\n  return out.filter((id, i) => !(id === T.unk && out[i - 1] === T.unk));   // consecutive unknowns become one\n}\nfunction encode(T, text, max = 128) {\n  const words = T.norm(String(text).trim()).split(/\\s+/).filter(Boolean);\n  const out = [];\n  words.forEach((w, i) => { out.push(...viterbi(T, (i > 0 || T.prefix ? T.rep : '') + w)); });\n  return [...T.sp.pre, ...out.slice(0, max - T.sp.pre.length - T.sp.post.length), ...T.sp.post];\n}\n\n/* ---- Sentence vectors ---- */\nasync function embed(text) {\n  const ids = encode(tok, (cfg.prefix || '') + text), n = ids.length;\n  const big = a => new ort.Tensor('int64', BigInt64Array.from(a, BigInt), [1, n]);\n  const feeds = {};\n  for (const name of session.inputNames) {\n    if (name === 'input_ids') feeds[name] = big(ids);\n    else if (name === 'attention_mask') feeds[name] = big(ids.map(() => 1));\n    else if (name === 'token_type_ids') feeds[name] = big(ids.map(() => 0));\n  }\n  const out = await session.run(feeds);\n  const name = session.outputNames.includes('sentence_embedding') ? 'sentence_embedding' : session.outputNames.includes('last_hidden_state') ? 'last_hidden_state' : session.outputNames[0];\n  const t = out[name], d = t.dims[t.dims.length - 1], v = new Float32Array(d);\n  if (t.dims.length === 2) v.set(t.data.subarray(0, d));\n  else { const rows = t.dims[1]; for (let r = 0; r < rows; r++) for (let k = 0; k < d; k++) v[k] += t.data[r * d + k]; }   // mean of all tokens\n  let s = 0; for (let k = 0; k < d; k++) s += v[k] * v[k]; s = Math.sqrt(s) || 1;\n  for (let k = 0; k < d; k++) v[k] /= s;\n  return v;\n}\n\n/* ---- Understanding: nearest examples (kNN), with thresholds measured on the examples themselves ---- */\nfunction scoreAll(q, skip) {\n  const { vecs, labels, nI, d } = bank, best = new Float32Array(nI).fill(-1), sec = new Float32Array(nI).fill(-1);\n  for (let i = 0; i < labels.length; i++) {\n    if (i === skip) continue;\n    let s = 0; const o = i * d; for (let k = 0; k < d; k++) s += q[k] * vecs[o + k];\n    const l = labels[i]; if (s > best[l]) { sec[l] = best[l]; best[l] = s; } else if (s > sec[l]) sec[l] = s;\n  }\n  const sc = new Float32Array(nI); for (let l = 0; l < nI; l++) sc[l] = best[l] < -0.5 ? -1 : 0.75 * best[l] + 0.25 * (sec[l] > -0.5 ? (best[l] + sec[l]) / 2 : best[l]);\n  let b = 0, c = -1; for (let l = 1; l < nI; l++) if (sc[l] > sc[b]) b = l;\n  for (let l = 0; l < nI; l++) if (l !== b && (c < 0 || sc[l] > sc[c])) c = l;\n  return { b, s1: sc[b], c, s2: c >= 0 ? sc[c] : -1, raw: best[b] };\n}\nfunction calibrate() {\n  const { labels, vecs, d } = bank, rows = [];\n  for (let i = 0; i < labels.length; i++) { const r = scoreAll(vecs.subarray(i * d, i * d + d), i); rows.push({ s1: r.s1, s2: r.s2, ok: r.b === labels[i] }); }\n  const med = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };\n  const good = rows.filter(r => r.ok), pos = med(good.map(r => r.s1)), neg = med(rows.map(r => r.s2)), spread = Math.max(0.02, pos - neg);\n  /* lowest score at which at least 90 % of the examples are understood right */\n  const sorted = [...rows].sort((a, b) => b.s1 - a.s1); let ok = 0, tau = sorted.length ? sorted[sorted.length - 1].s1 : 0;\n  sorted.forEach((r, i) => { ok += r.ok; if (ok / (i + 1) >= 0.9) tau = r.s1; });\n  const loo = good.length / Math.max(1, rows.length);\n  return { tau: Math.max(tau, neg + 0.15 * spread), margin: 0.08 * spread, spread, pos, neg, loo };\n}\n\nonmessage = async e => {\n  const m = e.data;\n  try {\n    if (m.type === 'init') {\n      importScripts(m.files.ortJs);\n      ort.env.wasm.numThreads = 1;\n      ort.env.wasm.wasmPaths = { 'ort-wasm-simd.wasm': m.files.ortWasm, 'ort-wasm.wasm': m.files.ortWasm };\n      cfg = m.cfg || {};\n      tok = buildTok(JSON.parse(m.tok));\n      session = await ort.InferenceSession.create(m.model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all', enableCpuMemArena: false, enableMemPattern: false });\n      m.model = null;\n      const t0 = performance.now(); const v = await embed('hola, ¿qué tal?');\n      postMessage({ id: m.id, ok: true, dim: v.length, ms: Math.round(performance.now() - t0), vocab: tok.scores.length });\n    } else if (m.type === 'embed') {\n      const vs = []; const t0 = performance.now();\n      for (const t of m.texts) vs.push(await embed(t));\n      const d = vs.length ? vs[0].length : 0, out = new Float32Array(vs.length * d);\n      vs.forEach((v, i) => out.set(v, i * d));\n      postMessage({ id: m.id, ok: true, vecs: out, dim: d, ms: Math.round(performance.now() - t0) }, [out.buffer]);\n    } else if (m.type === 'bank') {\n      bank = { vecs: m.vecs, labels: m.labels, nI: m.nI, d: m.dim };\n      bank.cal = calibrate();\n      postMessage({ id: m.id, ok: true, cal: bank.cal });\n    } else if (m.type === 'classify') {\n      const t0 = performance.now(), q = await embed(m.text), r = scoreAll(q, -1);\n      postMessage({ id: m.id, ok: true, intent: r.b, s1: r.s1, second: r.c, s2: r.s2, raw: r.raw, cal: bank.cal, ms: Math.round(performance.now() - t0) });\n    } else if (m.type === 'tokenize') {\n      postMessage({ id: m.id, ok: true, ids: m.texts.map(t => encode(tok, t)) });\n    }\n  } catch (err) { postMessage({ id: m.id, ok: false, error: String(err && err.message || err) }); }\n};\n";
-const NB_BANK = {"pausa": ["para la música", "pausa un momento", "espera un segundo", "para que me llaman por teléfono", "silencio un momento", "deja de sonar", "corta la música", "para un ratito", "me están hablando, para", "quita el sonido un momento", "detén la canción", "frena la música", "ahora no, para", "para un momento que me llaman", "páralo", "calla un segundo", "detén la música", "para que tengo que hablar", "espérate un momento", "ponla en pausa"], "seguir": ["vuelve a ponerla", "ya estoy, dale", "quita la pausa", "ya puedes seguir", "continúa con la música", "sigue sonando", "pon otra vez la música", "ya he vuelto", "dale al play", "arranca de nuevo", "que siga la música", "venga, sigue", "sigue con la música", "ya está, continúa", "ponla otra vez que ya he vuelto", "reanuda la canción", "vuelve a sonar"], "saltar": ["esta no me convence", "pasa de esta", "cambia, que esta ya la he oído mil veces", "quita esta que no la aguanto", "otra canción por favor", "esta no", "siguiente tema", "no me apetece esta", "pon otra", "cámbiala", "esta canción me aburre", "salta a la próxima", "venga va, otra", "next", "esta no me pega ahora", "quita esta", "siguiente", "esta me raya", "esta no me gusta nada", "qué rollo de canción", "cambia de tema", "pasa a otra", "no me mola esta", "esta ya me cansa", "skip", "salta esta", "próxima"], "anterior": ["pon la de antes", "vuelve a la anterior", "la canción anterior", "atrás una canción", "la que sonaba antes", "quiero oír otra vez la anterior", "retrocede una", "la de antes me gustaba más", "ponme la que sonaba antes", "atrás", "retrocede una canción", "vuelve a la de antes"], "repetir": ["pon esta otra vez desde el principio", "repite esta canción", "empieza de nuevo esta", "vuelve al principio de la canción", "otra vez esta", "repítela", "desde el principio", "vuelve a empezarla", "ponla otra vez"], "mas_ritmo": ["esto está muy flojo, dale caña", "más marcha que me duermo", "venga, algo con más vidilla", "esto es un muermo, anima esto", "súbele la energía", "más ritmo", "algo más cañero", "que se mueva esto", "pon algo con más fuerza", "esto está muy parado", "dale más alegría a esto", "necesito más energía", "más rápido el ritmo", "algo con más energía", "ponle más caña", "esto necesita más ritmo", "algo más animado", "sube el ritmo", "más rápido", "venga, a tope"], "mas_calma": ["relájate un poco que es tarde", "demasiado ruido, algo más suave", "tranqui, baja el ritmo", "baja un poco las revoluciones", "esto es demasiado fuerte", "algo más tranquilito", "más calmado por favor", "me estás estresando con tanto ruido", "algo más lento", "baja la intensidad", "menos caña", "más suave", "algo más suave", "baja las revoluciones", "más tranquilo por favor", "esto es demasiado movido", "relaja el ambiente", "menos ruido"], "parecidas": ["más cosas de este estilo", "sigue por esta línea", "pon otras que se parezcan", "dame más rollo de este", "más canciones como esta", "algo parecido a lo que suena", "de este palo, más", "sigue en esta onda", "más de lo mismo", "otras en esta vibra", "más de este rollo", "algo en esta línea", "sigue con este estilo", "más así", "pon cosas parecidas", "me gusta este rollo, más"], "me_gusta": ["qué temazo", "esta canción me encanta", "guárdame esta", "esta me flipa", "esta canción es una pasada", "me mola mucho esta", "qué buena es esta", "esta es la mejor", "guárdala en favoritas", "me chifla esta canción", "esta está brutal", "qué canción más bonita", "esta me gusta un montón", "temón", "esta es una pasada", "me flipa esta", "temazo", "qué canción más buena", "me mola mucho", "esta me encanta, guárdala", "qué bonita", "vaya joya"], "no_mas": ["no quiero volver a oír esta canción", "no me la pongas nunca más", "odio esta canción", "bórrame esta de la lista para siempre", "esta canción no la soporto, no la repitas", "que no vuelva a sonar esta", "esta jamás otra vez", "no la soporto", "bórrala de mi vida", "esta nunca más", "no me vuelvas a poner esta", "quita esta para siempre"], "subir_vol": ["súbele", "no se oye nada", "más alto por favor", "pon más volumen", "no oigo la música", "súbele el volumen que no se escucha", "a todo volumen", "un poco más fuerte el volumen", "no oigo nada", "súbelo", "ponlo más fuerte", "más fuerte", "sube un poco", "está muy bajito"], "bajar_vol": ["bájale", "está muy alto", "baja el volumen", "me revientas los oídos", "más bajito", "menos volumen por favor", "se oye demasiado fuerte", "un poco más bajo", "está muy fuerte", "bájalo un poco", "me estás dejando sordo", "baja un poco", "qué alto está"], "que_suena": ["¿qué canción es esta?", "¿quién canta esto?", "¿cómo se llama esta?", "¿qué está sonando?", "dime el nombre de la canción", "¿de quién es esta?", "¿qué es esto que suena?", "¿esta canción cómo se llamaba?", "¿esto qué es?", "¿qué estoy escuchando?", "¿cómo se llama esto?", "¿qué tema es este?"], "por_que": ["¿por qué me pones esto?", "¿por qué has elegido esta?", "¿a qué viene esta canción?", "explícame por qué suena esta", "¿por qué esta canción ahora?", "¿qué criterio has seguido?", "¿y esta por qué?", "¿por qué esta canción?", "explícame esta elección"], "artista": ["háblame de este artista", "¿qué sabes de este grupo?", "¿quién es este cantante?", "cuéntame algo de quien canta", "¿de dónde es este grupo?", "háblame de Shakira", "¿sabes algo de Rosalía?", "dime algo sobre la banda", "¿quiénes son estos?", "cuéntame la historia de este artista"], "tiempo": ["¿hace frío fuera?", "¿va a llover?", "¿qué temperatura hace?", "¿llevo paraguas hoy?", "¿hace sol?", "¿qué tiempo hace hoy?", "¿cómo está el día?", "¿hace calor en la calle?", "¿necesito chaqueta?", "¿está nublado?"], "hora": ["¿qué hora es?", "dime la hora", "¿qué hora tenemos?", "¿es muy tarde?", "¿cuánto falta para las doce?"], "letra": ["pon la letra", "quiero cantar esta", "enséñame la letra de la canción", "¿qué dice la canción?", "modo karaoke", "¿cómo sigue la letra?", "quiero ver la letra", "pon la letra que quiero cantar"], "radio": ["pon la radio", "modo radio", "ponte en plan radio y no pares", "música sin parar, tú eliges", "haz de radio", "no pares de poner música"], "resumen": ["¿qué he escuchado esta semana?", "resumen de mi semana", "¿cuánto he escuchado últimamente?", "dame mis estadísticas", "¿qué es lo que más escucho?", "¿cuál es mi artista más escuchado?"], "recuerdos": ["¿qué sabes de mí?", "¿qué recuerdas de mí?", "¿qué te he pedido antes?", "¿te acuerdas de mis gustos?", "¿qué has aprendido de mí?", "¿qué tienes apuntado sobre mí?"], "ayuda": ["¿qué puedes hacer?", "¿cómo funcionas?", "ayúdame", "¿qué te puedo pedir?", "no sé qué decirte", "¿qué sabes hacer?", "instrucciones", "¿para qué sirves?"], "sorpresa": ["sorpréndeme", "pon lo que quieras", "elige tú", "me da igual, pon algo", "lo que tú veas", "algo al azar", "sorpresa", "confío en ti, elige"], "favoritas": ["pon mis favoritas", "las que más me gustan", "mis canciones preferidas", "pon lo que más escucho", "mis temas de siempre", "las de siempre", "ponme lo que más me gusta", "mis temazos", "mis favoritas de siempre"], "descubrir": ["quiero descubrir algo nuevo", "pon canciones que no haya escuchado", "algo diferente a lo de siempre", "sorpréndeme con cosas nuevas", "estoy cansado de lo mismo, algo nuevo", "canciones que aún no conozca", "algo que no conozca", "sorpréndeme con algo que no haya oído", "quiero cosas nuevas"], "m_relax": ["pon algo para dormir", "música para relajarme", "algo para desconectar", "quiero meditar", "algo tranquilo para leer", "música para una tarde de lluvia", "estoy agobiado con el trabajo, algo que me relaje", "algo suave para el sofá", "para darme un baño relajante", "música chill", "algo para relajarme después del trabajo", "algo tranquilito", "para dormirme"], "m_focus": ["pon algo para estudiar", "música para concentrarme", "voy a trabajar, algo que no distraiga", "algo para programar", "tengo que hacer los deberes", "música de fondo para la oficina", "algo para estudiar sin distracciones", "necesito centrarme"], "m_triste": ["estoy de bajón, ponme algo", "música triste", "canciones para llorar", "algo melancólico", "ponme canciones de desamor", "hoy tengo el día gris, algo que me acompañe", "música para un día triste", "necesito llorar", "algo para el desamor", "música para un día malo"], "m_animar": ["quiero algo que me levante el ánimo", "algo alegre", "uf qué pereza de lunes, anímame", "necesito buen rollo", "música feliz", "algo para sonreír", "pon algo positivo", "algo que me ponga de buen humor", "algo que me alegre el día"], "m_fiesta": ["quiero bailar", "música de fiesta", "vamos a darlo todo esta noche", "pon algo para la fiesta de hoy", "algo para salir de marcha", "que empiece la fiesta", "quiero bailar como si no hubiera mañana", "ponme perreo", "música de discoteca", "tenemos gente en casa, algo para animar la fiesta", "música para una fiesta en casa", "perreo", "algo para bailar"], "m_deporte": ["algo para darlo todo en el gimnasio", "algo para correr por la mañana", "música para entrenar", "voy a salir a correr", "algo motivador para hacer deporte", "pon música para hacer pesas", "música para la bici", "voy a correr", "al gimnasio", "motivación para entrenar", "música para hacer pesas"], "m_coche": ["canciones para el coche", "música para conducir", "nos vamos de viaje, pon algo", "algo para la carretera", "música para un viaje largo"], "m_casa": ["pon algo para limpiar la casa", "música para cocinar", "algo para la ducha", "estoy haciendo la comida, pon algo", "música para ordenar mi cuarto"], "m_romance": ["algo romántico", "me apetece algo romántico para cenar con mi pareja", "música para una cena con velas", "canciones de amor", "estoy enamorado, pon algo bonito", "algo para escuchar con mi novia"], "m_generic": ["me apetece escuchar salsa", "ponme rock de los 80", "pon música de Kora", "quiero escuchar algo de pop", "ponme algo de reguetón", "pon música", "quiero escuchar música", "pon canciones de Los Rayos", "algo de jazz", "ponme a Banda Sur", "pon unas canciones", "quiero oír rap"], "c_saludo": ["hola", "buenas", "hola nova", "¿qué pasa?", "buenos días", "buenas tardes", "ey, ¿qué tal?", "holi", "qué hay"], "c_como_estas": ["¿qué tal estás?", "¿cómo estás?", "¿cómo te va?", "¿qué tal el día?", "¿todo bien?", "¿cómo andas?"], "c_gracias": ["gracias", "muchas gracias", "gracias guapa", "te lo agradezco", "muy bien, gracias", "genial, gracias", "perfecto, gracias", "gracias nova", "muy amable"], "c_despedida": ["adiós", "hasta luego", "me voy", "nos vemos", "chao", "hasta mañana", "me tengo que ir"], "c_buenas_noches": ["buenas noches", "me voy a dormir", "me voy a la cama", "a dormir", "hasta mañana, me acuesto"], "c_quien_eres": ["¿quién eres?", "¿cómo te llamas?", "¿qué eres?", "preséntate", "¿tú quién eres?", "dime tu nombre"], "c_que_haces": ["¿qué haces?", "¿qué estás haciendo?", "¿en qué andas?", "¿estás ocupada?"], "c_chiste": ["cuéntame un chiste", "dime algo gracioso", "hazme reír", "¿sabes algún chiste?", "otro chiste"], "c_piropo": ["eres la mejor", "eres muy maja", "te quiero", "qué lista eres", "me encantas", "eres genial", "buen trabajo", "lo haces muy bien"], "c_enfado": ["eres tonta", "no me entiendes", "no sirves para nada", "qué mal lo haces", "eres un desastre", "no es eso lo que te he pedido", "me tienes harto", "vaya DJ más mala"], "c_aburrido": ["me aburro", "qué aburrimiento", "no sé qué hacer", "estoy aburrido", "qué tarde más aburrida"], "c_triste": ["estoy triste", "estoy triste porque me ha dejado mi novia", "he tenido un mal día", "me siento solo", "estoy fatal", "hoy no es mi día", "me han dado una mala noticia", "no estoy bien"], "c_cansado": ["estoy reventado", "qué cansancio", "estoy agotada", "no puedo más, estoy muerto", "estoy muy cansado", "estoy muerto", "qué día más largo", "estoy hecho polvo de trabajar"], "c_feliz": ["estoy muy contento", "hoy es un gran día", "me han dado una buena noticia", "estoy feliz", "he aprobado el examen", "qué buen día hace hoy"], "c_gustos": ["¿qué música te gusta?", "¿cuál es tu canción favorita?", "¿qué grupo te gusta más?", "¿qué escuchas tú?", "¿tienes un estilo favorito?"], "c_ia": ["¿eres una persona?", "¿eres real?", "¿eres un robot?", "¿eres una inteligencia artificial?", "¿hay alguien ahí?", "¿me escuchas de verdad?"], "c_si": ["sí", "vale", "venga", "dale", "claro", "sí, por favor", "me parece bien", "perfecto", "de acuerdo", "por qué no", "va"], "c_no": ["no", "no gracias", "mejor no", "déjalo", "ahora no", "paso", "no hace falta", "nada, olvídalo"]};
+const NB_BANK = {"pausa": ["para la música", "pausa un momento", "espera un segundo", "para que me llaman por teléfono", "silencio un momento", "deja de sonar", "corta la música", "para un ratito", "me están hablando, para", "quita el sonido un momento", "detén la canción", "frena la música", "ahora no, para", "para un momento que me llaman", "páralo", "calla un segundo", "detén la música", "para que tengo que hablar", "espérate un momento", "ponla en pausa"], "seguir": ["vuelve a ponerla", "ya estoy, dale", "quita la pausa", "ya puedes seguir", "continúa con la música", "sigue sonando", "pon otra vez la música", "ya he vuelto", "dale al play", "arranca de nuevo", "que siga la música", "venga, sigue", "sigue con la música", "ya está, continúa", "ponla otra vez que ya he vuelto", "reanuda la canción", "vuelve a sonar"], "saltar": ["esta no me convence", "pasa de esta", "cambia, que esta ya la he oído mil veces", "quita esta que no la aguanto", "otra canción por favor", "esta no", "siguiente tema", "no me apetece esta", "pon otra", "cámbiala", "esta canción me aburre", "salta a la próxima", "venga va, otra", "next", "esta no me pega ahora", "quita esta", "siguiente", "esta me raya", "esta no me gusta nada", "qué rollo de canción", "cambia de tema", "pasa a otra", "no me mola esta", "esta ya me cansa", "skip", "salta esta", "próxima"], "anterior": ["pon la de antes", "vuelve a la anterior", "la canción anterior", "atrás una canción", "la que sonaba antes", "quiero oír otra vez la anterior", "retrocede una", "la de antes me gustaba más", "ponme la que sonaba antes", "atrás", "retrocede una canción", "vuelve a la de antes"], "repetir": ["pon esta otra vez desde el principio", "repite esta canción", "empieza de nuevo esta", "vuelve al principio de la canción", "otra vez esta", "repítela", "desde el principio", "vuelve a empezarla", "ponla otra vez"], "mas_ritmo": ["esto está muy flojo, dale caña", "más marcha que me duermo", "venga, algo con más vidilla", "esto es un muermo, anima esto", "súbele la energía", "más ritmo", "algo más cañero", "que se mueva esto", "pon algo con más fuerza", "esto está muy parado", "dale más alegría a esto", "necesito más energía", "más rápido el ritmo", "algo con más energía", "ponle más caña", "esto necesita más ritmo", "algo más animado", "sube el ritmo", "más rápido", "venga, a tope"], "mas_calma": ["relájate un poco que es tarde", "demasiado ruido, algo más suave", "tranqui, baja el ritmo", "baja un poco las revoluciones", "esto es demasiado fuerte", "algo más tranquilito", "más calmado por favor", "me estás estresando con tanto ruido", "algo más lento", "baja la intensidad", "menos caña", "más suave", "algo más suave", "baja las revoluciones", "más tranquilo por favor", "esto es demasiado movido", "relaja el ambiente", "menos ruido"], "parecidas": ["más cosas de este estilo", "sigue por esta línea", "pon otras que se parezcan", "dame más rollo de este", "más canciones como esta", "algo parecido a lo que suena", "de este palo, más", "sigue en esta onda", "más de lo mismo", "otras en esta vibra", "más de este rollo", "algo en esta línea", "sigue con este estilo", "más así", "pon cosas parecidas", "me gusta este rollo, más"], "me_gusta": ["qué temazo", "esta canción me encanta", "guárdame esta", "esta me flipa", "esta canción es una pasada", "me mola mucho esta", "qué buena es esta", "esta es la mejor", "guárdala en favoritas", "me chifla esta canción", "esta está brutal", "qué canción más bonita", "esta me gusta un montón", "temón", "esta es una pasada", "me flipa esta", "temazo", "qué canción más buena", "me mola mucho", "esta me encanta, guárdala", "qué bonita", "vaya joya"], "no_mas": ["no quiero volver a oír esta canción", "no me la pongas nunca más", "odio esta canción", "bórrame esta de la lista para siempre", "esta canción no la soporto, no la repitas", "que no vuelva a sonar esta", "esta jamás otra vez", "no la soporto", "bórrala de mi vida", "esta nunca más", "no me vuelvas a poner esta", "quita esta para siempre"], "subir_vol": ["súbele", "no se oye nada", "más alto por favor", "pon más volumen", "no oigo la música", "súbele el volumen que no se escucha", "a todo volumen", "un poco más fuerte el volumen", "no oigo nada", "súbelo", "ponlo más fuerte", "más fuerte", "sube un poco", "está muy bajito"], "bajar_vol": ["bájale", "está muy alto", "baja el volumen", "me revientas los oídos", "más bajito", "menos volumen por favor", "se oye demasiado fuerte", "un poco más bajo", "está muy fuerte", "bájalo un poco", "me estás dejando sordo", "baja un poco", "qué alto está"], "que_suena": ["¿qué canción es esta?", "¿quién canta esto?", "¿cómo se llama esta?", "¿qué está sonando?", "dime el nombre de la canción", "¿de quién es esta?", "¿qué es esto que suena?", "¿esta canción cómo se llamaba?", "¿esto qué es?", "¿qué estoy escuchando?", "¿cómo se llama esto?", "¿qué tema es este?"], "por_que": ["¿por qué me pones esto?", "¿por qué has elegido esta?", "¿a qué viene esta canción?", "explícame por qué suena esta", "¿por qué esta canción ahora?", "¿qué criterio has seguido?", "¿y esta por qué?", "¿por qué esta canción?", "explícame esta elección"], "artista": ["háblame de este artista", "¿qué sabes de este grupo?", "¿quién es este cantante?", "cuéntame algo de quien canta", "¿de dónde es este grupo?", "háblame de Shakira", "¿sabes algo de Rosalía?", "dime algo sobre la banda", "¿quiénes son estos?", "cuéntame la historia de este artista"], "tiempo": ["¿hace frío fuera?", "¿va a llover?", "¿qué temperatura hace?", "¿llevo paraguas hoy?", "¿hace sol?", "¿qué tiempo hace hoy?", "¿cómo está el día?", "¿hace calor en la calle?", "¿necesito chaqueta?", "¿está nublado?"], "hora": ["¿qué hora es?", "dime la hora", "¿qué hora tenemos?", "¿es muy tarde?", "¿cuánto falta para las doce?"], "letra": ["pon la letra", "quiero cantar esta", "enséñame la letra de la canción", "¿qué dice la canción?", "modo karaoke", "¿cómo sigue la letra?", "quiero ver la letra", "pon la letra que quiero cantar"], "radio": ["pon la radio", "modo radio", "ponte en plan radio y no pares", "música sin parar, tú eliges", "haz de radio", "no pares de poner música"], "resumen": ["¿qué he escuchado esta semana?", "resumen de mi semana", "¿cuánto he escuchado últimamente?", "dame mis estadísticas", "¿qué es lo que más escucho?", "¿cuál es mi artista más escuchado?"], "recuerdos": ["¿qué sabes de mí?", "¿qué recuerdas de mí?", "¿qué te he pedido antes?", "¿te acuerdas de mis gustos?", "¿qué has aprendido de mí?", "¿qué tienes apuntado sobre mí?"], "ayuda": ["¿qué puedes hacer?", "¿cómo funcionas?", "ayúdame", "¿qué te puedo pedir?", "no sé qué decirte", "¿qué sabes hacer?", "instrucciones", "¿para qué sirves?"], "sorpresa": ["sorpréndeme", "pon lo que quieras", "elige tú", "me da igual, pon algo", "lo que tú veas", "algo al azar", "sorpresa", "confío en ti, elige"], "favoritas": ["pon mis favoritas", "las que más me gustan", "mis canciones preferidas", "pon lo que más escucho", "mis temas de siempre", "las de siempre", "ponme lo que más me gusta", "mis temazos", "mis favoritas de siempre"], "descubrir": ["quiero descubrir algo nuevo", "pon canciones que no haya escuchado", "algo diferente a lo de siempre", "sorpréndeme con cosas nuevas", "estoy cansado de lo mismo, algo nuevo", "canciones que aún no conozca", "algo que no conozca", "sorpréndeme con algo que no haya oído", "quiero cosas nuevas"], "m_relax": ["pon algo para dormir", "música para relajarme", "algo para desconectar", "quiero meditar", "algo tranquilo para leer", "música para una tarde de lluvia", "estoy agobiado con el trabajo, algo que me relaje", "algo suave para el sofá", "para darme un baño relajante", "música chill", "algo para relajarme después del trabajo", "algo tranquilito", "para dormirme"], "m_focus": ["pon algo para estudiar", "música para concentrarme", "voy a trabajar, algo que no distraiga", "algo para programar", "tengo que hacer los deberes", "música de fondo para la oficina", "algo para estudiar sin distracciones", "necesito centrarme"], "m_triste": ["estoy de bajón, ponme algo", "música triste", "canciones para llorar", "algo melancólico", "ponme canciones de desamor", "hoy tengo el día gris, algo que me acompañe", "música para un día triste", "necesito llorar", "algo para el desamor", "música para un día malo"], "m_animar": ["quiero algo que me levante el ánimo", "algo alegre", "uf qué pereza de lunes, anímame", "necesito buen rollo", "música feliz", "algo para sonreír", "pon algo positivo", "algo que me ponga de buen humor", "algo que me alegre el día"], "m_fiesta": ["quiero bailar", "música de fiesta", "vamos a darlo todo esta noche", "pon algo para la fiesta de hoy", "algo para salir de marcha", "que empiece la fiesta", "quiero bailar como si no hubiera mañana", "ponme perreo", "música de discoteca", "tenemos gente en casa, algo para animar la fiesta", "música para una fiesta en casa", "perreo", "algo para bailar"], "m_deporte": ["algo para darlo todo en el gimnasio", "algo para correr por la mañana", "música para entrenar", "voy a salir a correr", "algo motivador para hacer deporte", "pon música para hacer pesas", "música para la bici", "voy a correr", "al gimnasio", "motivación para entrenar", "música para hacer pesas"], "m_coche": ["canciones para el coche", "música para conducir", "nos vamos de viaje, pon algo", "algo para la carretera", "música para un viaje largo"], "m_casa": ["pon algo para limpiar la casa", "música para cocinar", "algo para la ducha", "estoy haciendo la comida, pon algo", "música para ordenar mi cuarto"], "m_romance": ["algo romántico", "me apetece algo romántico para cenar con mi pareja", "música para una cena con velas", "canciones de amor", "estoy enamorado, pon algo bonito", "algo para escuchar con mi novia"], "m_generic": ["me apetece escuchar salsa", "ponme rock de los 80", "pon música de Kora", "quiero escuchar algo de pop", "ponme algo de reguetón", "pon música", "quiero escuchar música", "pon canciones de Los Rayos", "algo de jazz", "ponme a Banda Sur", "pon unas canciones", "quiero oír rap"], "c_saludo": ["hola", "buenas", "hola nova", "¿qué pasa?", "buenos días", "buenas tardes", "ey, ¿qué tal?", "holi", "qué hay"], "c_como_estas": ["¿qué tal estás?", "¿cómo estás?", "¿cómo te va?", "¿qué tal el día?", "¿todo bien?", "¿cómo andas?"], "c_gracias": ["gracias", "muchas gracias", "gracias guapa", "te lo agradezco", "muy bien, gracias", "genial, gracias", "perfecto, gracias", "gracias nova", "muy amable"], "c_despedida": ["adiós", "hasta luego", "me voy", "nos vemos", "chao", "hasta mañana", "me tengo que ir"], "c_buenas_noches": ["buenas noches", "me voy a dormir", "me voy a la cama", "a dormir", "hasta mañana, me acuesto"], "c_quien_eres": ["¿quién eres?", "¿cómo te llamas?", "¿qué eres?", "preséntate", "¿tú quién eres?", "dime tu nombre"], "c_que_haces": ["¿qué haces?", "¿qué estás haciendo?", "¿en qué andas?", "¿estás ocupada?"], "c_chiste": ["cuéntame un chiste", "dime algo gracioso", "hazme reír", "¿sabes algún chiste?", "otro chiste"], "c_piropo": ["eres la mejor", "eres muy maja", "te quiero", "qué lista eres", "me encantas", "eres genial", "buen trabajo", "lo haces muy bien"], "c_enfado": ["eres tonta", "no me entiendes", "no sirves para nada", "qué mal lo haces", "eres un desastre", "no es eso lo que te he pedido", "me tienes harto", "vaya DJ más mala"], "c_aburrido": ["me aburro", "qué aburrimiento", "no sé qué hacer", "estoy aburrido", "qué tarde más aburrida"], "c_triste": ["estoy triste", "estoy triste porque me ha dejado mi novia", "he tenido un mal día", "me siento solo", "estoy fatal", "hoy no es mi día", "me han dado una mala noticia", "no estoy bien"], "c_cansado": ["estoy reventado", "qué cansancio", "estoy agotada", "no puedo más, estoy muerto", "estoy muy cansado", "estoy muerto", "qué día más largo", "estoy hecho polvo de trabajar"], "c_feliz": ["estoy muy contento", "hoy es un gran día", "me han dado una buena noticia", "estoy feliz", "he aprobado el examen", "qué buen día hace hoy"], "c_gustos": ["¿qué música te gusta?", "¿cuál es tu canción favorita?", "¿qué grupo te gusta más?", "¿qué escuchas tú?", "¿tienes un estilo favorito?"], "c_ia": ["¿eres una persona?", "¿eres real?", "¿eres un robot?", "¿eres una inteligencia artificial?", "¿hay alguien ahí?", "¿me escuchas de verdad?"], "c_si": ["sí", "vale", "venga", "dale", "claro", "sí, por favor", "me parece bien", "perfecto", "de acuerdo", "por qué no", "va"], "todas": ["pon todas mis canciones", "quiero escuchar toda mi música", "reproduce toda mi biblioteca", "ponlas todas sin repetir ninguna", "todo mi órbita", "todas las canciones que tengo, sin repetir", "quiero oír todas mis canciones"], "recomendar": ["recomiéndame algo", "¿qué me recomiendas?", "descúbreme canciones nuevas que me puedan gustar", "algo nuevo que me pueda gustar", "¿conoces alguna canción que me guste?", "sugiéreme una canción nueva", "quiero descubrir música nueva de internet"], "c_no": ["no", "no gracias", "mejor no", "déjalo", "ahora no", "paso", "no hace falta", "nada, olvídalo"]};
 /* ---------- 3.0 beta 3 · Nova understands ----------
    The «brain»: a multilingual sentence model (about 120 MB, downloaded once) that runs on the phone, without internet.
    It doesn't write text and can't invent anything: it measures what a phrase MEANS and compares it with the examples
@@ -7363,7 +7835,8 @@ const NB_INTENTS = {
   m_deporte: ['Para entrenar', 'entrenar'], m_coche: ['Para el coche', 'coche'], m_casa: ['Para casa', 'casa'], m_romance: ['Romántica', 'romantica'], m_generic: ['Una mezcla', ''],
   c_saludo: ['Un saludo'], c_como_estas: ['¿Qué tal estás?'], c_gracias: ['Gracias'], c_despedida: ['Una despedida'], c_buenas_noches: ['Buenas noches'], c_quien_eres: ['¿Quién eres?'],
   c_que_haces: ['¿Qué haces?'], c_chiste: ['Un chiste'], c_piropo: ['Un piropo'], c_enfado: ['Una queja'], c_aburrido: ['Me aburro'], c_triste: ['Estoy triste'], c_cansado: ['Estoy cansado'],
-  c_feliz: ['Estoy contento'], c_gustos: ['Tus gustos'], c_ia: ['¿Eres real?'], c_si: ['Sí'], c_no: ['No']
+  c_feliz: ['Estoy contento'], c_gustos: ['Tus gustos'], c_ia: ['¿Eres real?'], c_si: ['Sí'], c_no: ['No'],
+  todas: ['Todas tus canciones', 'todas mis canciones'], recomendar: ['Recomendaciones nuevas', 'recomiendame algo']
 };
 /* Conversation that sounds better with real words: with a Claude key, these go to Claude */
 const NB_FREE = new Set(['c_como_estas', 'c_que_haces', 'c_chiste', 'c_triste', 'c_feliz', 'c_cansado', 'c_aburrido', 'c_gustos', 'c_enfado', 'c_ia', 'c_quien_eres']);
@@ -7500,13 +7973,15 @@ function nbInit() {
     const tok = await (await get('tokenizer.json')).text(), model = await (await get('modelo.onnx')).arrayBuffer();
     NB.worker = new Worker(URL.createObjectURL(new Blob([NB_WORKER_SRC], { type: 'text/javascript' })));
     NB.worker.onmessage = e => { const r = NB.wait.get(e.data.id); if (r) { NB.wait.delete(e.data.id); r(e.data); } };
-    NB.worker.onerror = () => { NB.fails++; };
+    NB.worker.onerror = () => { NB.fails++; for (const r of NB.wait.values()) r({ ok: false, error: 'worker' }); NB.wait.clear(); };
     const r = await nbCall({ type: 'init', files, tok, model, cfg: { prefix: NB.st.prefix || '' } }, [model]);
     if (!r.ok) throw new Error(r.error);
     NB.ms = r.ms; NB.dim = r.dim;
     await nbLoadBank(cache);
     renderNB();
     if (!native) setTimeout(() => nbMigrate().then(ok => { if (ok) renderNB(); }), 30000);
+    /* 4.1 · the test phrases, once per model (a couple of seconds, in the background) */
+    if (!NB.check || NB.check.v !== BRAIN_CHECK_V || NB.check.model !== NB.st.repo) setTimeout(() => { if (!document.hidden) nbCheck(true).then(() => renderNB()).catch(() => {}); }, 12000);
     return true;
   })();
   NB.ready.catch(e => {
@@ -7557,7 +8032,10 @@ async function nbClassify(text) {
   if (window.ORBITA_DEBUG && window.__nbFake) { const f = window.__nbFake(text); if (f) return f; }
   await nbWithin(nbInit(), 6000);
   const ex = nbTaughtExact(text); if (ex) return { ok: true, intent: ex, conf: 1, taught: true };
-  const r = await nbCall({ type: 'classify', text: String(text).trim().slice(0, 300) });
+  /* 4.1 · never stuck: if the worker doesn't answer in 4 s, Nova goes on without it (and after twice, it starts again) */
+  let r;
+  try { r = await nbWithin(nbCall({ type: 'classify', text: String(text).trim().slice(0, 300) }), 4000); NB.slow = 0; }
+  catch (e) { NB.slow = (NB.slow || 0) + 1; if (NB.slow >= 2) { NB.slow = 0; nbReset(); } throw e; }
   if (!r.ok) throw new Error(r.error);
   NB.ms = r.ms;
   const intent = NB.intents[r.intent], cal = r.cal, risky = !!(NB_INTENTS[intent] || [])[2];
@@ -7659,7 +8137,8 @@ const NB_ASK = {
   parecidas: '¿Pongo más canciones como esta?', me_gusta: '¿La guardo en tus favoritas?', no_mas: '¿No te la vuelvo a poner?',
   subir_vol: '¿Subo el volumen?', bajar_vol: '¿Bajo el volumen?', que_suena: '¿Quieres saber qué suena?', por_que: '¿Quieres saber por qué la he puesto?',
   letra: '¿Te enseño la letra?', radio: '¿Pongo el modo radio?', favoritas: '¿Te pongo tus favoritas?', descubrir: '¿Te pongo canciones que no has escuchado?',
-  sorpresa: '¿Te sorprendo con una mezcla?', tiempo: '¿Te digo qué tiempo hace?', hora: '¿Te digo la hora?', resumen: '¿Te cuento cómo ha ido tu semana?'
+  sorpresa: '¿Te sorprendo con una mezcla?', tiempo: '¿Te digo qué tiempo hace?', hora: '¿Te digo la hora?', resumen: '¿Te cuento cómo ha ido tu semana?',
+  todas: '¿Te pongo todas tus canciones, sin repetir ninguna?', recomendar: '¿Te recomiendo una canción nueva?'
 };
 function nbAsk(r, raw, q) {
   const it = r.intent, ask = NB_ASK[it];
@@ -7710,6 +8189,7 @@ function nbOffer(q) {
   return false;   // something else: the offer stays a minute, in case the brain hears a «sí» in other words
 }
 function nbDoOffer(o) {
+  if (o.rec) { const i = REC.list.findIndex(x => x.id === o.rec); if (i >= 0) { if (o.now) recPlay(i, false); else recOfferDo(o.rec); } return; }
   if (o.confirm) { nbAct(o.confirm, o.text, norm(o.text), o.text); nbTeach(o.text, o.confirm, true); return; }
   if (o.surprise) { createMix({ surprise: true, autoplay: true }); return; }
   if (o.req) mixFromChat(o.req, o.hint || '');
@@ -7788,10 +8268,12 @@ function nbDoSmart(r, raw, clean) {
   nbAct(it, raw, norm(raw), clean); return true;
 }
 /* Who thinks when the usual phrases and the comprehension brain aren't enough: Claude (with a key) or the big brain */
-const nbSmartOn = it => aiState === 'ready' ? NB_FREE.has(it) : bbUsable() && NB_FREE.has(it) && !BB_SKIP.has(it);
+const nbSmartOn = it => aiState === 'ready' ? NB_FREE.has(it) : bbUsable() && NB_FREE.has(it) && !BB_SKIP.has(it) && bbQuick();
 async function nbSmart(raw, clean, it) {
   if (aiState === 'ready') return nbClaude(raw, clean);
-  if (bbUsable() && !(it && BB_SKIP.has(it))) return bbThink(raw, clean);
+  /* 4.1 · for small talk Nova already has her own answers: the big brain only if it's quick on this phone; for what
+     nothing else understood, always */
+  if (bbUsable() && !(it && BB_SKIP.has(it)) && (!it || bbQuick())) return bbThink(raw, clean);
   return false;
 }
 
@@ -7827,15 +8309,16 @@ function renderNB() {
   }
   const lowMem = navigator.deviceMemory && navigator.deviceMemory < 4;
   if (!NB.st) {
-    box.innerHTML = `<div class="d-text"><b>Cerebro de ${esc(dj.name)} <span class="beta-tag">beta</span></b><span>Un modelo de lenguaje que entiende lo que le dices con tus palabras («esta es una pasada», «baja las revoluciones», «estoy reventado») y lo convierte en acciones o en respuestas. Funciona en tu móvil, sin internet, y nunca se inventa datos. Se descarga una vez: unos 145 MB.</span></div>
+    box.innerHTML = `<div class="d-text"><b>Cerebro de ${esc(dj.name)}</b><span>Un modelo de lenguaje que entiende lo que le dices con tus palabras («esta es una pasada», «baja las revoluciones», «estoy reventado») y lo convierte en acciones o en respuestas. Funciona en tu móvil, sin internet, y nunca se inventa datos. Se descarga una vez: unos 145 MB.</span></div>
       <div class="row-wrap"><button class="btn small primary" data-nb="get">Descargar el cerebro</button></div>
       <p class="note">Mejor con wifi.${lowMem ? ' Tu móvil tiene poca memoria: puede ir algo lento.' : ''}${aiState === 'ready' ? ' Con tu clave de Claude, además, charla libremente cuando la conversación lo pide.' : ''}</p>${credits}`;
     return;
   }
   const taught = nbTaught();
   const status = NB.fails >= 3 ? '<b>no ha podido arrancar en este móvil</b>' : NB.prep !== null ? '<span id="nbPrep">Preparando el cerebro la primera vez…</span>' : NB.cal ? `entiende ${NB.intents.length} tipos de frase${NB.ms ? ` · responde en unos ${Math.max(10, NB.ms)} ms` : ''}` : 'listo para arrancar';
-  box.innerHTML = `<div class="d-text"><b>Cerebro de ${esc(dj.name)} <span class="beta-tag">beta</span></b><span>${status} · ${NB.st.mb} MB · sin internet${taught.length ? ` · ${taught.length} ${taught.length === 1 ? 'frase aprendida' : 'frases aprendidas'} de ti` : ''}</span></div>
-    <div class="row-wrap"><button class="toggle" id="tNB" aria-pressed="${NB.on}"><span class="sw"></span>Usar el cerebro</button><button class="btn small" data-nb="try">Probar y enseñar</button><button class="btn small" data-nb="remove">Borrar</button></div>
+  const chk = brainCheckLine('nb');
+  box.innerHTML = `<div class="d-text"><b>Cerebro de ${esc(dj.name)}</b><span>${status} · ${NB.st.mb} MB · sin internet${taught.length ? ` · ${taught.length} ${taught.length === 1 ? 'frase aprendida' : 'frases aprendidas'} de ti` : ''}</span>${chk ? `<span class="note">${esc(chk)}</span>` : ''}</div>
+    <div class="row-wrap"><button class="toggle" id="tNB" aria-pressed="${NB.on}"><span class="sw"></span>Usar el cerebro</button><button class="btn small" data-nb="try">Probar y enseñar</button><button class="btn small" data-nb="check">${NB.checking ? 'Comprobando…' : 'Comprobar'}</button><button class="btn small" data-nb="remove">Borrar</button></div>
     <div id="nbTry" hidden>
       <form class="row-wrap nb-form" id="nbForm"><input id="nbIn" type="text" maxlength="120" placeholder="Escribe una frase, p. ej. «esta me flipa»" autocomplete="off"><button class="btn small primary" type="submit">¿Qué entiendes?</button></form>
       <div id="nbOut" class="nb-out"></div>
@@ -7863,6 +8346,7 @@ $('#nbBox').addEventListener('click', e => {
   if (a === 'get') nbInstall();
   else if (a === 'cancel' && NB.dl) NB.dl.ctl.abort();
   else if (a === 'try') { const tr = $('#nbTry'); tr.hidden = !tr.hidden; if (!tr.hidden) { NB.fails = 0; nbInit().catch(() => {}); $('#nbIn').focus(); } }
+  else if (a === 'check') { if (NB.checking) return; NB.checking = true; NB.fails = 0; renderNB(); nbCheck().then(c => { NB.checking = false; renderNB(); toast(c ? `Entiende ${c.ok} de ${c.n} frases de prueba` : 'El cerebro no ha podido arrancar', 3600); }); }
   else if (a === 'teach') { const out = $('#nbOut'), sel = $('#nbSel'); if (out && sel && out.dataset.text) nbTeach(out.dataset.text, sel.value).then(() => { $('#nbTry').hidden = false; $('#nbOut').innerHTML = '<p>Aprendido. Prueba otra frase.</p>'; delete $('#nbOut').dataset.text; $('#nbIn').value = ''; }); }
   else if (a === 'remove') { if (b.dataset.sure) nbRemove(); else { b.dataset.sure = '1'; b.textContent = '¿Seguro? Toca otra vez'; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Borrar'; }, 3000); } }
 });
@@ -7877,6 +8361,7 @@ const BB_PROMPT = {"system": "Eres {NAME}, la DJ de Órbita, una app de música 
 const BB_NATIVE = capPlugin('NovaBrain');
 const BB = { st: LS.get('bb', null), on: LS.get('bbOn', true), ready: null, dl: null, stat: null, speed: LS.get('bbSpeed', null), fails: 0, part: 0, listening: false };
 const BB_FILE = 'cerebro-grande.gguf';
+NB.check = LS.get('nbCheck', null); BB.check = LS.get('bbCheck', null);
 const BB_REPOS = ['unsloth/Qwen3-1.7B-GGUF', 'bartowski/Qwen_Qwen3-1.7B-GGUF', 'Qwen/Qwen3-1.7B-GGUF', 'ggml-org/Qwen3-1.7B-GGUF'];
 const bbUsable = () => !!(BB.st && BB.on && BB_NATIVE && BB.fails < 3);
 /* What the big brain doesn't do: the jokes and who Nova is are her own, the curated ones */
@@ -7922,7 +8407,7 @@ function bbOnDl(d) {
     BB.st = { repo: m ? m.repo : '', file: m ? m.file : BB_FILE, size: d.size || (m && m.size) || 0, ts: Date.now() };
     LS.set('bb', BB.st); BB.on = true; LS.set('bbOn', true); BB.fails = 0; BB.ready = null;
     renderBB();
-    bbInit().then(() => bbSpeedTest()).then(() => { renderBB(); toast('Cerebro grande instalado'); haptic(12); novaSay(`Ya tengo el cerebro grande. Ahora puedo charlar contigo con mis propias palabras.`); }).catch(() => renderBB());
+    bbInit().then(() => bbSpeedTest()).then(() => bbCheck(true)).then(() => { renderBB(); toast('Cerebro grande instalado'); haptic(12); novaSay(`Ya tengo el cerebro grande. Ahora puedo charlar contigo con mis propias palabras.`); }).catch(() => renderBB());
     return;
   }
   if (d.state === 'error') toast(`La descarga se ha cortado (${d.error || 'sin conexión'}). Vuelve a tocar «Descargar» y seguirá donde se quedó.`, 5200);
@@ -8009,8 +8494,11 @@ function bbSafe(text, raw) {
 const BB_EVIDENCE = { saltar: /(otra|siguiente|pasa|salta|quita|cambia|next|no me gusta|aburr)/, pausa: /(para |^para$|pausa|deten|silencio|calla|espera|momento)/ };
 async function bbThink(raw, clean) {
   if (!bbUsable()) return false;
+  /* 4.1 · still loading (the first time, or back from the background): Nova answers with what she knows now; the next
+     answer is already the big brain's. And a time limit to its measure on this phone: never «Pensando…» forever. */
+  if (!BB.loaded) { bbInit().catch(() => {}); return false; }
   try {
-    const o = bbParse(await bbComplete(bbPrompt(raw), { grammar: BB_PROMPT.grammar }));
+    const o = bbParse(await bbComplete(bbPrompt(raw), { grammar: BB_PROMPT.grammar, timeout: Math.max(6000, Math.min(20000, bbExpectMs() * 1.7)) }));
     const a = String(o.accion || '').trim(), q = ' ' + norm(raw) + ' ';
     if (BB_EVIDENCE[a] && !BB_EVIDENCE[a].test(q)) return false;
     return nbDoSmart({ accion: a, detalle: o.detalle, respuesta: bbSafe(o.respuesta, raw), oferta: bbSafe(o.oferta, raw) }, raw, clean);
@@ -8030,22 +8518,23 @@ async function renderBB() {
     renderBBProgress(); return;
   }
   const s = BB.stat || await bbStatus();
-  if (!s) { box.innerHTML = `<div class="d-text"><b>Cerebro grande <span class="beta-tag">beta</span></b><span>Un modelo de lenguaje de verdad dentro del móvil, para charlar con Nova. ${NATIVE ? `Esta compilación de la app${APP_CFG.version ? ' (' + esc(String(APP_CFG.version)) + ')' : ''} no trae su motor.` : 'Funciona en la app de Android.'}</span></div>${credits}`; return; }
+  if (!s) { box.innerHTML = `<div class="d-text"><b>Cerebro grande</b><span>Un modelo de lenguaje de verdad dentro del móvil, para charlar con Nova. ${NATIVE ? `Esta compilación de la app${APP_CFG.version ? ' (' + esc(String(APP_CFG.version)) + ')' : ''} no trae su motor.` : 'Funciona en la app de Android.'}</span></div>${credits}`; return; }
   const ram = s.ramMb ? Math.round(s.ramMb / 1024) : 0;
   if (!s.lib || !s.cpuOk) {
-    box.innerHTML = `<div class="d-text"><b>Cerebro grande <span class="beta-tag">beta</span></b><span>${!s.lib ? 'Esta versión de la app no trae el motor del cerebro grande.' : 'El procesador de este móvil no es compatible con el cerebro grande (hace falta uno ARM de 64 bits de los últimos años).'}</span></div>${credits}`;
+    box.innerHTML = `<div class="d-text"><b>Cerebro grande</b><span>${!s.lib ? 'Esta versión de la app no trae el motor del cerebro grande.' : 'El procesador de este móvil no es compatible con el cerebro grande (hace falta uno ARM de 64 bits de los últimos años).'}</span></div>${credits}`;
     return;
   }
   if (!BB.st) {
     let part = 0; try { part = (await BB_NATIVE.fileInfo({ name: BB_FILE })).partSize || 0; } catch {}
-    box.innerHTML = `<div class="d-text"><b>Cerebro grande de ${esc(dj.name)} <span class="beta-tag">beta</span></b><span>Un modelo de lenguaje de verdad (Qwen3 1.7B) dentro de tu móvil: charla contigo con sus propias palabras, entiende peticiones raras y sabe de qué estabais hablando. No elige canciones ni da datos: eso lo siguen haciendo tu biblioteca y Wikipedia. Funciona sin internet una vez descargado.</span></div>
+    box.innerHTML = `<div class="d-text"><b>Cerebro grande de ${esc(dj.name)}</b><span>Un modelo de lenguaje de verdad (Qwen3 1.7B) dentro de tu móvil: charla contigo con sus propias palabras, entiende peticiones raras y sabe de qué estabais hablando. No elige canciones ni da datos: eso lo siguen haciendo tu biblioteca y Wikipedia. Funciona sin internet una vez descargado.</span></div>
       <div class="row-wrap"><button class="btn small primary" data-bb="get">${part ? `Seguir la descarga (${Math.round(part / 1048576)} MB ya bajados)` : 'Descargar (1,1 GB)'}</button></div>
       <p class="note">Mejor con wifi.${ram && ram < 6 ? ` Tu móvil tiene ${ram} GB de memoria: puede ir lento, y conviene cerrar otras apps.` : ''} Va mejor junto con el cerebro de comprensión.</p>${credits}`;
     return;
   }
   const sp = bbWordsLabel();
-  box.innerHTML = `<div class="d-text"><b>Cerebro grande de ${esc(dj.name)} <span class="beta-tag">beta</span></b><span>${BB.fails >= 3 ? '<b>no ha podido arrancar en este móvil</b>' : BB.ready ? 'listo' : 'se carga al usarlo'}<i id="bbSp" class="bb-sp">${sp}</i> · ${Math.round((BB.st.size || 1.1e9) / 1048576)} MB · sin internet</span></div>
-    <div class="row-wrap"><button class="toggle" id="tBB" aria-pressed="${BB.on}"><span class="sw"></span>Usar el cerebro grande</button><button class="btn small" data-bb="try">Charlar para probar</button><button class="btn small" data-bb="remove">Borrar</button></div>
+  const chk = brainCheckLine('bb');
+  box.innerHTML = `<div class="d-text"><b>Cerebro grande de ${esc(dj.name)}</b><span>${BB.fails >= 3 ? '<b>no ha podido arrancar en este móvil</b>' : BB.ready ? 'listo' : 'se carga en cuanto le hablas'}<i id="bbSp" class="bb-sp">${sp}</i> · ${Math.round((BB.st.size || 1.1e9) / 1048576)} MB · sin internet</span>${chk ? `<span class="note">${esc(chk)}</span>` : ''}</div>
+    <div class="row-wrap"><button class="toggle" id="tBB" aria-pressed="${BB.on}"><span class="sw"></span>Usar el cerebro grande</button><button class="btn small" data-bb="try">Charlar para probar</button><button class="btn small" data-bb="check">${BB.checking ? 'Comprobando…' : 'Comprobar'}</button><button class="btn small" data-bb="remove">Borrar</button></div>
     <div id="bbTry" hidden><form class="row-wrap nb-form" id="bbForm"><input id="bbIn" type="text" maxlength="200" placeholder="Dile algo a ${esc(dj.name)}" autocomplete="off"><button class="btn small primary" type="submit">Enviar</button></form><div id="bbOut" class="nb-out"></div></div>
     ${aiState === 'ready' ? '<p class="note">Tienes clave de Claude: en la conversación normal Nova usa Claude, que es más listo. Aquí puedes probar el cerebro grande.</p>' : ''}${credits}`;
 }
@@ -8070,6 +8559,7 @@ $('#bbBox').addEventListener('click', e => {
   if (a === 'get') { bbListen(); bbInstall(); }
   else if (a === 'cancel') { BB_NATIVE.cancelDownload().catch(() => {}); }
   else if (a === 'try') { const tr = $('#bbTry'); tr.hidden = !tr.hidden; if (!tr.hidden) { BB.fails = 0; bbInit().catch(() => {}); $('#bbIn').focus(); } }
+  else if (a === 'check') { if (BB.checking) return; BB.checking = true; BB.fails = 0; renderBB(); toast('Le hago tres preguntas: puede tardar un poco', 3000); bbCheck().then(c => { BB.checking = false; renderBB(); toast(c ? `Contesta en ${(c.ms / 1000).toFixed(1).replace('.', ',')} s de media` : 'El cerebro grande no ha podido arrancar', 3600); }); }
   else if (a === 'remove') { if (b.dataset.sure) bbRemove(); else { b.dataset.sure = '1'; b.textContent = '¿Seguro? Toca otra vez'; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Borrar'; }, 3000); } }
 });
 $('#bbBox').addEventListener('submit', e => { if (e.target.id !== 'bbForm') return; e.preventDefault(); const v = $('#bbIn').value.trim(); if (v) bbTry(v); });
@@ -8210,7 +8700,7 @@ function memoryCommand(q, raw) {
         const up = state.queue.slice(state.qi + 1), mine = up.filter(id => { const x = trackById(id); return x && prefMatches({ target: tr }, x); });
         if (!mine.length) { novaSay(`No tengo más ${tr.name} para ponerte ahora.`); return true; }
         state.queue = state.queue.slice(0, state.qi + 1).concat(mine, up.filter(id => !mine.includes(id))); disarmMix(); prefetchNext(); renderQueue();
-        novaSay(`Adelanto ${mine.length === 1 ? 'la canción' : 'las ' + mine.length + ' canciones'} de ${tr.name} que venían.`); return true;
+        novaSay(`Adelanto ${mine.length === 1 ? 'la canción' : 'las ' + mine.length + ' canciones'} de ${tr.name} que ${mine.length === 1 ? 'venía' : 'venían'}.`); return true;
       }
       state.queue.splice(state.qi + 1, 0, ...ids); disarmMix(); prefetchNext(); renderQueue();
       novaSay(`Marchando más ${tr.name}: ${ids.length === 1 ? 'una canción' : ids.length + ' canciones'} a continuación.`); return true;
@@ -8408,7 +8898,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }
