@@ -6113,6 +6113,7 @@ function nuiEvent(e) {
   }
 }
 if (NUI_PLUGIN) {
+  try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
   if (NUI.on) NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); }).catch(nuiBroken);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && state.view === 'biblioteca') nuiLoop(); });
@@ -7122,6 +7123,12 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '4.3': [
+    '<b>«Mi música» ya es nativa</b>: la lista de canciones la dibuja ahora Android (Kotlin y Compose), no la página web de antes. Se ve igual, pero va más fluida, sobre todo con muchas canciones.',
+    '<b>Buscar es más cómodo</b>: al tocar la caja de búsqueda, la lista sube para que veas los resultados con el teclado abierto, y hay una ✕ para vaciarla.',
+    'Si algo no se viera bien, en Ajustes › Sonido y mezclas puedes apagar «Mi música nativa» y vuelve la pantalla de siempre.',
+    'Es el segundo paso para que toda Órbita sea una app nativa. Las demás pantallas siguen igual por ahora.'
+  ],
   '4.2': [
     '<b>El reproductor ya es de Android</b>: la música la pone ahora un reproductor hecho en Kotlin con Media3 (lo que usan las grandes apps de música). Es el primer paso para que toda Órbita sea una app nativa.',
     '<b>La música sigue aunque cierres Órbita</b> desde las apps recientes. Y al volver a abrirla, la app recoge lo que suena tal cual: la misma canción, por donde va y lo que viene.',

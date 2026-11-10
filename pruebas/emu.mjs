@@ -8,7 +8,18 @@ const PKG = JSON.parse(fs.readFileSync('capacitor.config.json', 'utf8')).appId;
 const VER = JSON.parse(fs.readFileSync('package.json', 'utf8')).version.split('.').slice(0, 2).join('.');
 const res = [], log = (...a) => { const s = a.join(' '); console.log(s); fs.appendFileSync(`${OUT}/pasos.txt`, s + '\n'); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const adb = (c, o = {}) => { try { return execSync('adb ' + c, { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64e6, ...o }); } catch (e) { return 'ERR ' + (e.stdout || '') + (e.stderr || e.message); } };
+// si la prueba se atasca (el emulador de GitHub a veces se queda colgado), se guarda lo que haya y se termina
+function finish(why) {
+  try {
+    if (why) log('\nLA PRUEBA SE CORTÓ: ' + why);
+    fs.writeFileSync(`${OUT}/resultado.json`, JSON.stringify(res, null, 1));
+    log(`\n${res.filter(r => r.ok).length} de ${res.length} bien`);
+  } catch {}
+  process.exit(0);
+}
+setTimeout(() => finish('pasó de 16 minutos'), 16 * 60000).unref();
+let adbFails = 0;
+const adb = (c, o = {}) => { if (adbFails > 12) finish('el emulador dejó de contestar'); try { const r = execSync('adb ' + c, { encoding: 'utf8', timeout: 45000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64e6, ...o }); adbFails = 0; return r; } catch (e) { if (e.killed || /ETIMEDOUT|offline|no devices/.test(String(e.message) + e.stderr)) adbFails++; return 'ERR ' + (e.stdout || '') + (e.stderr || e.message); } };
 const sh = c => adb(`shell "${c.replace(/"/g, '\\"')}"`);
 let shotN = 0;
 const shot = name => { const f = `${OUT}/${String(++shotN).padStart(2, '0')}-${name}.png`; const r = spawnSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64e6 }); if (r.stdout && r.stdout.length > 1000) fs.writeFileSync(f, r.stdout); return f; };
@@ -242,6 +253,15 @@ try {
   sh('input keyevent KEYCODE_BACK'); await sleep(2200);
   const pl2 = await js(`return { shown: window.__orbita.NUI.shown, np: !document.querySelector('#np').hidden, view: window.__orbita.state.view };`); shot('nativa-reproductor-cerrado');
   check('al cerrarlo, la nativa vuelve', pl2 && pl2.shown === true && pl2.np === false, JSON.stringify(pl2));
+  // --- «Personaliza Órbita»: bordes rectos, letra grande y títulos retro; la pantalla nativa cambia igual
+  await goView('ajustes'); await sleep(900);
+  const lk = await js(`const c = (k, v) => { const b = document.querySelector('[data-look="' + k + '"][data-v="' + v + '"]'); if (b) b.click(); return !!b; }; return [c('round', 'recto'), c('text', 'l'), c('titles', 'retro')];`);
+  await goView('biblioteca'); await sleep(1800); shot('nativa-otro-aspecto');
+  const big = find(ui(), 'BIBLIOTECA');
+  check('el aspecto elegido en «Personaliza Órbita» llega a la pantalla nativa (letra más grande)', Array.isArray(lk) && lk.every(Boolean) && big && (big.b[3] - big.b[1]) > 31.92 * 1.05 * geo.dpr, JSON.stringify(lk) + ' · alto del título ' + (big ? big.b[3] - big.b[1] : '?') + ' px');
+  await goView('ajustes'); await sleep(700);
+  await js(`const c = (k, v) => { const b = document.querySelector('[data-look="' + k + '"][data-v="' + v + '"]'); if (b) b.click(); }; c('round', 'redondo'); c('text', 'm'); c('titles', 'orbita'); return 1;`);
+  await goView('biblioteca'); await sleep(1500);
   // --- fluidez al deslizar la lista
   sh(`dumpsys gfxinfo ${PKG} reset`);
   for (let k = 0; k < 4; k++) { sh('input swipe 540 1450 540 400 250'); await sleep(700); sh('input swipe 540 400 540 1450 250'); await sleep(700); }
@@ -320,6 +340,4 @@ fs.writeFileSync(`${OUT}/logcat.txt`, adb('logcat -d -v time *:W').split('\n').s
 fs.writeFileSync(`${OUT}/logcat-app.txt`, adb('logcat -d -v time').split('\n').filter(l => /orbita|Orbita|Nova|Media3|MediaSess|AndroidRuntime|Capacitor\/Console|chromium/i.test(l)).slice(-4000).join('\n'));
 fs.writeFileSync(`${OUT}/cierres.txt`, adb('logcat -d -b crash'));
 fs.writeFileSync(`${OUT}/sesion.txt`, session());
-fs.writeFileSync(`${OUT}/resultado.json`, JSON.stringify(res, null, 1));
-log(`\n${res.filter(r => r.ok).length} de ${res.length} bien`);
-process.exit(0);
+finish('');

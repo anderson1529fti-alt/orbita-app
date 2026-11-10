@@ -70,6 +70,9 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
@@ -197,7 +200,7 @@ private fun Modifier.press(scale: Float = 0.94f, enabled: Boolean = true, onClic
     val src = remember { MutableInteractionSource() }
     val down by src.collectIsPressedAsState()
     val k by animateFloatAsState(if (down && enabled) scale else 1f, tween(120), label = "p")
-    return this.graphicsLayer { scaleX = k; scaleY = k }.clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
+    return this.graphicsLayer { scaleX = k; scaleY = k }.clickable(interactionSource = src, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
 }
 
 @Composable
@@ -282,7 +285,7 @@ private fun TrackRow(t: UiTrack, playing: Boolean, sk: Skin, onPlay: () -> Unit)
         Spacer(Modifier.width(10.dp))
         T(fmt(t.dur), 12.8f * sk.tk, p.muted, Modifier.width(46.dp), family = Mono, align = TextAlign.End, maxLines = 1)
         Spacer(Modifier.width(10.dp))
-        Box(Modifier.size(34.dp).press(0.85f) { UiState.send("like") { it.put("id", t.id) } }, contentAlignment = Alignment.Center) {
+        Box(Modifier.size(34.dp).semantics { contentDescription = if (t.liked) "Quitar de favoritas" else "Favorita" }.press(0.85f) { UiState.send("like") { it.put("id", t.id) } }, contentAlignment = Alignment.Center) {
             Ico(I_HEART, 18f, if (t.liked) p.accent else p.muted, fill = t.liked, round = false)
         }
         Spacer(Modifier.width(10.dp))
@@ -293,8 +296,8 @@ private fun TrackRow(t: UiTrack, playing: Boolean, sk: Skin, onPlay: () -> Unit)
                 T("¿Borrar?", 12.8f * sk.tk, p.bad, weight = FontWeight.ExtraBold, maxLines = 1)
             }
         } else Row(Modifier.width(40.dp)) {
-            Box(Modifier.width(20.dp).height(34.dp).press(0.85f) { UiState.send("edit") { it.put("id", t.id) } }, contentAlignment = Alignment.Center) { Ico(I_EDIT, 16f, p.muted) }
-            Box(Modifier.width(20.dp).height(34.dp).press(0.85f) { armed = true }, contentAlignment = Alignment.Center) { Ico(I_TRASH, 16f, p.muted) }
+            Box(Modifier.width(20.dp).height(34.dp).semantics { contentDescription = "Editar canción y portada" }.press(0.85f) { UiState.send("edit") { it.put("id", t.id) } }, contentAlignment = Alignment.Center) { Ico(I_EDIT, 16f, p.muted) }
+            Box(Modifier.width(20.dp).height(34.dp).semantics { contentDescription = if (t.dev) "Quitar de Órbita (no borra el archivo)" else "Borrar" }.press(0.85f) { armed = true }, contentAlignment = Alignment.Center) { Ico(I_TRASH, 16f, p.muted) }
         }
     }
 }
@@ -476,7 +479,7 @@ private fun SearchBox(sk: Skin, onFocus: () -> Unit) {
                 }
             }
         )
-        if (UiState.search.isNotEmpty()) Box(Modifier.size(22.dp).press { UiState.search = "" }, contentAlignment = Alignment.Center) { Ico("M6 6l12 12M18 6L6 18", 14f, p.muted, sw = 2.4f) }
+        if (UiState.search.isNotEmpty()) Box(Modifier.size(22.dp).semantics { contentDescription = "Borrar la búsqueda" }.press { UiState.search = "" }, contentAlignment = Alignment.Center) { Ico("M6 6l12 12M18 6L6 18", 14f, p.muted, sw = 2.4f) }
     }
 }
 
