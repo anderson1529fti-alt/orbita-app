@@ -20,6 +20,12 @@ public class MainActivity extends BridgeActivity {
             registerPlugin(alarm.asSubclass(com.getcapacitor.Plugin.class));
         } catch (Throwable ignored) {
         }
+        // 4.3 · Las pantallas nativas (Kotlin y Compose), igual
+        try {
+            Class<?> ui = Class.forName(getPackageName() + ".OrbitaUiPlugin");
+            registerPlugin(ui.asSubclass(com.getcapacitor.Plugin.class));
+        } catch (Throwable ignored) {
+        }
         // El cerebro grande, igual
         try {
             Class<?> brain = Class.forName(getPackageName() + ".NovaBrainPlugin");

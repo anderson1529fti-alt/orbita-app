@@ -48,7 +48,7 @@ async function js(expr) {
 async function webStart(reload) {
   if (!(await cdpConnect())) return false;
   await cdp('Page.enable');
-  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.ORBITA_DEBUG = true; try { for (const [k, v] of Object.entries({ onboarded: true, newsSeen: '${VER}', devWelcomeDone: true, intros: false, lastUpdateCheck: Date.now() + 864e5 })) localStorage.setItem('orbita:' + k, JSON.stringify(v)); } catch (e) {}` });
+  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.ORBITA_DEBUG = true; try { for (const [k, v] of Object.entries({ onboarded: true, newsSeen: '${VER}', devWelcomeDone: true, intros: false, lastUpdateCheck: Date.now() + 864e5 })) localStorage.setItem('orbita:' + k, JSON.stringify(v)); if (localStorage.getItem('orbita:nativeUi') == null) localStorage.setItem('orbita:nativeUi', 'false'); } catch (e) {}` });
   if (reload) { await cdp('Page.reload'); await sleep(9000); }
   return true;
 }
@@ -57,6 +57,25 @@ const sessState = () => { const d = session(); const i = d.indexOf(PKG); if (i <
 const playing = () => /state=(PLAYING\(3\)|3[,}])/.test((() => { const d = session(); const i = d.indexOf(PKG); return i < 0 ? '' : d.slice(i, i + 3000); })());
 const alive = () => /^\d+/.test(sh(`pidof ${PKG}`).trim());
 const fgService = () => { const d = sh(`dumpsys activity services ${PKG}`); return /isForeground=true/.test(d) ? 'en primer plano' : /ServiceRecord/.test(d) ? 'servicio sin primer plano' : 'sin servicio'; };
+// ---- lo que hay en pantalla según Android (también ve las pantallas nativas de Compose)
+function ui() {
+  sh('uiautomator dump /sdcard/ui.xml');
+  const x = sh('cat /sdcard/ui.xml'), out = [];
+  for (const m of x.matchAll(/<node [^>]*>/g)) {
+    const g = k => { const r = m[0].match(new RegExp(' ' + k + '="([^"]*)"')); return r ? r[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)) : ''; };
+    const b = (g('bounds').match(/\d+/g) || []).map(Number);
+    if (b.length === 4) out.push({ text: g('text'), desc: g('content-desc'), cls: g('class'), b });
+  }
+  return out;
+}
+const find = (nodes, text) => nodes.find(n => n.text === text) || nodes.find(n => n.text.startsWith(text));
+const center = n => [Math.round((n.b[0] + n.b[2]) / 2), Math.round((n.b[1] + n.b[3]) / 2)];
+const tap = (x, y) => sh(`input tap ${Math.round(x)} ${Math.round(y)}`);
+async function tapText(text, wait = 1200) { const n = find(ui(), text); if (!n) { log('  (no encuentro en pantalla: ' + text + ')'); return false; } tap(...center(n)); await sleep(wait); return true; }
+const titlesOnScreen = nodes => nodes.filter(n => SONGS.includes(n.text)).sort((a, b) => a.b[1] - b.b[1]).map(n => n.text);
+const SONGS = ['Luz de las siete', 'Faros', 'Pulso', 'Marea lenta', 'Viernes 23:59', 'Domingo', 'Andén 3', 'Lámpara de escritorio'];
+const gfx = () => { const d = sh(`dumpsys gfxinfo ${PKG}`); const t = (d.match(/Total frames rendered: (\d+)/) || [])[1], j = (d.match(/Janky frames: (\d+) \(([\d.]+)%\)/) || []), p90 = (d.match(/90th percentile: (\d+)ms/) || [])[1], p99 = (d.match(/99th percentile: (\d+)ms/) || [])[1]; return `${t} fotogramas · lentos ${j[1]} (${j[2]} %) · p90 ${p90} ms · p99 ${p99} ms`; };
+
 const crashes = () => adb('logcat -d -b crash').split('\n').filter(l => l.trim()).length;
 
 try {
@@ -90,6 +109,110 @@ try {
   check('la app ve la música del emulador', n >= songs.length, n + ' canciones');
   // cómo se ve cada pantalla de la app web (referencia para las pantallas nativas)
   for (const v of ['biblioteca', 'listas', 'tu', 'ajustes', 'inicio']) { const r = await js(`location.hash = '#${v}'; await new Promise(r => setTimeout(r, 300)); return window.__orbita.state.view;`); if (r !== v) log('no cambia a', v, JSON.stringify(r)); await sleep(1500); shot('web-' + v); }
+  await js(`document.querySelector('#main').scrollTop = 520; return 1;`).catch(() => {});
+  await js(`location.hash = '#biblioteca'; return 1;`); await sleep(1200); await js(`document.querySelector('#main').scrollTop = 520; return 1;`); await sleep(900); shot('web-biblioteca-lista');
+
+  // ================= FASE 2 · «Mi música» nativa (Compose) =================
+  await js(`location.hash = '#ajustes'; return 1;`); await sleep(1200);
+  const tog = await js(`const b = document.querySelector('#tNui'); if (!b || document.querySelector('#nuiRow').hidden) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); b.click(); await new Promise(r => setTimeout(r, 300)); return b.getAttribute('aria-pressed') + ' · ' + document.querySelector('#nuiNote').textContent;`);
+  await sleep(600); shot('ajustes-interruptor');
+  check('Ajustes: el interruptor de «Mi música» nativa se enciende', /^true/.test(String(tog)), tog);
+  await js(`location.hash = '#biblioteca'; return 1;`); await sleep(2500);
+  const nui1 = await js(`const N = window.__orbita.NUI; return { on: N.on, shown: N.shown, err: N.err, rect: N.rect };`);
+  shot('nativa-biblioteca');
+  check('«Mi música» nativa a la vista', nui1 && nui1.on && nui1.shown && !nui1.err, JSON.stringify(nui1));
+  check('sin cierres al abrir la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+  let nodes = ui();
+  fs.writeFileSync(`${OUT}/ui-nativa.txt`, nodes.filter(n => n.text).map(n => `${n.b.join(',')} ${n.cls.split('.').pop()} «${n.text}»`).join('\n'));
+  check('la pantalla nativa enseña el título, la música del móvil y los filtros', ['BIBLIOTECA', 'Añadir canciones', 'Música del móvil', 'Todas', 'Favoritas', 'Del móvil', 'Reproducir todo'].every(t => find(nodes, t)), nodes.filter(n => n.text).map(n => n.text).slice(0, 30).join(' | '));
+  // bajar hasta las canciones
+  sh('input swipe 540 1400 540 500 400'); await sleep(1500); shot('nativa-lista');
+  nodes = ui();
+  const seen = titlesOnScreen(nodes);
+  check('se ven las canciones', seen.length >= 4, seen.join(' | '));
+  // tocar una canción: suena esa
+  const pick = seen.includes('Pulso') ? 'Pulso' : seen[1];
+  await tapText(pick, 4000);
+  const cur = await js(`const o = window.__orbita, t = o.trackById(o.state.queue[o.state.qi]); return { title: t && t.title, paused: o.decks[o.A].paused, q: o.state.queue.length };`);
+  shot('nativa-sonando');
+  check('tocar una canción en la pantalla nativa la pone', cur && cur.title === pick && cur.paused === false && playing(), JSON.stringify(cur) + ' · ' + sessState());
+  // el corazón de esa fila
+  const geo = await js(`const r = document.querySelector('#main').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, dpr: devicePixelRatio };`);
+  nodes = ui(); const row = find(nodes, pick);
+  if (row) {
+    const likeX = (geo.x + geo.w - 16 - 7 - 40 - 10 - 17) * geo.dpr, [, rowY] = center(row), y2 = rowY + 10 * geo.dpr;
+    tap(likeX, y2); await sleep(1500);
+    const l1 = await js(`return !!window.__orbita.state.tracks.find(t => t.title === ${JSON.stringify(pick)}).liked;`);
+    shot('nativa-favorita');
+    check('el corazón marca la canción como favorita', l1 === true, l1);
+    // filtro «Favoritas»
+    sh('input swipe 540 700 540 1500 300'); await sleep(1200);
+    await tapText('Favoritas', 1500);
+    sh('input swipe 540 1400 540 700 300'); await sleep(1200);
+    const fav = titlesOnScreen(ui()); shot('nativa-favoritas');
+    check('el filtro «Favoritas» deja solo la favorita', fav.length === 1 && fav[0] === pick, fav.join(' | '));
+    sh('input swipe 540 700 540 1500 300'); await sleep(1200);
+    await tapText('Todas', 1500);
+    // ordenar por título
+    await tapText('Recientes', 1500); shot('nativa-ordenar');
+    await tapText('Título', 1500);
+    sh('input swipe 540 1400 540 600 300'); await sleep(1200);
+    const ord = titlesOnScreen(ui());
+    const sorted = ord.slice().sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true }));
+    shot('nativa-por-titulo');
+    check('ordenar por título', ord.length >= 4 && JSON.stringify(ord) === JSON.stringify(sorted), ord.join(' | '));
+    const pref = await js(`return { sort: window.__orbita.state.sort, guardado: JSON.parse(localStorage.getItem('orbita:sort') || 'null') };`);
+    check('el orden elegido se guarda en la app', pref && pref.sort === 'title' && pref.guardado === 'title', JSON.stringify(pref));
+    // buscar
+    sh('input swipe 540 600 540 1500 300'); await sleep(1200);
+    if (await tapText('Filtrar por título', 1500)) {
+      sh('input text kora'); await sleep(1800); shot('nativa-buscar');
+      const hit = titlesOnScreen(ui());
+      check('buscar «kora» deja las dos canciones de Kora', hit.length === 2 && hit.includes('Pulso') && hit.includes('Luz de las siete'), hit.join(' | '));
+      sh('input keyevent KEYCODE_ENTER'); await sleep(900);
+      for (let k = 0; k < 4; k++) sh('input keyevent KEYCODE_DEL');
+      await sleep(1200);
+      const back = await js(`return window.__orbita.NUI.shown;`);
+      sh('input keyevent KEYCODE_ENTER'); await sleep(600);
+      sh('input keyevent 111'); await sleep(900);   // (por si el teclado sigue abierto)
+      check('tras buscar, la pantalla nativa sigue a la vista', back === true && alive());
+    }
+    // editar: se abre el diálogo de la app y la pantalla nativa se aparta
+    sh('input swipe 540 1400 540 600 300'); await sleep(1300);
+    nodes = ui(); const r2 = nodes.find(n => SONGS.includes(n.text) && n.b[1] > 400 && n.b[1] < 1700);
+    if (r2) {
+      const editX = (geo.x + geo.w - 16 - 7 - 30) * geo.dpr, [, ry] = center(r2);
+      tap(editX, ry + 10 * geo.dpr); await sleep(1800);
+      const ed = await js(`return { shown: window.__orbita.NUI.shown, dialog: !!document.querySelector('dialog[open], .modal:not([hidden]), .overlay:not([hidden]), .sheet:not([hidden])') };`);
+      shot('nativa-editar');
+      check('«editar» abre el diálogo de la app y la pantalla nativa se aparta', ed && ed.shown === false, JSON.stringify(ed));
+      sh('input keyevent KEYCODE_BACK'); await sleep(1800);
+      const ed2 = await js(`return window.__orbita.NUI.shown;`);
+      shot('nativa-tras-editar');
+      check('al cerrar el diálogo, la pantalla nativa vuelve', ed2 === true, ed2);
+    }
+  } else check('encuentro la fila para probar el corazón', false, pick);
+  // aviso corto encima de la lista
+  await js(`window.__orbita.toast('Aviso de prueba encima de la lista'); return 1;`); await sleep(900); shot('nativa-aviso');
+  check('los avisos se ven encima de la pantalla nativa', !!find(ui(), 'Aviso de prueba'), '');
+  // otra pestaña y volver
+  await js(`location.hash = '#inicio'; return 1;`); await sleep(1300);
+  const off = await js(`return window.__orbita.NUI.shown;`); shot('nativa-otra-pestana');
+  await js(`location.hash = '#biblioteca'; return 1;`); await sleep(1800);
+  const on2 = await js(`return window.__orbita.NUI.shown;`);
+  check('al cambiar de pestaña se quita, y al volver vuelve', off === false && on2 === true, `${off} → ${on2}`);
+  // el reproductor a pantalla completa por encima
+  const mini = await js(`const c = document.querySelector('.player .cover, .player [data-open], #plCover, .pl-left'); if (!c) return null; const r = c.getBoundingClientRect(); return { x: (r.left + r.width / 2) * devicePixelRatio, y: (r.top + r.height / 2) * devicePixelRatio };`);
+  if (mini) { tap(mini.x, mini.y); await sleep(2200); const pl = await js(`return window.__orbita.NUI.shown;`); shot('nativa-reproductor'); check('el reproductor a pantalla completa se abre por encima (la nativa se aparta)', pl === false, pl); sh('input keyevent KEYCODE_BACK'); await sleep(2000); const pl2 = await js(`return window.__orbita.NUI.shown;`); check('al cerrarlo, la nativa vuelve', pl2 === true, pl2); }
+  // fluidez al deslizar la lista
+  sh(`dumpsys gfxinfo ${PKG} reset`);
+  for (let k = 0; k < 4; k++) { sh('input swipe 540 1500 540 400 250'); await sleep(700); sh('input swipe 540 400 540 1500 250'); await sleep(700); }
+  log('fluidez de la lista nativa:', gfx());
+  shot('nativa-final');
+  check('sin cierres por error en las pruebas de la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+  await js(`location.hash = '#inicio'; return 1;`); await sleep(800);
+  // ================= fin de la fase 2 =================
+
   const st0 = await js(`return await Capacitor.Plugins.NovaAudio.status();`);
   check('el reproductor es el de Kotlin', st0 && st0.player === 'kotlin', JSON.stringify(st0));
 
