@@ -1,0 +1,76 @@
+name: Pruebas en emulador (fase 2)
+
+# Solo en la rama de pruebas: compila la app en modo de pruebas (sin firmar, no se publica nada), la arranca en un
+# emulador de Android y guarda capturas y registros.
+on:
+  push:
+    branches: [ fase2 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pruebas-fase2
+  cancel-in-progress: true
+
+jobs:
+  emulador:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+      - name: Dependencias
+        run: |
+          npm install --no-audit --no-fund
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+      - name: Proyecto Android
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          npx cap add android
+          node scripts/prepare-android.mjs
+          npx cap sync android
+      - name: Compilar (pruebas)
+        run: |
+          mkdir -p salida
+          cd android && chmod +x gradlew
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../salida/gradle.txt | tail -n 60
+      - name: Errores de compilación
+        if: failure()
+        run: grep -nE "^e: |error:|FAILED|What went wrong" -A3 salida/gradle.txt | head -n 120 > salida/errores.txt || true
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Emulador
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 3072M
+          disable-animations: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: node pruebas/emu.mjs
+      - name: Guardar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pruebas
+          path: salida
+          retention-days: 7
