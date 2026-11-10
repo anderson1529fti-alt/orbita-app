@@ -14,6 +14,15 @@ Cada uno con sus ajustes
 - En Galaxia, Órbita y Partículas, arrastra con el dedo para girarlos y pellizca para acercarte.
 - Con las animaciones «Ligeras» se ven los tres visualizadores de siempre.
 
+Revisión general (beta 2)
+- Si pausas y enseguida das a «play», la música vuelve (antes el segundo toque la volvía a pausar). Mientras baja, el botón ya muestra «play».
+- Si otra app suena solo un momento (una nota de voz, un aviso), Órbita vuelve sola aunque no le diera tiempo a bajar del todo.
+- Gasta menos batería: con la música en pausa, el vinilo, el halo y el fondo del reproductor dejan de redibujarse sin necesidad, y lo que queda detrás del reproductor abierto se queda quieto. Los visualizadores trabajan menos por fotograma (Montañas, sobre todo) y en pausa van a 30 fotogramas.
+- Arrastrar el reproductor: al soltar cuenta hacia dónde iba el dedo en ese momento. Si te paras antes de soltar, no «sale disparado»; y si lo devuelves con un gesto rápido, te hace caso.
+- Con YouTube y la radio, las luces también notan la caja (antes solo el bombo).
+- A pantalla completa, el nombre de la canción ya cabe entero en el móvil.
+- Nova ya no intenta leer en voz alta emojis como ⭐ o 👨‍👩‍👧.
+
 Órbita 3.9: luces con la música, letras tipo karaoke, la música se pausa con suavidad cuando suena otra app o se desconectan los auriculares, y arrastrar el reproductor es más fluido.
 
 Luces con la música

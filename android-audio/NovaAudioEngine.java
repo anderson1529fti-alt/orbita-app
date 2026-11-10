@@ -133,6 +133,8 @@ public final class NovaAudioEngine {
     /** El fundido, ya en v (sin transición): cancela uno a medias. */
     public void fadeSet(float v) { fadeDone = null; v = clamp(v, 0f, 1f); fadeResetTo = v; fadeGoal = v; fadeReset = true; }
     public float fadeLevel() { return fadeReset ? fadeResetTo : fadeNow; }
+    /** 4.0b2 · ¿Está bajando para pausar? (un fundido hacia 0 con algo pendiente al acabar) */
+    public boolean fadingOut() { return fadeDone != null && fadeGoal < 0.01f; }
     public void setDirect(boolean d) { direct = d; }
     public void setViz(boolean on) { viz = on; }
     public boolean anyPlaying() { for (Slot s : slots) if (s.playing) return true; return false; }
@@ -899,7 +901,7 @@ public final class NovaAudioEngine {
                 out[k] = (byte) Math.max(0, Math.min(255, v));
             }
             /* y la forma de la onda (para el estilo «Ondas»): 512 muestras, 128 = silencio */
-            for (int i = 0; i < 512; i++) { int v = (int) Math.round(128 + hist[(n + i) & 511] * 127); out[256 + i] = (byte) Math.max(0, Math.min(255, v)); }
+            for (int i = 0; i < 512; i++) { int v = Math.round(128 + hist[(n + i) & 511] * 127); out[256 + i] = (byte) Math.max(0, Math.min(255, v)); }
             return out;
         }
         private static void fft(double[] re, double[] im) {

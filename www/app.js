@@ -1375,13 +1375,19 @@ async function prefetchNext() {
   const id = state.queue[state.qi + 1]; const t = id && trackById(id);
   if (t && !t.net) { try { await audioUrl(t); coverUrl(t, 'full'); setTimeout(() => scheduleAnalysis(t), 4000); } catch {} if (ONLINE) setTimeout(() => artistFact(t.artist), 2500); if (nvUsable()) setTimeout(() => { if (state.queue[state.qi + 1] === t.id) nvPrepareIntro(t); }, 7000); }
 }
-async function fadePause(ms = 160) { stopTalk(); if (mixing) finishMix(true); const k = A; await tween('f' + k, 0, ms); els.forEach(e => { if (!e.paused) e.pause(); }); deckF[k] = 1; applyVol(); saveSession(true); }
-async function resume() { const d = act(); wakeCtx(); deckF[A] = 0; applyVol(); try { await d.play(); } catch { deckF[A] = 1; applyVol(); return; } tween('f' + A, 1, 240); }
+var fadingOut = 0, fadeOutGen = 0;   // (var: updatePlayBtn may run before this line)
+async function fadePause(ms = 160) {
+  stopTalk(); if (mixing) finishMix(true); const k = A, my = ++fadeOutGen;
+  fadingOut = my; updatePlayBtn();
+  const ok = await tween('f' + k, 0, ms);
+  if (fadingOut === my) fadingOut = 0;
+  if (ok === false || A !== k) { updatePlayBtn(); return; }   // (4.0b2) cut by «play», by another song or by another pause: they decide
+  els.forEach(e => { if (!e.paused) e.pause(); }); deckF[k] = 1; applyVol(); saveSession(true); }
+async function resume() { const d = act(); wakeCtx(); if (d.paused) { deckF[A] = 0; applyVol(); } try { await d.play(); } catch { deckF[A] = 1; applyVol(); return; } tween('f' + A, 1, 240); }
 function togglePlay() {
   if (!current() || !act().getAttribute('src')) { if (resumeSession(true)) return; if (state.mix) playMix(0); else spinRoulette(); return; }
-  if (act().paused) resume(); else fadePause();
+  if (act().paused || fadingOut) resume(); else fadePause();
 }
-const hasNext = () => state.qi + 1 < state.queue.length || state.repeat === 'all' || state.source === 'radio';
 function next(auto) {
   if (!state.queue.length) return;
   if (mixing) finishMix(true);
@@ -1706,7 +1712,7 @@ els.forEach((d, idx) => {
     if (advancing) return;
     next(true);
   });
-  d.addEventListener('play', () => { if (d === act()) { updatePlayBtn(); syncNativeState(); pushWidget(); vizKick(); } });
+  d.addEventListener('play', () => { if (d === act()) { updatePlayBtn(); syncNativeState(); pushWidget(); vizKick(); plKick(); } });
   d.addEventListener('pause', () => { if (d === act()) { updatePlayBtn(); syncNativeState(); pushWidget(); } ctxIdle(); });
   d.addEventListener('seeked', () => {
     if (d !== act()) return;
@@ -1770,7 +1776,7 @@ let mvId = null, mvQi = 0, mvCover = '';
 function slideIn(el, dir, dist = 26) { moAnim(el, [{ transform: `translateX(${dir * dist}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300 }); }
 function fadeIn(el, dir) { moAnim(el, [{ transform: `translateX(${dir * 10}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 280, delay: 40, fill: 'backwards' }); }
 function updatePlayBtn() {
-  const p = !act().paused;
+  const p = !act().paused && !fadingOut;
   $$('[data-ctl="play"]').forEach(b => {
     const st = p ? 'pause' : 'play', was = b.dataset.st; if (was === st) return;
     b.dataset.st = st; b.innerHTML = p ? ICON.pause : ICON.play; b.setAttribute('aria-label', p ? 'Pausar' : 'Reproducir');
@@ -1966,7 +1972,8 @@ function renderQueue() {
   const bar = document.querySelector('.player'), np = $('#np'), inner = np.querySelector('.np-inner');
   const skip = el => !!(el && el.closest && el.closest('input,select,textarea,.np-lyrics,.np-queue,.seek,[role="slider"]'));
   let d = null;
-  const vel = (y, t) => { d.v = (y - d.ly) / Math.max(1, t - d.lt); d.ly = y; d.lt = t; };
+  const vel = (y, t) => { const v = (y - d.ly) / Math.max(1, t - d.lt); d.v = d.v ? d.v * 0.35 + v * 0.65 : v; d.ly = y; d.lt = t; };
+  const flick = e => (e && e.timeStamp - d.lt > 90 ? 0 : d.v);   // the finger stopped before letting go: no flick
   /* up, on the bar below */
   bar.addEventListener('touchstart', e => { if (e.touches.length !== 1 || skip(e.target) || !np.hidden) { d = null; return; } const t = e.touches[0]; d = { k: 'up', x0: t.clientX, y0: t.clientY, ly: t.clientY, lt: e.timeStamp, v: 0, on: false }; if (mo()) npPrepare(); }, { passive: true });
   bar.addEventListener('touchmove', e => {
@@ -1975,10 +1982,11 @@ function renderQueue() {
     e.preventDefault(); vel(t.clientY, e.timeStamp);
     npDragTo((d.base - t.clientY) / NPM.top);
   }, { passive: false });
-  const upEnd = () => {
+  const upEnd = e => {
     if (!d || d.k !== 'up' || !d.on) { d = null; return; }
     NPM.noClick = Date.now(); npDragFlush();
-    if (NPM.p > 0.3 || d.v < -0.45) npAnimate(1, npOpened, npFlingMs(1, d.v)); else closeNP();
+    const v = flick(e);
+    if ((NPM.p > 0.3 && v < 0.3) || v < -0.45) npAnimate(1, npOpened, npFlingMs(1, v)); else { NPM.flingMs = npFlingMs(0, v); closeNP(); }
     d = null;
   };
   bar.addEventListener('touchend', upEnd); bar.addEventListener('touchcancel', upEnd);
@@ -1991,10 +1999,11 @@ function renderQueue() {
     e.preventDefault(); vel(t.clientY, e.timeStamp);
     npDragTo(1 - (t.clientY - d.base) / NPM.top);
   }, { passive: false });
-  const downEnd = () => {
+  const downEnd = e => {
     if (!d || d.k !== 'down' || !d.on) { d = null; return; }
     npDragFlush();
-    if (NPM.p < 0.7 || d.v > 0.5) { NPM.flingMs = npFlingMs(0, d.v); closeNP(); } else npAnimate(1, npOpened, npFlingMs(1, d.v));
+    const v = flick(e);
+    if ((NPM.p < 0.7 && v > -0.3) || v > 0.5) { NPM.flingMs = npFlingMs(0, v); closeNP(); } else npAnimate(1, npOpened, npFlingMs(1, v));
     d = null;
   };
   np.addEventListener('touchend', downEnd); np.addEventListener('touchcancel', downEnd);
@@ -4659,24 +4668,6 @@ function ytLinkFrom(text) {
   if (list && /^(RD|LL|WL|UL)/.test(list)) list = null;
   return id || list ? { id: id || '', list: list || '' } : null;
 }
-/* 3.2: videos play in the queue (this is kept for older callers) */
-async function openYT(id, title, author) { if (id) { ytPlay({ id, title, author }, 'now'); openNP(); } }
-async function openYTOld(id, title, author) {
-  if (!id) return;
-  if (!ONLINE) { window.open('https://www.youtube.com/watch?v=' + id, '_blank', 'noopener'); return; }
-  if (!act().paused) fadePause();
-  stopTalk();
-  $('#ytTitle').textContent = title || 'YouTube';
-  $('#ytAuthor').textContent = author || '';
-  $('#ytOpen').href = 'https://www.youtube.com/watch?v=' + id;
-  $('#ytFrame').innerHTML = `<iframe src="https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" title="${esc(title || 'Vídeo de YouTube')}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
-  $('#ytOverlay').hidden = false;
-  if (STANDALONE) { try { history.pushState({ yt: 1 }, '', location.hash || '#' + state.view); } catch {} }
-  const rec = { id, title: title || '', author: author || '', ts: Date.now() };
-  yt.recent = [rec, ...yt.recent.filter(x => x.id !== id)].slice(0, 12); LS.set('ytRecent', yt.recent);
-  if (!title) ytInfo(id).then(info => { if (!info) return; if ($('#ytFrame iframe') && $('#ytOpen').href.endsWith(id)) { $('#ytTitle').textContent = info.title || 'YouTube'; $('#ytAuthor').textContent = info.author; } const r = yt.recent.find(x => x.id === id); if (r) { r.title = info.title; r.author = info.author; LS.set('ytRecent', yt.recent); renderYT(); } });
-  renderYT();
-}
 function closeYT(fromPop) {
   if ($('#ytOverlay').hidden) return;
   $('#ytFrame').innerHTML = ''; $('#ytOverlay').hidden = true;
@@ -5703,7 +5694,7 @@ let drawOn = false, lastInput = performance.now();
 const idleSlow = () => performance.now() - lastInput > 60000;
 ['pointerdown', 'keydown', 'wheel'].forEach(ev => document.addEventListener(ev, () => { lastInput = performance.now(); }, { capture: true, passive: true }));
 /* ---- 3.9 · Lights ---- */
-const PL = { on: LS.get('lights', true), k: 0, s: 0, l: 0, slow: 0, v: 0, kickAt: 0, t: 0, raf: 0, avg: 0.4, rings: [], talk: false, ph: 0, sty: false };
+const PL = { on: LS.get('lights', true), savg: 0.3, snAt: 0, k: 0, s: 0, l: 0, slow: 0, v: 0, kickAt: 0, t: 0, raf: 0, avg: 0.4, rings: [], talk: false, ph: 0, sty: false };
 const plOK = () => PL.on && mo();
 /* what is playing now, by instruments (0…1). From the engine when it plays; otherwise estimated from the spectrum */
 function plRead(ts) {
@@ -5718,6 +5709,8 @@ function plRead(ts) {
       k = Math.max(freq[1], freq[2]) / 255; let a = 0; for (let i = 16; i < 54; i++) a += freq[i]; sn = a / 38 / 255; let b = 0; for (let i = 1; i < 120; i++) b += freq[i]; lv = b / 119 / 255;
       PL.avg += (k - PL.avg) * Math.min(1, dt * 3);
       if (k > PL.avg * 1.18 && k > 0.45 && ts - PL.kickAt > 230) hit |= 1;
+      PL.savg += (sn - PL.savg) * Math.min(1, dt * 4);
+      if (sn > PL.savg * 1.3 && sn > 0.32 && ts - PL.snAt > 140) { hit |= 2; PL.snAt = ts; }
     }
   }
   if (hit & 1) { PL.k = 1; PL.kickAt = ts; PL.rings.push({ r: 0, a: 0.75 }); if (PL.rings.length > 4) PL.rings.shift(); }
@@ -5725,7 +5718,7 @@ function plRead(ts) {
   if (hit & 2) PL.s = 1; else PL.s *= Math.exp(-dt * 9);
   const L = playing ? Math.max(0, Math.min(1, (lv - 0.45) / 0.45)) : 0;
   PL.l += (L - PL.l) * Math.min(1, dt * (L > PL.l ? 12 : 4));
-  PL.slow += (L - PL.slow) * Math.min(1, dt * 0.9);
+  PL.slow += (L - PL.slow) * Math.min(1, dt * (playing ? 0.9 : 2.5));
 }
 /* the cover's two most vivid colours, for the halo */
 const npPal = new Map();
@@ -5771,8 +5764,10 @@ function plFrame(ts) {
   const av = document.querySelector('#dj .dj-avatar');
   if (talk) { PL.talk = true; PL.ph += 0.016 * 4.6 * (dj.rate || 1); const v = Math.max(0, Math.sin(PL.ph * Math.PI * 2)) * (0.55 + 0.45 * Math.abs(Math.sin(PL.ph * 0.61))); av.style.setProperty('--talk', v.toFixed(3)); }
   else if (PL.talk) { PL.talk = false; av.style.removeProperty('--talk'); }
+  /* (4.0b2) paused and already still: nothing more to draw until it plays again */
+  if (!talk && (!current() || act().paused) && PL.k < 0.004 && PL.l < 0.004 && PL.slow < 0.004) { cancelAnimationFrame(PL.raf); PL.raf = 0; }
 }
-function plKick() { if (!PL.raf && plOK() && !document.hidden) PL.raf = requestAnimationFrame(plFrame); }
+function plKick() { if (!PL.raf && plOK() && !document.hidden && (!$('#np').hidden || $('#dj').classList.contains('speaking'))) PL.raf = requestAnimationFrame(plFrame); }
 try { new MutationObserver(plKick).observe($('#dj'), { attributes: true, attributeFilter: ['class'] }); } catch {}
 setInterval(plKick, 500);
 document.addEventListener('visibilitychange', plKick);
@@ -5784,7 +5779,7 @@ setInterval(drawKick, 700);
 document.addEventListener('visibilitychange', drawKick);
 function draw(ts) {
   if (!drawWanted()) { drawOn = false; lastTs = 0; return; }
-  requestAnimationFrame(draw);
+  if (current() && !act().paused) requestAnimationFrame(draw); else setTimeout(() => requestAnimationFrame(draw), 80);
   const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
   if (state.view !== 'inicio' || document.hidden || state.heroMode !== 'vinyl' || !$('#np').hidden || root.classList.contains('booting')) return;
   const t = current(); const d = act(); const playing = !d.paused && !!t;
@@ -5988,17 +5983,27 @@ function vizGalaxia(g, W, H, f) {
    Each look keeps its own settings: detail, speed, sensitivity and colour. Fullscreen: drag to turn, pinch to zoom. */
 const GLV = { ok: null, ctx: new Map(), cam: { yaw: 0.6, pitch: 0.5, zoom: 1, drag: false, dx: 0, dy: 0 }, rot: 0, travel: 0, pal: null, palKey: '', coverKey: '', S32: new Float32Array(32), wave: new Uint8Array(256), hist: [], histT: 0, shoot: [], lastSnare: 0 };
 const VIZ_OPTS_DEF = { detail: 'medio', speed: 1, sens: 1, color: 'portada', hue: 300 };
-function vizOpts(sc) { const all = LS.get('vizOpts', {}) || {}; return Object.assign({}, VIZ_OPTS_DEF, all[sc || VZ.scene] || {}); }
-function setVizOpt(k, v) { const all = LS.get('vizOpts', {}) || {}; const sc = VZ.scene; all[sc] = Object.assign({}, all[sc] || {}, { [k]: v }); LS.set('vizOpts', all); GLV.palKey = ''; GLV.rebuild = true; }
+var vizOptsAll = null, vizOptsMemo = new Map();
+function vizOptsStore() { if (!vizOptsAll) vizOptsAll = LS.get('vizOpts', {}) || {}; return vizOptsAll; }
+function vizOpts(sc) {
+  sc = sc || VZ.scene; let o = vizOptsMemo.get(sc);
+  if (!o) { o = Object.assign({}, VIZ_OPTS_DEF, vizOptsStore()[sc] || {}); vizOptsMemo.set(sc, o); }
+  return o;
+}
+function resetVizOpts() { const all = vizOptsStore(); delete all[VZ.scene]; LS.set('vizOpts', all); vizOptsMemo.clear(); GLV.palKey = ''; GLV.rebuild = true; }
+function setVizOpt(k, v) { vizOptsMemo.clear(); const all = vizOptsStore(); const sc = VZ.scene; all[sc] = Object.assign({}, all[sc] || {}, { [k]: v }); LS.set('vizOpts', all); GLV.palKey = ''; GLV.rebuild = true; }
 const VIZ_2D = { orbita: 'orbita', galaxia: 'galaxia', ondas: 'ondas', montanas: 'ondas', aurora: 'ondas', tunel: 'orbita', particulas: 'orbita' };
 function glWanted() {
   if (state.anim === 'lite' || root.classList.contains('lite')) return false;
-  if (GLV.ok === null) { try { const c = document.createElement('canvas'); GLV.ok = !!(c.getContext('webgl') || c.getContext('experimental-webgl')); } catch { GLV.ok = false; } }
+  if (GLV.ok === null) {
+    try { const c = document.createElement('canvas'), g = c.getContext('webgl') || c.getContext('experimental-webgl'); GLV.ok = !!g; const x = g && g.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch { GLV.ok = false; }
+  }
   return GLV.ok;
 }
 /* a canvas can only ever have one kind of drawing (2D or WebGL): to change, it's swapped for a fresh copy */
 function vizSwap(cv, kind) {
-  if ((cv.dataset.kind || '') === kind || !cv.dataset.kind) { cv.dataset.kind = kind; return cv; }
+  if (cv.dataset.kind === kind) return cv;
+  if (!cv.dataset.kind) { cv.dataset.kind = kind; return cv; }
   const n = cv.cloneNode(false); n.dataset.kind = kind; cv.replaceWith(n); GLV.ctx.delete(cv); return n;
 }
 /* ---- shaders ---- */
@@ -6149,7 +6154,8 @@ function glProg(gl, vs, fs) {
 function glInit(cv) {
   let gl = null;
   try { gl = cv.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' }); } catch {}
-  if (!gl) return null;
+  if (!gl) { GLV.fails = (GLV.fails || 0) + 1; if (GLV.fails >= 2) { GLV.ok = false; diag('visualizador 3D: el móvil no abre más gráficos 3D; se ven los clásicos'); } return null; }
+  GLV.fails = 0;
   const S = { gl, P: {}, buf: {}, tex: {}, built: '', n: {} };
   try {
     S.P.ondas = glProg(gl, VS_QUAD, FS_ONDAS); S.P.aurora = glProg(gl, VS_QUAD, FS_AURORA); S.P.tunel = glProg(gl, VS_QUAD, FS_TUNEL);
@@ -6235,7 +6241,7 @@ function glDraw(cv, f, ts) {
   let S = GLV.ctx.get(cv);
   if (!S) { S = glInit(cv); if (!S) return false; GLV.ctx.set(cv, S); }
   const gl = S.gl, sc = VZ.scene, o = vizOpts(sc), t = current(), img = t && coverImg(t);
-  const full = cv.id === 'vizFS', heavy = sc === 'ondas' || sc === 'aurora' || sc === 'tunel';
+  const heavy = sc === 'ondas' || sc === 'aurora' || sc === 'tunel';
   const dpr = Math.min(window.devicePixelRatio || 1, o.detail === 'bajo' ? 0.75 : o.detail === 'alto' ? 2 : heavy ? 1 : 1.5);
   const r = cv.getBoundingClientRect(), W = Math.max(2, Math.round(r.width * dpr)), H = Math.max(2, Math.round(r.height * dpr));
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
@@ -6295,18 +6301,26 @@ function glDraw(cv, f, ts) {
       /* the sound as a landscape: each moment is a row that's born at the top (far) and comes down towards you;
          the bass in the middle, the treble at the sides; each row hides what's behind it */
       const rows = GLV.hist, NC = 64, NR = 40;
-      for (let ri = 0; ri < rows.length; ri++) {
+      if (!GLV.mt) { GLV.mt = new Float32Array(42 * NC * 6); GLV.mtEnv = new Float32Array(NC); for (let i = 0; i < NC; i++) GLV.mtEnv[i] = Math.pow(Math.max(0, Math.cos((i / (NC - 1) * 2 - 1) * Math.PI / 2)), 1.6); }
+      const M = GLV.mt, runs = []; let w = 0;
+      for (let ri = 0; ri < rows.length && ri < 42; ri++) {
         const row = rows[ri], q = Math.min(1, (ri + GLV.histT) / NR);   // 0 = far (top), 1 = near (bottom)
         if (q >= 1) continue;
         const y0 = 0.62 - q * 1.45, sx = 0.55 + 0.5 * q, hs = 0.12 + 0.42 * q, fade = Math.min(1, q * 4) * (1 - Math.max(0, q - 0.85) / 0.15);
-        const ln = [];
+        runs.push(w / 6);
         for (let i = 0; i < NC; i++) {
-          const u = i / (NC - 1) * 2 - 1, env = Math.pow(Math.max(0, Math.cos(u * Math.PI / 2)), 1.6), v = row[Math.min(63, Math.floor(Math.abs(u) * 63))];
-          const x = u * sx, y = y0 + v * hs * env;
-          const m = Math.abs(u);
-          ln.push(x, y, pal[0][0] * (1 - m) + pal[1][0] * m, pal[0][1] * (1 - m) + pal[1][1] * m, pal[0][2] * (1 - m) + pal[1][2] * m, fade * (0.45 + v * 0.8));
+          const u = i / (NC - 1) * 2 - 1, m = Math.abs(u), v = row[Math.min(63, Math.floor(m * 63))];
+          M[w++] = u * sx; M[w++] = y0 + v * hs * GLV.mtEnv[i];
+          M[w++] = pal[0][0] * (1 - m) + pal[1][0] * m; M[w++] = pal[0][1] * (1 - m) + pal[1][1] * m; M[w++] = pal[0][2] * (1 - m) + pal[1][2] * m; M[w++] = fade * (0.45 + v * 0.8);
         }
-        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); lines(new Float32Array(ln), gl.LINE_STRIP);
+      }
+      if (runs.length) {
+        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+        const P = S.P.ln; gl.useProgram(P.p); gl.bindBuffer(gl.ARRAY_BUFFER, S.buf.ln); gl.bufferData(gl.ARRAY_BUFFER, M.subarray(0, w), gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(P.a.aXY); gl.vertexAttribPointer(P.a.aXY, 2, gl.FLOAT, false, 24, 0);
+        gl.enableVertexAttribArray(P.a.aC); gl.vertexAttribPointer(P.a.aC, 4, gl.FLOAT, false, 24, 8);
+        for (const f0 of runs) gl.drawArrays(gl.LINE_STRIP, f0, NC);
+        gl.disableVertexAttribArray(P.a.aXY); gl.disableVertexAttribArray(P.a.aC);
       }
     }
     /* shooting stars on the snare (galaxy) */
@@ -6359,7 +6373,7 @@ function vizFrame(ts) {
   const cvs = document.hidden || root.classList.contains('booting') ? [] : vizCanvases();
   if (!cvs.length) return;
   VZ.raf = requestAnimationFrame(vizFrame);
-  if ((state.anim === 'lite' || idleSlow()) && ts - (VZ.lastDraw || 0) < 31) return;
+  if ((state.anim === 'lite' || idleSlow() || !current() || act().paused) && ts - (VZ.lastDraw || 0) < 31) return;
   VZ.lastDraw = ts;
   const f = vizRead(ts), t = current(), img = t && coverImg(t);
   try { plRead(ts); } catch {}
@@ -6426,7 +6440,7 @@ $('#vizFull').addEventListener('click', e => {
     if (x.dataset.vzScene) vizSetScene(x.dataset.vzScene);
     else if (x.dataset.vzDetail) { setVizOpt('detail', x.dataset.vzDetail); renderVizPanel(); }
     else if (x.dataset.vzColor) { setVizOpt('color', x.dataset.vzColor); renderVizPanel(); }
-    else if (x.dataset.act === 'vf-reset') { const all = LS.get('vizOpts', {}) || {}; delete all[VZ.scene]; LS.set('vizOpts', all); GLV.palKey = ''; GLV.rebuild = true; GLV.cam.zoom = 1; GLV.cam.pitch = 0.5; renderVizPanel(); }
+    else if (x.dataset.act === 'vf-reset') { resetVizOpts(); GLV.cam.zoom = 1; GLV.cam.pitch = 0.5; renderVizPanel(); }
     return;
   }
   if (!$('#vfPanel').hidden) { $('#vfPanel').hidden = true; return; }
@@ -6442,7 +6456,10 @@ const NEWS = {
   '4.0': [
     '<b>Visualizadores nuevos, con la gráfica del móvil</b>: una galaxia en 3D con miles de estrellas, nubes con los colores de la portada, un núcleo que late con el bombo y estrellas fugaces con la caja; Órbita con anillos hechos de música alrededor del planeta-portada; Ondas de luz; Montañas que avanzan hacia ti; Aurora; Túnel; y Partículas, la portada hecha de miles de puntos que bailan.',
     '<b>Cada uno con sus ajustes</b>: a pantalla completa, «Ajustes»: detalle, velocidad, sensibilidad y color (el de la portada, el de Órbita o el que elijas). Arrastra para girar la galaxia, Órbita o la portada, y pellizca para acercarte.',
-    'Con las animaciones «Ligeras» se ven los tres visualizadores de siempre.'
+    'Con las animaciones «Ligeras» se ven los tres visualizadores de siempre.',
+    '<b>Revisión general</b>: si pausas y enseguida das a «play», la música vuelve (antes el segundo toque la volvía a pausar): mientras baja, el botón ya muestra «play». Y si otra app suena solo un momento, Órbita vuelve sola aunque no le diera tiempo a bajar del todo.',
+    '<b>Gasta menos batería</b>: con la música en pausa, el vinilo, el halo y el fondo del reproductor dejan de redibujarse sin necesidad; Montañas y los demás visualizadores trabajan menos por fotograma.',
+    '<b>Arrastrar el reproductor</b>: al soltar cuenta hacia dónde iba el dedo en ese momento (si te paras antes de soltar, no «sale disparado»; y si lo devuelves con un gesto rápido, te hace caso).'
   ],
   '3.9': [
     '<b>Pausa suave cuando suena otra app</b>: si pones un vídeo de TikTok, una nota de voz o cualquier otro audio, la música se va apagando y se pausa (también con la pantalla apagada). Si era algo corto, vuelve sola subiendo poco a poco.',
@@ -7932,7 +7949,7 @@ async function bbSpeedTest() { await bbComplete(bbPrompt('Di hola en una frase.'
 function bbParse(txt) { const o = {}; for (const line of String(txt || '').split('\n')) { const m = line.match(/^(accion|respuesta|detalle|oferta):\s?(.*)$/); if (m) o[m[1]] = m[2].trim(); } return o; }
 /* What Nova says out loud: no emojis, at most two sentences, and no figures she could have made up */
 function bbSafe(text, raw) {
-  let s = String(text || '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').replace(/\s+/g, ' ').trim();
+  let s = String(text || '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{E0020}-\u{E007F}]|\u{FE0F}|\u{200D}|\u{20E3}/gu, '').replace(/\s+/g, ' ').trim();
   const nums = new Set((String(raw) + ' ' + new Date().getHours()).match(/\d+/g) || []);
   const parts = (s.match(/[^.!?…]+[.!?…]*/g) || [s]).map(x => x.trim()).filter(Boolean)
     .filter(p => !(p.match(/\d+/g) || []).some(n => n.length >= 3 && !nums.has(n)));
@@ -8342,7 +8359,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, naSyncNext, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, createMix, NV, nvInstall, nvCatalogue, nvSynth, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, novaCommand, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, decks, deckF, BRAIN, VZ, radioNext, intentMix, parseRequest, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, AUD, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; }, get G() { return G; }, get memEvents() { return memEvents; } };
+if (window.ORBITA_DEBUG) window.__orbita = { GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }

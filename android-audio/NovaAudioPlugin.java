@@ -97,7 +97,13 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         NovaAudioEngine e = engine; NovaSession s = session;
         if (e == null || s == null || s.external) return false;
         int sl = s.slot;
-        if (e.source(sl) == null || e.playing(sl)) return false;
+        if (e.source(sl) == null) return false;
+        if (e.playing(sl)) {
+            /* 4.0b2 · la otra app duró menos que el fundido: aún estaba bajando. Se cancela la pausa y vuelve a subir. */
+            if (!e.fadingOut()) return false;
+            e.fadeTo(1f, ms, null); state(sl, true);
+            return true;
+        }
         e.fadeSet(0f); requestFocus(); e.play(sl); keepAwake(true); e.fadeTo(1f, ms, null); state(sl, true);
         return true;
     }
