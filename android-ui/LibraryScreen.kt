@@ -84,6 +84,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextMotion
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -150,7 +151,9 @@ private fun style(size: Float, color: Color, family: FontFamily = Body, weight: 
         fontSize = with(d) { size.dp.toSp() }, fontFamily = family, fontWeight = weight,
         lineHeight = with(d) { (size * lh).dp.toSp() }, letterSpacing = if (ls == 0f) TextUnit.Unspecified else ls.em, textAlign = align,
         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
-        platformStyle = PlatformTextStyle(includeFontPadding = false)
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+        // las letras se colocan con fracciones de píxel, como hace el navegador (si no, los textos salen algo más estrechos o anchos)
+        textMotion = TextMotion.Animated
     )
     return if (brush != null) base.copy(brush = brush) else base.copy(color = color)
 }
@@ -538,7 +541,7 @@ private fun SortSelect(sk: Skin) {
 private fun ToastHost(sk: Skin, modifier: Modifier) {
     val n = UiState.toastN
     var show by remember { mutableStateOf(false) }
-    LaunchedEffect(n) { if (n > 0 && UiState.toast.isNotEmpty()) { show = true; delay(2600); show = false } }
+    LaunchedEffect(n) { if (n > 0 && UiState.toast.isNotEmpty()) { show = true; delay(UiState.toastMs); show = false } }
     if (!show) return
     val shape = sk.r(12f)
     Box(modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp).glow(sk.pal.glow, (12f * sk.round).dp, 40.dp, 14.dp, (-10).dp).clip(shape).background(sk.pal.grad).padding(horizontal = 18.dp, vertical = 11.dp)) {

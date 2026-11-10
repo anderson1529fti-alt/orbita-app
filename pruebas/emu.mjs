@@ -173,18 +173,17 @@ try {
   check('tocar una canción en la pantalla nativa la pone', cur && cur.title === pick && cur.paused === false && playing(), JSON.stringify(cur) + ' · ' + sessState());
   // --- el corazón de esa fila
   const geo = await js(`const r = document.querySelector('#main').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, dpr: devicePixelRatio };`);
-  const rowY = t => { const n = find(ui(), t); return n ? center(n)[1] + 10 * geo.dpr : null; };
-  const likeX = (geo.x + geo.w - 16 - 7 - 40 - 10 - 17) * geo.dpr, editX = (geo.x + geo.w - 16 - 7 - 30) * geo.dpr, delX = (geo.x + geo.w - 16 - 7 - 10) * geo.dpr;
-  let y = rowY(pick);
-  if (y) {
-    tap(likeX, y); await sleep(1500);
+  // un botón de la fila de una canción, por su nombre accesible (los que leen los lectores de pantalla)
+  const rowBtn = (title, re) => { const ns = ui(), t = find(ns, title); if (!t) return null; const cy = center(t)[1] + 10 * geo.dpr; return ns.find(n => re.test(n.desc) && n.b[1] <= cy && n.b[3] >= cy) || null; };
+  const tapBtn = async (title, re, wait = 1500) => { const n = rowBtn(title, re); if (!n) { log('  (no encuentro el botón ' + re + ' de ' + title + ')'); return false; } tap(...center(n)); await sleep(wait); return true; };
+  if (await tapBtn(pick, /^Favorita$/)) {
     const l1 = await js(`return !!window.__orbita.state.tracks.find(t => t.title === ${JSON.stringify(pick)}).liked;`);
     shot('nativa-favorita');
     check('el corazón marca la canción como favorita', l1 === true, l1);
   } else check('encuentro la fila para probar el corazón', false, pick);
   // --- filtro «Favoritas»
   const toTop = async () => { for (let k = 0; k < 3; k++) { sh('input swipe 540 500 540 1450 200'); await sleep(700); } };
-  const toTools = async () => { await toTop(); sh('input swipe 540 1400 540 700 600'); await sleep(1200); };
+  const toTools = async () => { await toTop(); sh(`input swipe 540 1500 540 ${Math.round(1500 - 340 * geo.dpr)} 1600`); await sleep(1300); };
   await toTools();
   await tapText('Favoritas', 1500);
   const fav = titlesOnScreen(ui()); shot('nativa-favoritas');
@@ -195,7 +194,6 @@ try {
   if (selN) {
     tap(...center(selN)); await sleep(1500); shot('nativa-ordenar');
     tap(selN.b[0] + 60, selN.b[1] + (36 + 6 + 43.75 * 1.5 - 7) * geo.dpr); await sleep(1500);
-    sh('input swipe 540 1400 540 900 600'); await sleep(1200);
     const ord = titlesOnScreen(ui());
     const sorted = ord.slice().sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true }));
     shot('nativa-por-titulo');
@@ -213,33 +211,32 @@ try {
     const kb = /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'));
     check('«buscar» en el teclado lo cierra y la búsqueda sigue', !kb && titlesOnScreen(ui()).length === 2, 'teclado ' + kb);
     // la ✕ de la caja la vacía
-    const box = find(ui(), 'kora');
-    if (box) { tap((geo.x + geo.w - 16 - 15 - 11) * geo.dpr, center(box)[1]); await sleep(1500); }
+    const xb = ui().find(n => n.desc === 'Borrar la búsqueda');
+    if (xb) { tap(...center(xb)); await sleep(1500); } else log('  (no encuentro la ✕ de la búsqueda)');
     check('la ✕ vacía la búsqueda', titlesOnScreen(ui()).length >= 3 && !!find(ui(), 'Filtrar por título'), titlesOnScreen(ui()).join(' | '));
   } else check('encuentro la caja de búsqueda', false);
   // --- editar: se abre el diálogo de la app y la pantalla nativa se aparta
-  nodes = ui(); const r2 = nodes.filter(n => SONGS.includes(n.text))[0];
-  if (r2) {
-    tap(editX, center(r2)[1] + 10 * geo.dpr); await sleep(1800);
+  nodes = ui(); const r2 = nodes.filter(n => SONGS.includes(n.text) && n.b[1] > 500 && n.b[3] < 1500)[0];
+  if (r2 && await tapBtn(r2.text, /^Editar/, 1800)) {
     const ed = await js(`return { shown: window.__orbita.NUI.shown, dialog: !document.querySelector('#editOverlay').hidden, titulo: document.querySelector('#editTitle').value };`);
     shot('nativa-editar');
     check('«editar» abre el diálogo de la app (con esa canción) y la pantalla nativa se aparta', ed && ed.shown === false && ed.dialog === true && ed.titulo === r2.text, JSON.stringify(ed));
-    await js(`document.querySelector('#editOverlay').hidden = true; return 1;`); await sleep(1200);
-    sh('input keyevent KEYCODE_ENTER'); await sleep(300);
+    await js(`document.querySelector('#editCancel').click(); if (document.activeElement) document.activeElement.blur(); return 1;`); await sleep(2000);
     const ed2 = await js(`return { shown: window.__orbita.NUI.shown, kb: 0 };`);
     shot('nativa-tras-editar');
     check('al cerrar el diálogo, la pantalla nativa vuelve', ed2 && ed2.shown === true, JSON.stringify(ed2));
     // borrar pide un segundo toque
     const n0 = await js(`return window.__orbita.state.tracks.length;`);
-    tap(delX, center(r2)[1] + 10 * geo.dpr); await sleep(1200); shot('nativa-borrar');
+    await tapBtn(r2.text, /^(Quitar de Órbita|Borrar$)/, 900); shot('nativa-borrar');
     const arm = !!find(ui(), '¿Borrar?'), n1 = await js(`return window.__orbita.state.tracks.length;`);
     check('la papelera pide confirmar («¿Borrar?») y no borra con un toque', arm && n1 === n0, `${arm} · ${n0} → ${n1}`);
     await sleep(3400);
     check('si no se confirma, a los 3 s vuelve a su sitio', !find(ui(), '¿Borrar?'));
   }
   // --- aviso corto encima de la lista
-  await js(`window.__orbita.toast('Aviso de prueba encima de la lista'); return 1;`); await sleep(900); shot('nativa-aviso');
+  await js(`window.__orbita.toast('Aviso de prueba encima de la lista', 9000); return 1;`); await sleep(700); shot('nativa-aviso');
   check('los avisos de la app se ven encima de la pantalla nativa', !!find(ui(), 'Aviso de prueba'), '');
+  await sleep(2500);
   // --- otra pestaña y volver
   await goView('inicio'); await sleep(1000);
   const off = await js(`return window.__orbita.NUI.shown;`); shot('nativa-otra-pestana');
@@ -250,7 +247,7 @@ try {
   await js(`document.querySelector('[data-act="np-open"]').click(); return 1;`); await sleep(700); shot('nativa-reproductor-abriendo'); await sleep(1800);
   const pl = await js(`return { shown: window.__orbita.NUI.shown, np: !document.querySelector('#np').hidden };`); shot('nativa-reproductor');
   check('el reproductor a pantalla completa se abre por encima (la nativa se aparta)', pl && pl.shown === false && pl.np === true, JSON.stringify(pl));
-  sh('input keyevent KEYCODE_BACK'); await sleep(2200);
+  await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await sleep(2200);
   const pl2 = await js(`return { shown: window.__orbita.NUI.shown, np: !document.querySelector('#np').hidden, view: window.__orbita.state.view };`); shot('nativa-reproductor-cerrado');
   check('al cerrarlo, la nativa vuelve', pl2 && pl2.shown === true && pl2.np === false, JSON.stringify(pl2));
   // --- «Personaliza Órbita»: bordes rectos, letra grande y títulos retro; la pantalla nativa cambia igual

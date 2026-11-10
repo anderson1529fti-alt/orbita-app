@@ -62,6 +62,7 @@ object UiState {
     var showDev by mutableStateOf(false)     // el filtro «Del móvil»
     var toast by mutableStateOf("")
     var toastN by mutableStateOf(0)
+    var toastMs = 2600L
     val covers = mutableStateMapOf<String, ImageBitmap>()
     val asked = HashSet<String>()
 
@@ -282,7 +283,8 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun toast(call: PluginCall) {
         val t = call.getString("text", "") ?: ""
-        activity.runOnUiThread { UiState.toast = t; UiState.toastN++ }
+        val ms = num(call, "ms", 2600f).toLong().coerceIn(800L, 15000L)
+        activity.runOnUiThread { UiState.toast = t; UiState.toastMs = ms; UiState.toastN++ }
         call.resolve()
     }
 

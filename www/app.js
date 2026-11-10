@@ -6276,7 +6276,7 @@ document.addEventListener('keydown', e => {
 });
 
 let toastTimer = null;
-function toast(msg, ms = 2600) { if (NUI.shown) { try { NUI_PLUGIN.toast({ text: String(msg) }).catch(() => {}); return; } catch {} } const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms); }
+function toast(msg, ms = 2600) { if (NUI.shown) { try { NUI_PLUGIN.toast({ text: String(msg), ms }).catch(() => {}); return; } catch {} } const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms); }
 
 /* ---------- Moment, ticker ---------- */
 function renderMoment() {
