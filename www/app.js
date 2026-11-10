@@ -2460,6 +2460,7 @@ if (NA_ON) {
         return;
       }
       if (e.type === 'button') { naButton(e); return; }
+      if (e.type === 'resumed') { naAdopt('resumed'); return; }
       if (e.type === 'sleep') { diag('el temporizador paró la música (motor)'); if (sleepEnd) sleepFinish(); return; }
       /* 3.9 · headphones off: the engine pauses its own songs by itself (with a short fade, also with the app asleep);
          the app pauses what plays in it (radio, YouTube) the same way */
@@ -2546,7 +2547,7 @@ function naRunway() {
   if (added) { try { renderQueue(); } catch {} diag('motor: cola alargada a ' + (state.queue.length - state.qi - 1) + ' por delante'); }
   return added;
 }
-const naItem = (t, p) => Object.assign({ src: t.uri, title: t.title || '', artist: t.artist || '', album: t.album || '', dur: t.duration || 0, g: normGainFor(t) }, naFade(p, t));
+const naItem = (t, p) => Object.assign({ src: t.uri, id: t.id, title: t.title || '', artist: t.artist || '', album: t.album || '', dur: t.duration || 0, g: normGainFor(t) }, naFade(p, t));
 let naPlKey = '';
 function naSyncNext() {
   if (!NA_ON || A > 1) return;
@@ -2586,7 +2587,7 @@ async function naSession(t) {
     art: /^data:/.test(art || '') ? art : null, playing: !d.paused, pos: d.currentTime || 0, dur: isFinite(d.duration) ? d.duration : 0 }).catch(() => {});
 }
 function naSessionState() {
-  const t = current(); if (!t) { NA_PLUGIN.sessionEnd().catch(() => {}); return; }
+  const t = current(); if (!t) { if (naBooted) NA_PLUGIN.sessionEnd().catch(() => {}); return; }
   if (naOwn(t) && A < 2) return;   // the engine knows by itself
   if (Date.now() - naExtT < 800) return; naExtT = Date.now();
   const d = act();
@@ -2676,6 +2677,38 @@ decks.forEach(d => d.addEventListener && d.addEventListener('nativejump', () => 
   if (d._auto && idx === state.qi && (current() || {}).uri === d._src) { d._gapless = null; beginTrack(current(), { again: true }); return; }
   state.qi = idx; loadCurrent(true, 0);
 }));
+/* 4.2 · The music can go on with Órbita closed: the player lives in Android now (it keeps playing if you close the app
+   from the recent apps, and the headphones' «play» brings back the last thing that played, with the app closed). When
+   the app opens, it picks up what is playing as it is (the same song, where it goes, what comes next) instead of
+   starting from scratch. «resumed»: the headphones brought the music back while the app was open. */
+let naBooted = false, naAdopted = 0;
+async function naAdopt(why) {
+  if (!NA_ON) return false;
+  let a = null;
+  try { a = await Promise.race([NA_PLUGIN.attach(), sleep(1500).then(() => null)]); } catch { a = null; }   // the player of 4.1 doesn't have it
+  if (!a || !a.active || a.external || !a.src || !Array.isArray(a.items)) return false;
+  const byUri = new Map(); for (const t of state.tracks) if (t.uri && !byUri.has(t.uri)) byUri.set(t.uri, t);
+  const ids = []; let cur = -1;
+  a.items.forEach((it, k) => { const t = (it && it.id && trackById(it.id)) || byUri.get(it && it.src); if (!t || !naOwn(t)) return; if (k === a.index) cur = ids.length; ids.push(t.id); });
+  if (cur < 0) { diag('la música sonaba con la app cerrada, pero no encuentro la canción en tu biblioteca'); return false; }
+  const t = trackById(ids[cur]), s = LS.get('session', null), same = !!s && Array.isArray(s.q) && s.q.includes(t.id);
+  if (mixing) finishMix(true);
+  disarmMix(); stopTalk(); advancing = false;
+  const d = decks[a.slot === 1 ? 1 : 0];
+  els.forEach(e => { if (e !== d && !e.paused) e.pause(); });
+  state.queue = ids; state.qi = cur; state.mixEndless = null; state.intros = {};
+  state.source = same && s.src && s.src !== 'radio' ? s.src : 'library';
+  if (state.radio) setRadio(false, true);
+  d._gen++; d._src = a.src; d._native = a.src; d._loaded = Promise.resolve(a.src); d._startAt = 0; d._ended = false; d._gapless = null; d.error = null;
+  d._t = +a.pos || 0; d._tAt = performance.now(); d._dur = a.dur > 0 ? +a.dur : NaN; d.paused = !a.playing; d._playingSent = !!a.playing;
+  A = d.slot; deckF[A] = 1; applyVol(); naPlKey = '';
+  beginTrack(t, { silent: true });
+  if (isFinite(d._dur)) d._emit('loadedmetadata');
+  d._emit(a.playing ? 'play' : 'pause');
+  naAdopted++;
+  diag((why === 'resumed' ? 'los auriculares volvieron a poner la música' : 'la música seguía sonando con la app cerrada') + ': la recojo (' + t.title + ', ' + Math.round(d._t) + ' s' + (a.playing ? '' : ', en pausa') + ')');
+  return true;
+}
 function naInit() {
   // that Android doesn't put the web part of Órbita to sleep while music plays (with either engine)
   if (NA_PLUGIN) NA_PLUGIN.keepAlive({ on: true }).catch(() => {});
@@ -4053,7 +4086,8 @@ $('#obAgain').onclick = () => openOnboarding(true);
 $('#diagCopy').onclick = async () => {
   let txt = diagText();
   if (NA_ON) { try { const st = await NA_PLUGIN.status(); txt += `
-Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda en oírse ${st.lat} ms` : ''}`; } catch {} }
+Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda en oírse ${st.lat} ms` : ''}
+Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}`; } catch {} }
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -6961,6 +6995,12 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '4.2': [
+    '<b>El reproductor ya es de Android</b>: la música la pone ahora un reproductor hecho en Kotlin con Media3 (lo que usan las grandes apps de música). Es el primer paso para que toda Órbita sea una app nativa.',
+    '<b>La música sigue aunque cierres Órbita</b> desde las apps recientes. Y al volver a abrirla, la app recoge lo que suena tal cual: la misma canción, por donde va y lo que viene.',
+    '<b>«Play» con Órbita cerrada</b>: el botón de los auriculares o de los controles de música de Android vuelve a poner lo último que sonaba, donde se quedó, sin abrir la app.',
+    'El aviso de la música y la pantalla de bloqueo los hace ahora el sistema de música de Android, el mismo de las grandes apps.'
+  ],
   '4.1': [
     '<b>Todas mis canciones</b>: un botón nuevo en «Ahora» (y una tarjeta en «Para ti hoy») pone todas tus canciones sin repetir ninguna hasta que suenen todas, en un orden en el que una lleva a la otra. Recuerda por dónde vas, también con la pantalla apagada.',
     '<b>Mezclas armónicas</b>: Nova aprende el tono de cada canción y une las que pegan. Si dos chocan, no las solapa: usa un filtro o un corte con eco, como un DJ.',
@@ -8868,7 +8908,8 @@ async function boot() {
   OB.fresh = obIsFresh(); if (!OB.fresh) LS.set('onboarded', true);
   alarmBoot();
   idbAll('analysis').then(list => { for (const a of list) { const t = trackById(a.id); if (t && a.v === ANA_V && (!t.size || !a.size || a.size === t.size)) anaCache.set(a.id, a); } });
-  if (!current()) resumeSession(false);
+  if (!current()) { let got = false; try { got = await naAdopt('boot'); } catch {} if (!got) resumeSession(false); }
+  naBooted = true;
   renderAll(); applyDjName(); recapHint();
   if (dj.who === 'nova' || state.clips.length) hello();
   if (state.view === 'tu') renderTu();
@@ -8898,7 +8939,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }

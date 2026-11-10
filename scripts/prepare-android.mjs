@@ -98,7 +98,22 @@ if (extras) {
 // El motor de sonido de Android (3.5): su servicio de reproducción (el aviso con los botones y que Android no lo
 // congele con la pantalla apagada). NATIVEAUDIO=0 es un respaldo del workflow: la app sin él.
 const nativeAudio = extras && process.env.NATIVEAUDIO !== '0' && fs.existsSync(path.join(root, 'android-audio'));
-if (nativeAudio && !manifest.includes('.NovaMediaService')) {
+// 4.2 · El reproductor en Kotlin con Media3 (carpeta android-player). PLAYER=java es un respaldo del workflow: el de la 4.1.
+const kotlinPlayer = nativeAudio && process.env.PLAYER !== 'java' && fs.existsSync(path.join(root, 'android-player'));
+if (kotlinPlayer && !manifest.includes('.OrbitaService')) {
+  // el servicio de música (Media3) y los botones de los auriculares con Órbita cerrada
+  manifest = manifest.replace('</application>', `    <service android:name=".OrbitaService" android:exported="true" android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+        <receiver android:name=".OrbitaButtonReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+    </application>`);
+} else if (nativeAudio && !kotlinPlayer && !manifest.includes('.NovaMediaService')) {
   manifest = manifest.replace('</application>', `    <service android:name=".NovaMediaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
     </application>`);
 }
@@ -142,11 +157,17 @@ for (const dir of javaFrom) {
 if (extras) copyDir(path.join(root, 'android-extras', 'res'), res);
 
 // 3c) El motor de sonido de Android (3.5, beta). NATIVEAUDIO=0 es un respaldo del workflow: la app sin él.
-if (nativeAudio) {
+if (nativeAudio && kotlinPlayer) {
+  // 4.2: el motor (android-audio/NovaAudioEngine.java, el mismo de siempre) y el reproductor nuevo (android-player)
+  const put = (dir, f) => fs.writeFileSync(path.join(javaDir, f), fs.readFileSync(path.join(root, dir, f), 'utf8').replace(/__PACKAGE__/g, appId));
+  put('android-audio', 'NovaAudioEngine.java');
+  for (const f of fs.readdirSync(path.join(root, 'android-player')).filter(f => f.endsWith('.java') || f.endsWith('.kt'))) put('android-player', f);
+  console.log('Motor de sonido de Android: incluido, con el reproductor de Kotlin (Media3)');
+} else if (nativeAudio) {
   for (const f of fs.readdirSync(path.join(root, 'android-audio')).filter(f => f.endsWith('.java'))) {
     fs.writeFileSync(path.join(javaDir, f), fs.readFileSync(path.join(root, 'android-audio', f), 'utf8').replace(/__PACKAGE__/g, appId));
   }
-  console.log('Motor de sonido de Android: incluido');
+  console.log('Motor de sonido de Android: incluido' + (process.env.PLAYER === 'java' ? ' (con el reproductor de la 4.1: compilación de respaldo)' : ''));
 } else if (extras) console.log('Motor de sonido de Android: no incluido' + (process.env.NATIVEAUDIO === '0' ? ' (compilación de respaldo)' : ''));
 
 // 3d) El despertador con Nova (3.5): su código, su icono del aviso (los permisos y receptores ya están en el manifiesto)
@@ -261,6 +282,32 @@ android {
 }
 `;
   }
+}
+// 4c) 4.2 · Kotlin y Media3 para el reproductor nuevo (las versiones que usa Capacitor 8 y su Android Gradle Plugin)
+if (kotlinPlayer) {
+  const rootGradlePath = path.join(root, 'android', 'build.gradle');
+  let rootGradle = fs.readFileSync(rootGradlePath, 'utf8');
+  if (!rootGradle.includes('kotlin-gradle-plugin')) {
+    rootGradle = rootGradle.replace(/(classpath\s+['"]com\.android\.tools\.build:gradle:[^'"]+['"])/, `$1\n        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20'`);
+    if (!rootGradle.includes('kotlin-gradle-plugin')) throw new Error('No encuentro dónde añadir Kotlin en android/build.gradle');
+    fs.writeFileSync(rootGradlePath, rootGradle);
+  }
+  if (!gradle.includes("apply plugin: 'kotlin-android'")) gradle = gradle.replace(/apply plugin:\s*'com\.android\.application'/, m => `${m}\napply plugin: 'kotlin-android'`);
+  if (!gradle.includes('media3-session')) {
+    gradle = gradle.replace(/dependencies\s*\{/, m => `${m}\n    implementation 'androidx.media3:media3-session:1.9.4'\n    implementation 'androidx.media3:media3-common:1.9.4'`);
+    gradle += `
+// Kotlin compila para la misma versión de Java que el resto de la app (Capacitor usa Java 21)
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
+}
+`;
+  }
+  const propsPath = path.join(root, 'android', 'gradle.properties');
+  let props = fs.existsSync(propsPath) ? fs.readFileSync(propsPath, 'utf8') : '';
+  if (!props.includes('kotlin.jvm.target.validation.mode')) fs.writeFileSync(propsPath, props.replace(/\n*$/, '\n') + 'kotlin.jvm.target.validation.mode=warning\n');
+  console.log('Reproductor de Kotlin: Kotlin 2.2.20 y Media3 1.9.4');
 }
 fs.writeFileSync(gradlePath, gradle);
 

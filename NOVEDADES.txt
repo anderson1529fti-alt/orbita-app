@@ -1,3 +1,12 @@
+Órbita 4.2: el reproductor ya es de Android.
+
+El primer paso para que Órbita sea una app nativa
+- La música la pone ahora un reproductor hecho en Kotlin con Media3, lo que usan las grandes apps de música de Android. El motor de sonido y los fundidos son los mismos de siempre.
+- La música sigue aunque cierres Órbita desde las apps recientes (antes se paraba).
+- Al volver a abrir Órbita con música sonando, la app la recoge tal cual: la misma canción, por donde va y lo que viene después.
+- Con Órbita cerrada, el «play» de los auriculares o de los controles de música de Android vuelve a poner lo último que sonaba, donde se quedó, sin abrir la app.
+- El aviso de la música y la pantalla de bloqueo los hace ahora el sistema de música de Android.
+
 Órbita 4.1: todas tus canciones, mezclas armónicas, canciones nuevas para ti y una Nova más lista.
 
 Todas mis canciones
