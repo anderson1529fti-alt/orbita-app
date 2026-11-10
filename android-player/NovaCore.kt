@@ -77,6 +77,36 @@ object NovaCore : NovaAudioEngine.Listener {
     val queue = NovaQueue()
     @Volatile var sink: Sink? = null
     @Volatile var player: OrbitaPlayer? = null
+    /** 4.2 b2 · por qué no arrancó el servicio de música (para el diagnóstico). */
+    @Volatile var serviceError: String? = null
+    private const val CRASH = "orbita-cierre.txt"
+
+    /** 4.2 b2 · Si la app se cierra por un error, queda apuntado (qué y dónde) y sale en «Copiar diagnóstico». */
+    private fun watchCrashes(c: Context) {
+        try {
+            val prev = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { th, e ->
+                try {
+                    val sb = StringBuilder()
+                    sb.append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())).append(" · hilo ").append(th.name).append('\n')
+                    var x: Throwable? = e
+                    var depth = 0
+                    while (x != null && depth < 3) {
+                        sb.append(if (depth == 0) "" else "causa: ").append(x.toString()).append('\n')
+                        for (el in x.stackTrace.take(if (depth == 0) 14 else 8)) sb.append("  ").append(el.toString()).append('\n')
+                        x = x.cause; depth++
+                    }
+                    File(c.filesDir, CRASH).writeText(sb.toString().take(4000))
+                } catch (ignored: Throwable) { }
+                prev?.uncaughtException(th, e)
+            }
+        } catch (ignored: Throwable) { }
+    }
+
+    private fun lastCrash(): String? = try {
+        val f = File(ctx().filesDir, CRASH)
+        if (f.exists()) f.readText() else null
+    } catch (t: Throwable) { null }
 
     // lo que suena fuera del motor (radio, YouTube…): lo cuenta la app
     @Volatile private var external = false
@@ -147,6 +177,7 @@ object NovaCore : NovaAudioEngine.Listener {
             if (app != null) return
             val c = ctx.applicationContext
             app = c
+            watchCrashes(c)
             try { listens = NovaListenLog(c.getSharedPreferences(NovaListenLog.PREFS, Context.MODE_PRIVATE)) } catch (ignored: Throwable) { }
             // el aviso de antes de la 4.2 (el nuevo es el de Media3)
             try { (c.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager).cancel(7401) } catch (ignored: Throwable) { }
@@ -436,6 +467,8 @@ object NovaCore : NovaAudioEngine.Listener {
         r.put("lat", if (e != null) Math.round(e.latency() * 1000) else -1)
         r.put("player", "kotlin")
         r.put("service", player != null)
+        serviceError?.let { r.put("serviceError", it) }
+        lastCrash()?.let { r.put("crash", it) }
         return r
     }
 

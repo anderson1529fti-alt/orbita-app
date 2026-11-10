@@ -112,7 +112,11 @@ if (kotlinPlayer && !manifest.includes('.OrbitaService')) {
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+        <receiver android:name="androidx.media.session.MediaButtonReceiver" tools:node="remove" />
     </application>`);
+  // 4.2 b2 · Media3 exige UN solo receptor de botones de auriculares en la app: se quita el del plugin antiguo
+  // (con los dos, el servicio de música fallaba al crearse y la app se cerraba)
+  if (!manifest.includes('xmlns:tools')) manifest = manifest.replace('<manifest', '<manifest xmlns:tools="http://schemas.android.com/tools"');
 } else if (nativeAudio && !kotlinPlayer && !manifest.includes('.NovaMediaService')) {
   manifest = manifest.replace('</application>', `    <service android:name=".NovaMediaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
     </application>`);

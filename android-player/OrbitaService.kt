@@ -26,11 +26,19 @@ class OrbitaService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         NovaCore.init(this)
-        val player = OrbitaPlayer()
-        val b = MediaSession.Builder(this, player).setId("orbita").setCallback(Callback())
-        open(this)?.let { b.setSessionActivity(it) }
-        session = b.build()
-        NovaCore.player = player
+        // 4.2 b2 · si Media3 no puede crear la sesión, la app no se cierra: la música sigue (sin aviso) y el
+        // diagnóstico dice por qué
+        try {
+            val player = OrbitaPlayer()
+            val b = MediaSession.Builder(this, player).setId("orbita").setCallback(Callback())
+            open(this)?.let { b.setSessionActivity(it) }
+            session = b.build()
+            NovaCore.player = player
+            NovaCore.serviceError = null
+        } catch (t: Throwable) {
+            session = null
+            NovaCore.serviceError = t.javaClass.simpleName + ": " + t.message
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
