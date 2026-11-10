@@ -61,7 +61,7 @@ async function js(expr, retry = true) {
 async function webStart(reload) {
   if (!(await cdpConnect())) return false;
   await cdp('Page.enable');
-  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.ORBITA_DEBUG = true; try { for (const [k, v] of Object.entries({ onboarded: true, newsSeen: '${VER}', devWelcomeDone: true, intros: false, lastUpdateCheck: Date.now() + 864e5 })) localStorage.setItem('orbita:' + k, JSON.stringify(v)); if (localStorage.getItem('orbita:nativeUi') == null) localStorage.setItem('orbita:nativeUi', 'false'); } catch (e) {}` });
+  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.ORBITA_DEBUG = true; try { for (const [k, v] of Object.entries({ onboarded: true, newsSeen: '${VER}', devWelcomeDone: true, intros: false, lastUpdateCheck: Date.now() + 864e5 })) localStorage.setItem('orbita:' + k, JSON.stringify(v)); if (localStorage.getItem('orbita:nativeUi') == null && !localStorage.getItem('pruebaDeFabrica')) localStorage.setItem('orbita:nativeUi', 'false'); } catch (e) {}` });
   if (reload) { await cdp('Page.reload'); await sleep(9000); }
   return true;
 }
@@ -98,6 +98,12 @@ try {
   fs.mkdirSync('musica', { recursive: true });
   const songs = [['Luz de las siete', 'Kora', 'Amanecer', 220], ['Faros', 'Banda Sur', 'Costa', 277], ['Pulso', 'Kora', 'Amanecer', 330], ['Marea lenta', 'Los Rayos', 'Mar', 196], ['Viernes 23:59', 'Neón Norte', 'Ciudad', 392], ['Domingo', 'Aurora Sur', 'Casa', 262]];
   songs.forEach(([t, a, al, f], i) => execSync(`ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=${f}:duration=40" -f lavfi -i "sine=frequency=${f * 1.5}:duration=40" -filter_complex "[0][1]amix=inputs=2,tremolo=f=2:d=0.7,volume=0.5" -ac 2 -ar 44100 -b:a 128k -metadata title="${t}" -metadata artist="${a}" -metadata album="${al}" musica/c${i + 1}.mp3`));
+  // dos de ellas llevan portada dentro (para probar las portadas en la lista)
+  for (const [i, col] of [[1, '0x1e90ff'], [4, '0xff7a18']]) {
+    execSync(`ffmpeg -loglevel error -y -f lavfi -i "testsrc2=s=600x600:r=1" -frames:v 1 -vf "drawbox=x=0:y=0:w=600:h=600:color=${col}@0.55:t=fill" musica/p${i}.png`);
+    execSync(`ffmpeg -loglevel error -y -i musica/c${i}.mp3 -i musica/p${i}.png -map 0:a -map 1:v -c:a copy -c:v mjpeg -id3v2_version 3 -metadata:s:v title="Album cover" -metadata:s:v comment="Cover (front)" -disposition:v attached_pic musica/k${i}.mp3`);
+    fs.renameSync(`musica/k${i}.mp3`, `musica/c${i}.mp3`);
+  }
   sh('mkdir -p /sdcard/Music');
   for (let i = 1; i <= songs.length; i++) adb(`push musica/c${i}.mp3 /sdcard/Music/c${i}.mp3`);
   sh('content call --uri content://media --method scan_volume --arg external_primary');
@@ -124,6 +130,10 @@ try {
   let n = 0;
   for (let k = 0; k < 20 && n < songs.length; k++) { n = await js(`const o = window.__orbita; return o ? o.state.tracks.filter(t => t.dev).length : -1;`); if (n < songs.length) await sleep(2000); }
   check('la app ve la música del emulador', n >= songs.length, n + ' canciones');
+  // las portadas de las canciones del móvil (la app las va leyendo sola)
+  let arts = 0;
+  for (let k = 0; k < 15 && arts < 2; k++) { arts = await js(`return window.__orbita.state.tracks.filter(t => t.dev && t.thumb).length;`); if (arts < 2) await sleep(2000); }
+  check('la app lee las portadas de las canciones del móvil', arts >= 2, arts + ' con portada');
   // cómo se ve cada pantalla de la app web (referencia para las pantallas nativas)
   const goView = async v => { for (let k = 0; k < 5; k++) { const r = await js(`location.hash = '#${v}'; await new Promise(r => setTimeout(r, 400)); return window.__orbita.state.view;`); if (r === v) return true; await sleep(700); } log('  (no cambia a ' + v + ')'); return false; };
   for (const v of ['listas', 'tu', 'ajustes', 'inicio']) { await goView(v); await sleep(1300); shot('web-' + v); }
@@ -173,6 +183,8 @@ try {
   fs.writeFileSync(`${OUT}/paridad.json`, JSON.stringify({ web0, web1, nat0, nat1 }));
   const seen = titlesOnScreen(nodes);
   check('se ven las canciones', seen.length >= 3, seen.join(' | '));
+  const cov = await js(`return await Capacitor.Plugins.OrbitaUi.status();`);
+  check('las portadas llegan a la pantalla nativa', cov && cov.covers >= 1 && cov.songs >= songs.length, JSON.stringify(cov));
   // --- tocar una canción: suena esa
   const pick = seen.includes('Pulso') ? 'Pulso' : seen[0];
   await tapText(pick, 4000);
@@ -185,10 +197,12 @@ try {
   const rowBtn = (title, re) => { const ns = ui(), t = find(ns, title); if (!t) return null; const cy = center(t)[1] + 10 * geo.dpr; return ns.find(n => re.test(n.desc) && n.b[1] <= cy && n.b[3] >= cy) || null; };
   const tapBtn = async (title, re, wait = 1500) => { const n = rowBtn(title, re); if (!n) { log('  (no encuentro el botón ' + re + ' de ' + title + ')'); return false; } tap(...center(n)); await sleep(wait); return true; };
   if (await tapBtn(pick, /^Favorita$/)) {
-    const l1 = await js(`return !!window.__orbita.state.tracks.find(t => t.title === ${JSON.stringify(pick)}).liked;`);
+    const l1 = await js(`const o = window.__orbita, t = o.trackById(o.state.queue[o.state.qi]); return !!(t && t.title === ${JSON.stringify(pick)} && t.liked);`);
     shot('nativa-favorita');
     check('el corazón marca la canción como favorita', l1 === true, l1);
   } else check('encuentro la fila para probar el corazón', false, pick);
+  // (con la música en pausa, mirar la pantalla tarda mucho menos: Android espera a que nada se mueva)
+  sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
   // --- filtro «Favoritas»
   const toTop = async () => { await nscroll('top'); };
   const toTools = async () => { await toTop(); sh(`input swipe 540 1500 540 ${Math.round(1500 - 340 * geo.dpr)} 1600`); await sleep(1300); };
@@ -238,11 +252,20 @@ try {
     check('al cerrar el diálogo, la pantalla nativa vuelve', ed2 && ed2.shown === true, JSON.stringify(ed2));
     // borrar pide un segundo toque
     const n0 = await js(`return window.__orbita.state.tracks.length;`);
-    await tapBtn(r2.text, /^(Quitar de Órbita|Borrar$)/, 900); shot('nativa-borrar');
-    const arm = !!find(ui(), '¿Borrar?'), n1 = await js(`return window.__orbita.state.tracks.length;`);
-    check('la papelera pide confirmar («¿Borrar?») y no borra con un toque', arm && n1 === n0, `${arm} · ${n0} → ${n1}`);
-    await sleep(3400);
-    check('si no se confirma, a los 3 s vuelve a su sitio', !find(ui(), '¿Borrar?'));
+    const trash = rowBtn(r2.text, /^(Quitar de Órbita|Borrar$)/);
+    if (trash) {
+      tap(...center(trash)); await sleep(150);
+      const t0 = Date.now(), armN = ui(), dt = Date.now() - t0, arm = !!find(armN, '¿Borrar?'); shot('nativa-borrar');
+      const n1 = await js(`return window.__orbita.state.tracks.length;`);
+      if (arm || dt < 2500) check('la papelera pide confirmar («¿Borrar?»)', arm, 'mirar la pantalla tardó ' + dt + ' ms');
+      else log('  (no da tiempo a comprobar «¿Borrar?» mirando la pantalla: tardó ' + dt + ' ms; se ve en la captura nativa-borrar)');
+      check('un solo toque en la papelera no borra nada', n1 === n0, `${n0} → ${n1}`);
+      // lo demás de la fila no se mueve mientras pregunta
+      const durA = nodes.find(n => /^\d:\d\d$/.test(n.text) && Math.abs(center(n)[1] - center(r2)[1]) < 14 * geo.dpr), durB = armN.find(n => /^\d:\d\d$/.test(n.text) && Math.abs(center(n)[1] - center(r2)[1]) < 14 * geo.dpr);
+      if (arm) check('mientras pregunta, la fila no se descoloca', durA && durB && durA.b[0] === durB.b[0] && durA.b[2] === durB.b[2], JSON.stringify([durA && durA.b, durB && durB.b]));
+      await sleep(3400);
+      check('si no se confirma, a los 3 s vuelve a su sitio', !find(ui(), '¿Borrar?') && !!rowBtn(r2.text, /^(Quitar de Órbita|Borrar$)/));
+    } else check('encuentro la papelera', false, r2.text);
   }
   // --- aviso corto encima de la lista
   await js(`window.__orbita.toast('Aviso de prueba encima de la lista', 15000); return 1;`); await sleep(500);
@@ -284,6 +307,40 @@ try {
   await js(`window.__orbita.NUI.classic = false; document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(1500);
   shot('nativa-final');
   check('sin cierres por error en las pruebas de la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+  // --- «Añadir canciones»: el selector de archivos de Android y la importación de siempre
+  await goView('biblioteca'); await sleep(1200); await nscroll('top');
+  const nB = await js(`return window.__orbita.state.tracks.length;`);
+  if (await tapText('Añadir canciones', 4500)) {
+    const topAct = () => sh('dumpsys activity activities | grep -m1 topResumedActivity').trim();
+    const inPicker = /documentsui/i.test(topAct());
+    let fileN = null;
+    for (let k = 0; k < 4 && inPicker && !fileN; k++) { fileN = ui().find(n => /^c\d\.mp3$/.test(n.text)); if (!fileN) await sleep(1500); }
+    shot('selector-de-archivos');
+    check('«Añadir canciones» abre el selector de archivos de Android', inPicker, topAct().slice(0, 200));
+    if (fileN) {
+      tap(...center(fileN)); await sleep(3000);
+      let nA = nB; for (let k = 0; k < 14 && !(nA > nB); k++) { await sleep(1500); nA = await js(`return window.__orbita.state.tracks.length;`); }
+      await sleep(2500); ui(); shot('tras-importar');
+      const nuevo = await js(`const o = window.__orbita, t = o.state.tracks.filter(t => !t.dev && !t.demo).pop(); return t ? { id: t.id, title: t.title, artist: t.artist, shown: o.NUI.shown } : null;`);
+      check('la canción elegida en el selector entra en la biblioteca', nA === nB + 1 && !!nuevo, `${nB} → ${nA} · ${JSON.stringify(nuevo)}`);
+      // se quita otra vez (por el mismo camino que la papelera de la pantalla nativa)
+      if (nuevo && nuevo.id) { await js(`window.__orbita.nuiEvent({ type: 'del', id: ${JSON.stringify(nuevo.id)} }); return 1;`); await sleep(1500); }
+      const nC = await js(`return window.__orbita.state.tracks.length;`);
+      check('borrar desde la pantalla nativa la quita de la biblioteca', nC === nB, `${nA} → ${nC}`);
+    } else {
+      log('  (el selector no enseña los archivos de prueba a la primera; la importación no se prueba aquí)');
+      if (/documentsui/i.test(topAct())) { sh('input keyevent KEYCODE_BACK'); await sleep(1800); }
+    }
+    check('tras el selector, la app sigue abierta y la pantalla nativa vuelve', alive() && (await js(`await new Promise(r => setTimeout(r, 600)); return window.__orbita.NUI.shown;`)) === true, topAct().slice(0, 160));
+  } else check('encuentro «Añadir canciones»', false);
+  // --- como recién instalada: la pantalla nativa viene encendida sin tocar nada, y la app arranca con ella
+  await js(`localStorage.setItem('pruebaDeFabrica', '1'); localStorage.removeItem('orbita:nativeUi'); localStorage.removeItem('orbita:nativeUiBroken'); return 1;`);
+  await webStart(true); await sleep(3000);
+  await goView('biblioteca'); await sleep(2500);
+  const fab = await js(`const N = window.__orbita.NUI; return { on: N.on, shown: N.shown, err: N.err, guardado: localStorage.getItem('orbita:nativeUi') };`);
+  const fabN = ui(); shot('nativa-de-fabrica');
+  check('recién instalada, «Mi música» nativa viene encendida sin tocar nada', fab && fab.on && fab.shown && !fab.err && fab.guardado == null && !!find(fabN, 'BIBLIOTECA') && titlesOnScreen(fabN).length + (find(fabN, 'Reproducir todo') ? 1 : 0) >= 1, JSON.stringify(fab));
+  check('sin cierres por error tras reiniciar la parte web con la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
   await goView('inicio'); await sleep(800);
   // ================= fin de la fase 2 =================
 

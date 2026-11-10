@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -87,6 +88,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextMotion
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
@@ -96,7 +98,7 @@ import androidx.compose.ui.window.Popup
 import com.getcapacitor.JSArray
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------- el aspecto de Órbita (los mismos valores que su CSS)
@@ -147,13 +149,13 @@ private fun T(
 }
 
 /**
- * El alto que ocupa el texto en la web: cada renglón mide justo lo que dice su CSS (con decimales). Android redondea
- * cada renglón hacia arriba a píxeles enteros, y en una pantalla larga eso se va sumando.
+ * El alto que ocupa el texto en la web: cada renglón mide justo lo que dice su CSS (con decimales). Android solo sabe
+ * hacer renglones de píxeles enteros, y en un texto de varios renglones (o en una pantalla larga) eso se va sumando.
  */
 private fun Modifier.lines(lineDp: Float): Modifier = layout { measurable, constraints ->
     val p = measurable.measure(constraints)
     val exact = lineDp * density
-    val each = maxOf(1f, ceil(exact - 0.01f))
+    val each = maxOf(1f, exact.roundToInt().toFloat())
     val n = maxOf(1, (p.height / each).roundToInt())
     val hgt = maxOf(1, (n * exact).roundToInt())
     layout(p.width, hgt) { p.place(0, (hgt - p.height) / 2) }
@@ -162,9 +164,11 @@ private fun Modifier.lines(lineDp: Float): Modifier = layout { measurable, const
 @Composable
 private fun style(size: Float, color: Color, family: FontFamily = Body, weight: FontWeight = FontWeight.Normal, lh: Float = 1.45f, ls: Float = 0f, align: TextAlign = TextAlign.Start, brush: Brush? = null): TextStyle {
     val d = LocalDensity.current
+    // el renglón, en píxeles enteros del móvil (el más cercano a lo que dice el CSS; Android, si no, redondea hacia arriba)
+    val linePx = maxOf(1f, (size * lh * d.density).roundToInt().toFloat()) - 0.02f
     val base = TextStyle(
         fontSize = with(d) { size.dp.toSp() }, fontFamily = family, fontWeight = weight,
-        lineHeight = with(d) { (size * lh).dp.toSp() }, letterSpacing = if (ls == 0f) TextUnit.Unspecified else ls.em, textAlign = align,
+        lineHeight = with(d) { (linePx / d.density).dp.toSp() }, letterSpacing = if (ls == 0f) TextUnit.Unspecified else ls.em, textAlign = align,
         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
         platformStyle = PlatformTextStyle(includeFontPadding = false),
         // las letras se colocan con fracciones de píxel, como hace el navegador (si no, los textos salen algo más estrechos o anchos)
@@ -292,8 +296,7 @@ private fun TrackRow(t: UiTrack, playing: Boolean, sk: Skin, onPlay: () -> Unit)
             Cover(t, sk)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    T(t.title, 15f * sk.tk, if (playing) p.accent else p.fg, Modifier.weight(1f, fill = false), weight = FontWeight.ExtraBold, maxLines = 1)
+                TitleLine({ T(t.title, 15f * sk.tk, if (playing) p.accent else p.fg, weight = FontWeight.ExtraBold, maxLines = 1) }) {
                     if (t.demo) Pill("Demo", p.muted, p.line2, sk)
                     if (t.mine) Pill("Mi voz", p.good, p.good, sk)
                 }
@@ -303,19 +306,45 @@ private fun TrackRow(t: UiTrack, playing: Boolean, sk: Skin, onPlay: () -> Unit)
         Spacer(Modifier.width(10.dp))
         T(fmt(t.dur), 12.8f * sk.tk, p.muted, Modifier.width(46.dp), family = Mono, align = TextAlign.End, maxLines = 1)
         Spacer(Modifier.width(10.dp))
-        Box(Modifier.size(34.dp).semantics { contentDescription = if (t.liked) "Quitar de favoritas" else "Favorita" }.press(0.85f) { UiState.send("like") { it.put("id", t.id) } }, contentAlignment = Alignment.Center) {
-            Ico(I_HEART, 18f, if (t.liked) p.accent else p.muted, fill = t.liked, round = false)
-        }
-        Spacer(Modifier.width(10.dp))
-        if (t.demo) Spacer(Modifier.width(40.dp))
-        else if (armed) {
-            // segundo toque para confirmar (como en la app)
-            Box(Modifier.height(34.dp).press { armed = false; UiState.send("del") { it.put("id", t.id) } }.clip(sk.r(10f)).border(sk.b, p.bad, sk.r(10f)).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-                T("¿Borrar?", 12.8f * sk.tk, p.bad, weight = FontWeight.ExtraBold, maxLines = 1)
+        if (armed && !t.demo) {
+            // segundo toque para confirmar (como en la app). Ocupa el sitio del corazón y los dos botones: nada se mueve
+            Box(Modifier.width(84.dp).height(34.dp), contentAlignment = Alignment.CenterEnd) {
+                Box(Modifier.height(34.dp).press { armed = false; UiState.send("del") { it.put("id", t.id) } }.clip(sk.r(10f)).border(sk.b, p.bad, sk.r(10f)).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+                    T("¿Borrar?", 12.8f * sk.tk, p.bad, weight = FontWeight.ExtraBold, maxLines = 1)
+                }
             }
-        } else Row(Modifier.width(40.dp)) {
-            Box(Modifier.width(20.dp).height(34.dp).semantics { contentDescription = "Editar canción y portada" }.press(0.85f) { UiState.send("edit") { it.put("id", t.id) } }, contentAlignment = Alignment.Center) { Ico(I_EDIT, 16f, p.muted) }
-            Box(Modifier.width(20.dp).height(34.dp).semantics { contentDescription = if (t.dev) "Quitar de Órbita (no borra el archivo)" else "Borrar" }.press(0.85f) { armed = true }, contentAlignment = Alignment.Center) { Ico(I_TRASH, 16f, p.muted) }
+        } else {
+            Box(Modifier.size(34.dp).semantics { contentDescription = if (t.liked) "Quitar de favoritas" else "Favorita" }.press(0.85f) { UiState.send("like") { it.put("id", t.id) } }, contentAlignment = Alignment.Center) {
+                Ico(I_HEART, 18f, if (t.liked) p.accent else p.muted, fill = t.liked, round = false)
+            }
+            Spacer(Modifier.width(10.dp))
+            if (t.demo) Spacer(Modifier.width(40.dp))
+            else Row(Modifier.width(40.dp)) {
+                Box(Modifier.width(20.dp).height(34.dp).semantics { contentDescription = "Editar canción y portada" }.press(0.85f) { UiState.send("edit") { it.put("id", t.id) } }, contentAlignment = Alignment.Center) { Ico(I_EDIT, 16f, p.muted) }
+                Box(Modifier.width(20.dp).height(34.dp).semantics { contentDescription = if (t.dev) "Quitar de Órbita (no borra el archivo)" else "Borrar" }.press(0.85f) { armed = true }, contentAlignment = Alignment.Center) { Ico(I_TRASH, 16f, p.muted) }
+            }
+        }
+    }
+}
+
+/**
+ * El título y sus etiquetas («Demo», «Mi voz»), como en la web: primero cabe el título; las etiquetas se quedan con
+ * lo que sobre (y si no sobra sitio para que se lean, no salen).
+ */
+@Composable
+private fun TitleLine(title: @Composable () -> Unit, tags: @Composable () -> Unit) {
+    Layout(content = {
+        Box { title() }
+        Row(verticalAlignment = Alignment.CenterVertically) { tags() }
+    }) { measurables, constraints ->
+        val max = constraints.maxWidth
+        val t = measurables[0].measure(Constraints(0, max, 0, constraints.maxHeight))
+        val rest = if (max == Constraints.Infinity) Constraints.Infinity else max - t.width
+        val g = if (rest >= 36.dp.roundToPx()) measurables[1].measure(Constraints(0, rest, 0, constraints.maxHeight)) else null
+        val h = maxOf(t.height, g?.height ?: 0)
+        layout(t.width + (g?.width ?: 0), h) {
+            t.place(0, (h - t.height) / 2)
+            g?.place(t.width, (h - g.height) / 2)
         }
     }
 }
@@ -502,7 +531,7 @@ private fun SearchBox(sk: Skin, onFocus: (Boolean) -> Unit) {
             textStyle = style(15f * sk.tk, p.fg), cursorBrush = SolidColor(p.accent),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
             decorationBox = { inner ->
-                Box(contentAlignment = Alignment.CenterStart) {
+                Box(Modifier.padding(horizontal = 2.dp), contentAlignment = Alignment.CenterStart) {
                     if (UiState.search.isEmpty()) T("Filtrar por título, artista o álbum", 15f * sk.tk, Color(0xFF757575), maxLines = 1)
                     inner()
                 }
@@ -519,6 +548,10 @@ private fun Seg(sk: Skin) {
     val opts = ArrayList<Pair<String, String>>()
     opts.add("all" to "Todas"); opts.add("liked" to "Favoritas"); opts.add("mine" to "Mi voz")
     if (UiState.showDev) opts.add("dev" to "Del móvil")
+    // (14 + 14 de la web, repartidos en píxeles enteros del móvil sin que sobre ni falte)
+    val dens = LocalDensity.current.density
+    val padStart = floor(14f * dens)
+    val padEnd = (28f * dens).roundToInt() - padStart
     Row(Modifier.clip(shape).background(Color.Black.copy(alpha = 0.3f)).border(sk.b, p.line2, shape).padding(sk.b).height(IntrinsicSize.Min)) {
         opts.forEachIndexed { i, (id, name) ->
             val on = UiState.filter == id
@@ -526,7 +559,7 @@ private fun Seg(sk: Skin) {
             Box(Modifier.background(if (on) p.fg else Color.Transparent).clickable(remember { MutableInteractionSource() }, null) {
                 UiState.filter = id
                 UiState.send("pref") { it.put("filter", id) }
-            }.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            }.padding(start = (padStart / dens).dp, end = (padEnd / dens).dp, top = 10.dp, bottom = 10.dp)) {
                 T(name, 13.76f * sk.tk, if (on) p.bg else p.muted, weight = FontWeight.ExtraBold, maxLines = 1)
             }
         }
@@ -540,7 +573,7 @@ private fun SortSelect(sk: Skin) {
     var open by remember { mutableStateOf(false) }
     val label = SORTS.firstOrNull { it.first == UiState.sort }?.second ?: SORTS[0].second
     Box {
-        Row(Modifier.width(138.1.dp).clip(shape).background(p.panelSolid).border(sk.b, p.line2, shape).clickable(remember { MutableInteractionSource() }, null) { open = true }.padding(start = 13.dp, end = 6.dp, top = 7.dp + sk.b, bottom = 7.dp + sk.b),
+        Row(Modifier.width(138.1.dp).clip(shape).background(p.panelSolid).border(sk.b, p.line2, shape).clickable(remember { MutableInteractionSource() }, null) { open = true }.padding(start = 14.7.dp, end = 1.3.dp, top = 7.dp + sk.b, bottom = 7.dp + sk.b),
             verticalAlignment = Alignment.CenterVertically) {
             T(label, 13.12f * sk.tk, p.fg, Modifier.weight(1f), lh = 1.335f, maxLines = 1)
             Ico(I_DOWN, 14f, p.fg, sw = 2f)

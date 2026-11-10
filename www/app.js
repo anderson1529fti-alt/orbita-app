@@ -6019,7 +6019,7 @@ function renderLists() {
    stays underneath, rendered as before but invisible: if anything covers the content area (a dialog, the full player…)
    or the native screen fails, the one of always is there at once. Phones only (the wide layout stays as it was). */
 const NUI_PLUGIN = capPlugin('OrbitaUi');
-const NUI = { on: !!NUI_PLUGIN && LS.get('nativeUi', true) && !LS.get('nativeUiBroken', false), shown: false, classic: false, raf: 0, top: false, rect: '', trKey: '', boxKey: '', lookKey: '', nowId: null, cov: new Map(), syncT: 0, err: '' };
+const NUI = { on: !!NUI_PLUGIN && LS.get('nativeUi', true) && !LS.get('nativeUiBroken', false), shown: false, classic: false, raf: 0, top: false, toast: null, rect: '', trKey: '', boxKey: '', lookKey: '', nowId: null, cov: new Map(), syncT: 0, err: '' };
 function nuiBroken(e) {
   NUI.err = String(e && (e.message || e.code) || e || 'fallo'); NUI.on = false; LS.set('nativeUiBroken', true); nuiHide();
   diag('pantalla nativa: ' + NUI.err + ' → vuelvo a la de siempre');
@@ -6028,10 +6028,16 @@ function nuiBroken(e) {
 /* Is the content area free? (a dialog, a sheet or the full player on top of it → the native screen steps aside) */
 function nuiFree() {
   const m = $('#main'), r = m.getBoundingClientRect(); if (r.width < 50 || r.height < 50) return false;
+  // things that float over a part of the content area: the import progress, a notice of the app that is already up, the docked video
+  for (const id of ['importProg', 'toast', 'ytDock']) { const el = document.getElementById(id); if (el && !el.hidden) return false; }
   for (const [fx, fy] of [[0.5, 0.2], [0.5, 0.55], [0.15, 0.9], [0.85, 0.08]]) { const el = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!el || !m.contains(el)) return false; }
   return true;
 }
-function nuiHide() { if (!NUI.shown) return; NUI.shown = false; root.classList.remove('nui-lib'); try { NUI_PLUGIN.hide().catch(() => {}); } catch {} }
+function nuiHide() {
+  if (!NUI.shown) return; NUI.shown = false; root.classList.remove('nui-lib'); try { NUI_PLUGIN.hide().catch(() => {}); } catch {}
+  // a notice that was up on the native screen goes on in the app for the time it had left
+  const tt = NUI.toast; NUI.toast = null; if (tt && tt.until - Date.now() > 500) toast(tt.msg, tt.until - Date.now());
+}
 function nuiLoop() {
   if (NUI.raf || !NUI.on) return;
   const step = () => {
@@ -6085,13 +6091,24 @@ function nuiSync() {
 }
 function nuiNow() { if (!NUI.on) return; const id = (current() || {}).id || ''; if (id === NUI.nowId) return; NUI.nowId = id; NUI_PLUGIN.now({ id }).catch(() => {}); }
 /* «Añadir canciones» from the native screen: Android's own file picker, then the import of always */
+let nuiPicking = false;
 async function nuiPick() {
+  if (nuiPicking) return; nuiPicking = true;
   try {
-    const r = await NUI_PLUGIN.pick(), list = (r && r.files) || []; if (!list.length) return;
+    let list = [];
+    try { const r = await NUI_PLUGIN.pick(); list = (r && r.files) || []; }
+    catch (e) { diag('pantalla nativa: no pude abrir el selector de archivos (' + (e && e.message || e) + ')'); toast('No he podido abrir el selector de archivos.'); return; }
+    if (!list.length) return;
+    if (list.length > 2) toast(`Preparando ${list.length} archivos…`, 4000);
     const files = [];
-    for (const f of list) { const blob = await (await fetch(Capacitor.convertFileSrc(f.uri))).blob(); files.push(new File([blob], f.name || 'cancion', { type: f.type || blob.type || '' })); }
-    importFiles(files);
-  } catch (e) { diag('pantalla nativa: no pude abrir los archivos (' + (e && e.message || e) + ')'); toast('No he podido abrir esos archivos.'); }
+    for (const f of list) {
+      try {
+        const res = await fetch(Capacitor.convertFileSrc(f.uri)); if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob(); files.push(new File([blob], f.name || 'cancion', { type: f.type || blob.type || '' }));
+      } catch (e) { diag('pantalla nativa: no pude leer ' + (f.name || 'un archivo') + ' (' + (e && e.message || e) + ')'); }
+    }
+    if (files.length) importFiles(files); else toast('No he podido abrir esos archivos.');
+  } finally { nuiPicking = false; }
 }
 function nuiEvent(e) {
   if (!e || !e.type) return;
@@ -6124,7 +6141,7 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activada: la lista de «Mi música» la dibuja Android (va más fluida con muchas canciones). Si algo no se ve bien, apágala y vuelve la de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activada: la pantalla «Mi música» la dibuja Android. Si algo no se ve bien, apágala y vuelve la de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagó sola porque falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarla.'
     : 'Apagada: «Mi música» se ve con la pantalla de siempre.';
 }
@@ -6277,7 +6294,7 @@ document.addEventListener('keydown', e => {
 });
 
 let toastTimer = null;
-function toast(msg, ms = 2600) { if (NUI.shown) { try { NUI_PLUGIN.toast({ text: String(msg), ms }).catch(() => {}); return; } catch {} } const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms); }
+function toast(msg, ms = 2600) { if (NUI.shown) { try { NUI_PLUGIN.toast({ text: String(msg), ms }).catch(() => {}); NUI.toast = { msg: String(msg), until: Date.now() + ms }; return; } catch {} } const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms); }
 
 /* ---------- Moment, ticker ---------- */
 function renderMoment() {
@@ -7125,8 +7142,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) vizK
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
   '4.3': [
-    '<b>«Mi música» ya es nativa</b>: la lista de canciones la dibuja ahora Android (Kotlin y Compose), no la página web de antes. Se ve igual, pero va más fluida, sobre todo con muchas canciones.',
-    '<b>Buscar es más cómodo</b>: al tocar la caja de búsqueda, la lista sube para que veas los resultados con el teclado abierto, y hay una ✕ para vaciarla.',
+    '<b>«Mi música» ya es nativa</b>: esa pantalla la dibuja ahora Android (Kotlin y Compose), no la página web de antes. Se ve igual que siempre, y están todas tus canciones desde el principio, sin «Mostrar más».',
+    '<b>Buscar es más cómodo</b>: al tocar la caja de búsqueda, sube arriba del todo para que veas los resultados con el teclado abierto, y tiene una ✕ para vaciarla.',
     'Si algo no se viera bien, en Ajustes › Sonido y mezclas puedes apagar «Mi música nativa» y vuelve la pantalla de siempre.',
     'Es el segundo paso para que toda Órbita sea una app nativa. Las demás pantallas siguen igual por ahora.'
   ],

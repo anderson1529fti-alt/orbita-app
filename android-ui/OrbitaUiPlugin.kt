@@ -2,6 +2,7 @@ package __PACKAGE__
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -68,6 +69,11 @@ object UiState {
     val list = LazyListState()
     val covers = mutableStateMapOf<String, ImageBitmap>()
     val asked = HashSet<String>()
+    /** Las portadas guardadas, de la más antigua a la más nueva: al pasar de COVERS_MAX se sueltan las más antiguas. */
+    val coverOrder = ArrayDeque<String>()
+    const val COVERS_MAX = 250
+
+    fun dropCover(id: String) { covers.remove(id); asked.remove(id); coverOrder.remove(id) }
 
     /** Avisos a la app: qué ha tocado el usuario. */
     var emit: (String, JSObject) -> Unit = { _, _ -> }
@@ -159,6 +165,7 @@ class OrbitaUiPlugin : Plugin() {
     fun status(call: PluginCall) {
         val r = JSObject()
         r.put("available", true); r.put("v", 2)
+        try { r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size) } catch (ignored: Throwable) { }
         call.resolve(r)
     }
 
@@ -250,7 +257,7 @@ class OrbitaUiPlugin : Plugin() {
                 if (list != null) {
                     // las portadas de canciones que ya no están (o que han cambiado) se sueltan
                     val changed = d.optJSONArray("coversChanged")
-                    if (changed != null) for (i in 0 until changed.length()) { val id = changed.optString(i); UiState.covers.remove(id); UiState.asked.remove(id) }
+                    if (changed != null) for (i in 0 until changed.length()) UiState.dropCover(changed.optString(i))
                     UiState.tracks = list
                 }
                 if (d.has("filter")) UiState.filter = d.optString("filter", "all")
@@ -282,22 +289,48 @@ class OrbitaUiPlugin : Plugin() {
     fun covers(call: PluginCall) {
         val arr = call.getArray("list")
         val got = ArrayList<Pair<String, ImageBitmap>>()
+        // del tamaño al que se ven en la lista (46 de lado): así ocupan poca memoria aunque haya miles de canciones
+        val side = maxOf(32, Math.ceil(46.0 * context.resources.displayMetrics.density).toInt())
         if (arr != null) for (i in 0 until arr.length()) {
             try {
                 val o = arr.optJSONObject(i) ?: continue
                 val u = o.optString("data")
                 val k = u.indexOf(";base64,")
                 if (k < 0) continue
-                val b = Base64.decode(u.substring(k + 8), Base64.DEFAULT)
-                val bmp = BitmapFactory.decodeByteArray(b, 0, b.size) ?: continue
+                val bmp = decodeCover(Base64.decode(u.substring(k + 8), Base64.DEFAULT), side) ?: continue
                 got.add(o.optString("id") to bmp.asImageBitmap())
             } catch (ignored: Throwable) { }
         }
         activity.runOnUiThread {
-            if (UiState.covers.size > 600) { UiState.covers.clear(); UiState.asked.clear() }
-            for ((id, bmp) in got) UiState.covers[id] = bmp
+            for ((id, bmp) in got) {
+                if (!UiState.covers.containsKey(id)) UiState.coverOrder.addLast(id)
+                UiState.covers[id] = bmp
+            }
+            while (UiState.coverOrder.size > UiState.COVERS_MAX) {
+                val old = UiState.coverOrder.removeFirst()
+                UiState.covers.remove(old); UiState.asked.remove(old)
+            }
         }
         call.resolve()
+    }
+
+    /** Una portada, reducida al tamaño de la lista. */
+    private fun decodeCover(b: ByteArray, side: Int): Bitmap? {
+        val size = BitmapFactory.Options()
+        size.inJustDecodeBounds = true
+        BitmapFactory.decodeByteArray(b, 0, b.size, size)
+        if (size.outWidth <= 0 || size.outHeight <= 0) return null
+        var sample = 1
+        while (minOf(size.outWidth, size.outHeight) / (sample * 2) >= side) sample *= 2
+        val opt = BitmapFactory.Options()
+        opt.inSampleSize = sample
+        val bmp = BitmapFactory.decodeByteArray(b, 0, b.size, opt) ?: return null
+        val m = minOf(bmp.width, bmp.height)
+        if (m <= side * 1.15f) return bmp
+        val k = side.toFloat() / m
+        val out = Bitmap.createScaledBitmap(bmp, maxOf(1, (bmp.width * k).roundToInt()), maxOf(1, (bmp.height * k).roundToInt()), true)
+        if (out !== bmp) bmp.recycle()
+        return out
     }
 
     /** Un aviso corto (los de la app quedarían tapados por la pantalla nativa). */
