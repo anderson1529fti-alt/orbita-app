@@ -23,10 +23,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,22 +39,29 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
@@ -84,6 +91,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.window.Popup
 import com.getcapacitor.JSArray
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // ---------------------------------------------------------------- el aspecto de Órbita (los mismos valores que su CSS)
 private val Body = FontFamily(
@@ -166,15 +174,19 @@ private const val I_DOWN = "M6 9l6 6 6-6"
 /** El brillo de color de debajo de los botones principales (la sombra de CSS: desplazada, difuminada y encogida). */
 private fun Modifier.glow(color: Color, radius: Dp, blur: Dp, dy: Dp, spread: Dp): Modifier = drawBehind {
     if (color.alpha <= 0.01f) return@drawBehind
-    drawIntoCanvas { c ->
-        val p = Paint()
-        val fp = p.asFrameworkPaint()
-        fp.isAntiAlias = true
-        fp.color = color.toArgb()
-        fp.maskFilter = BlurMaskFilter(maxOf(1f, blur.toPx() * 0.5f), BlurMaskFilter.Blur.NORMAL)
-        val s = spread.toPx()
-        val r = maxOf(0f, radius.toPx() + s)
-        c.drawRoundRect(-s, dy.toPx() - s, size.width + s, size.height + dy.toPx() + s, r, r, p)
+    // como una sombra de CSS: solo se ve por fuera de la caja (aunque la caja sea medio transparente)
+    val own = Path().apply { addRoundRect(RoundRect(Rect(0f, 0f, size.width, size.height), CornerRadius(radius.toPx()))) }
+    clipPath(own, ClipOp.Difference) {
+        drawIntoCanvas { c ->
+            val p = Paint()
+            val fp = p.asFrameworkPaint()
+            fp.isAntiAlias = true
+            fp.color = color.toArgb()
+            fp.maskFilter = BlurMaskFilter(maxOf(1f, blur.toPx() * 0.5f), BlurMaskFilter.Blur.NORMAL)
+            val s = spread.toPx()
+            val r = maxOf(0f, radius.toPx() + s)
+            c.drawRoundRect(-s, dy.toPx() - s, size.width + s, size.height + dy.toPx() + s, r, r, p)
+        }
     }
 }
 
@@ -195,7 +207,7 @@ private fun Btn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: 
     if (primary) m = m.glow(p.glow, ((if (small) 11f else 14f) * sk.round).dp, 30.dp, 10.dp, (-10).dp)
     m = m.press(enabled = enabled, onClick = onClick).clip(shape)
     m = if (primary) m.background(p.grad) else m.background(Color.White.copy(alpha = 0.04f)).border(1.dp, p.line2, shape)
-    Row(m.graphicsLayer { alpha = if (enabled) 1f else 0.5f }.padding(horizontal = if (small) 13.dp else 18.dp, vertical = if (small) 8.dp else 12.dp),
+    Row(m.graphicsLayer { alpha = if (enabled) 1f else 0.5f }.padding(horizontal = if (small) 14.dp else 19.dp, vertical = if (small) 9.dp else 13.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (icon != null) Ico(icon, 18f, if (primary) p.onAccent else p.fg, sw = 2.4f)
         T(text, (if (small) 13.6f else 15f) * sk.tk, if (primary) p.onAccent else p.fg, weight = FontWeight.ExtraBold, maxLines = 1)
@@ -317,6 +329,8 @@ fun LibraryScreen() {
     val now = UiState.nowId
     val focus = LocalFocusManager.current
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val toolsIndex = 1 + (if (UiState.warn.isNotEmpty()) 1 else 0) + (if (UiState.dev != null) 1 else 0) + (if (UiState.drop.isNotEmpty()) 1 else 0)
 
     fun play(index: Int) {
         focus.clearFocus()
@@ -330,8 +344,11 @@ fun LibraryScreen() {
             // ---- título, cuántas hay y «Añadir canciones»
             item(key = "#head") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    T("BIBLIOTECA", 33.6f * sk.tk, pal.fg, family = sk.display, weight = sk.displayWeight, lh = 0.95f, ls = -0.045f, maxLines = 1,
-                        brush = Brush.horizontalGradient(0.2f to Color.White, 0.8f to pal.accent))
+                    // (la caja mide lo que en la web: el interlineado de 0,95 es menor que la letra)
+                    Box(Modifier.height((33.6f * 0.95f * sk.tk).dp), contentAlignment = Alignment.CenterStart) {
+                        T("BIBLIOTECA", 33.6f * sk.tk, pal.fg, Modifier.wrapContentHeight(unbounded = true), family = sk.display, weight = sk.displayWeight, lh = 1.2f, ls = -0.045f, maxLines = 1,
+                            brush = Brush.horizontalGradient(0.2f to Color.White, 0.8f to pal.accent))
+                    }
                     T(UiState.meta, 14.4f * sk.tk, pal.muted, family = Mono, maxLines = 1)
                     Btn("Añadir canciones", sk, primary = true, icon = I_PLUS) { UiState.send("add") }
                 }
@@ -340,7 +357,7 @@ fun LibraryScreen() {
             // ---- aviso de canciones con poca calidad
             if (UiState.warn.isNotEmpty()) item(key = "#warn") {
                 val shape = sk.r(14f)
-                Box(Modifier.fillMaxWidth().clip(shape).background(hsl(350f, 1f, 0.60f, 0.08f)).border(1.dp, hsl(350f, 1f, 0.70f, 0.35f), shape).padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Box(Modifier.fillMaxWidth().clip(shape).background(hsl(350f, 1f, 0.60f, 0.08f)).border(1.dp, hsl(350f, 1f, 0.70f, 0.35f), shape).padding(horizontal = 17.dp, vertical = 15.dp)) {
                     BasicText(buildAnnotatedString {
                         withStyle(SpanStyle(color = pal.bad, fontWeight = FontWeight.Bold)) { append(UiState.warn) }
                         append(" " + UiState.warnText)
@@ -353,7 +370,7 @@ fun LibraryScreen() {
                 item(key = "#dev") {
                     val shape = sk.r(16f)
                     Row(Modifier.fillMaxWidth().glow(pal.glow, (16f * sk.round).dp, 30.dp, 0.dp, (-12).dp).clip(shape)
-                        .background(Brush.horizontalGradient(listOf(pal.wash, Color.Black.copy(alpha = 0.35f)))).border(1.dp, pal.accent, shape).padding(horizontal = 16.dp, vertical = 14.dp),
+                        .background(Brush.horizontalGradient(listOf(pal.wash, Color.Black.copy(alpha = 0.35f)))).border(1.dp, pal.accent, shape).padding(horizontal = 17.dp, vertical = 15.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             T(b.title, 15f * sk.tk, pal.fg, family = sk.display, weight = sk.displayWeight, ls = -0.01f)
@@ -375,7 +392,7 @@ fun LibraryScreen() {
             // ---- buscar, filtrar, ordenar
             item(key = "#tools") {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SearchBox(sk)
+                    SearchBox(sk) { scope.launch { try { listState.animateScrollToItem(toolsIndex) } catch (ignored: Throwable) { } } }
                     Seg(sk)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         SortSelect(sk)
@@ -439,15 +456,15 @@ private fun Modifier.dashed(color: Color, radius: Dp, width: Dp): Modifier = dra
 }
 
 @Composable
-private fun SearchBox(sk: Skin) {
+private fun SearchBox(sk: Skin, onFocus: () -> Unit) {
     val p = sk.pal
     val shape = sk.r(13f)
     val focus = LocalFocusManager.current
-    Row(Modifier.fillMaxWidth().clip(shape).background(Color.Black.copy(alpha = 0.35f)).border(1.dp, p.line2, shape).padding(horizontal = 14.dp, vertical = 10.dp),
+    Row(Modifier.fillMaxWidth().height((22.5f + 21.75f * sk.tk).dp).clip(shape).background(Color.Black.copy(alpha = 0.35f)).border(1.dp, p.line2, shape).padding(horizontal = 15.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Ico(I_SEARCH, 16f, p.muted, sw = 2.2f)
         BasicTextField(
-            value = UiState.search, onValueChange = { UiState.search = it.take(80) }, modifier = Modifier.weight(1f).heightIn(min = 22.dp), singleLine = true,
+            value = UiState.search, onValueChange = { UiState.search = it.take(80) }, modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) onFocus() }, singleLine = true,
             textStyle = style(15f * sk.tk, p.fg), cursorBrush = SolidColor(p.accent),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
             decorationBox = { inner ->
@@ -468,7 +485,7 @@ private fun Seg(sk: Skin) {
     val opts = ArrayList<Pair<String, String>>()
     opts.add("all" to "Todas"); opts.add("liked" to "Favoritas"); opts.add("mine" to "Mi voz")
     if (UiState.showDev) opts.add("dev" to "Del móvil")
-    Row(Modifier.clip(shape).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, p.line2, shape).height(IntrinsicSize.Min)) {
+    Row(Modifier.clip(shape).background(Color.Black.copy(alpha = 0.3f)).border(1.dp, p.line2, shape).padding(1.dp).height(IntrinsicSize.Min)) {
         opts.forEachIndexed { i, (id, name) ->
             val on = UiState.filter == id
             if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(p.line2))
