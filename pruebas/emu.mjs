@@ -5,6 +5,7 @@ import fs from 'node:fs';
 
 const OUT = 'salida'; fs.mkdirSync(OUT, { recursive: true });
 const PKG = JSON.parse(fs.readFileSync('capacitor.config.json', 'utf8')).appId;
+const VER = JSON.parse(fs.readFileSync('package.json', 'utf8')).version.split('.').slice(0, 2).join('.');
 const res = [], log = (...a) => { const s = a.join(' '); console.log(s); fs.appendFileSync(`${OUT}/pasos.txt`, s + '\n'); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const adb = (c, o = {}) => { try { return execSync('adb ' + c, { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64e6, ...o }); } catch (e) { return 'ERR ' + (e.stdout || '') + (e.stderr || e.message); } };
@@ -47,7 +48,7 @@ async function js(expr) {
 async function webStart(reload) {
   if (!(await cdpConnect())) return false;
   await cdp('Page.enable');
-  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.ORBITA_DEBUG = true; try { for (const [k, v] of Object.entries({ onboarded: true, newsSeen: '9.9', devWelcomeDone: true, intros: false, greetOff: true })) localStorage.setItem('orbita:' + k, JSON.stringify(v)); } catch (e) {}` });
+  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.ORBITA_DEBUG = true; try { for (const [k, v] of Object.entries({ onboarded: true, newsSeen: '${VER}', devWelcomeDone: true, intros: false, lastUpdateCheck: Date.now() + 864e5 })) localStorage.setItem('orbita:' + k, JSON.stringify(v)); } catch (e) {}` });
   if (reload) { await cdp('Page.reload'); await sleep(9000); }
   return true;
 }
