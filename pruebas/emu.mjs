@@ -87,6 +87,8 @@ try {
   let n = 0;
   for (let k = 0; k < 20 && n < songs.length; k++) { n = await js(`const o = window.__orbita; return o ? o.state.tracks.filter(t => t.dev).length : -1;`); if (n < songs.length) await sleep(2000); }
   check('la app ve la música del emulador', n >= songs.length, n + ' canciones');
+  // cómo se ve cada pantalla de la app web (referencia para las pantallas nativas)
+  for (const v of ['biblioteca', 'listas', 'tu', 'ajustes', 'inicio']) { await js(`const b = document.querySelector('[data-view="${v}"]'); if (b) b.click(); return 1;`); await sleep(1800); shot('web-' + v); }
   const st0 = await js(`return await Capacitor.Plugins.NovaAudio.status();`);
   check('el reproductor es el de Kotlin', st0 && st0.player === 'kotlin', JSON.stringify(st0));
 
@@ -100,6 +102,8 @@ try {
   check('el servicio está en primer plano mientras suena', fgService() === 'en primer plano', fgService());
   check('sin cierres por error hasta aquí', crashes() === 0, adb('logcat -d -b crash').slice(0, 1500));
   sh('cmd statusbar expand-notifications'); await sleep(2500); shot('aviso'); sh('cmd statusbar collapse'); await sleep(800);
+  await js(`const b = document.querySelector('[data-view="biblioteca"]'); if (b) b.click(); return 1;`); await sleep(1500); shot('web-biblioteca-sonando');
+  await js(`const b = document.querySelector('[data-view="inicio"]'); if (b) b.click(); return 1;`); await sleep(1000);
   const cur1 = await js(`const o = window.__orbita; return o.trackById(o.state.queue[o.state.qi]).title;`);
 
   // ---- botones de fuera (auriculares)

@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pruebas-fase2
@@ -68,10 +68,13 @@ jobs:
           disable-animations: false
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: node pruebas/emu.mjs
-      - name: Guardar resultados
+      # Los resultados (capturas y registros) van a la rama «resultados», que se sobrescribe en cada prueba
+      - name: Publicar resultados
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pruebas
-          path: salida
-          retention-days: 7
+        run: |
+          mkdir -p salida && cd salida
+          echo "prueba ${{ github.run_number }} · ${{ github.sha }}" > LEEME.txt
+          git init -q -b resultados
+          git add -A
+          git -c user.name="pruebas" -c user.email="pruebas@users.noreply.github.com" commit -qm "Resultados de la prueba ${{ github.run_number }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" resultados
