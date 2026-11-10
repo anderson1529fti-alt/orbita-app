@@ -32,6 +32,8 @@ public final class NovaAudioEngine {
         void pause();
         void flush();
         void close();
+        /** 4.0b3 · Cuántas tramas de las ya escritas aún no se oyen (lo que espera en la salida + el altavoz o el Bluetooth). */
+        long latencyFrames();
     }
 
     public interface Listener {
@@ -136,6 +138,11 @@ public final class NovaAudioEngine {
     /** 4.0b2 · ¿Está bajando para pausar? (un fundido hacia 0 con algo pendiente al acabar) */
     public boolean fadingOut() { return fadeDone != null && fadeGoal < 0.01f; }
     public void setDirect(boolean d) { direct = d; }
+    /** 4.0b3 · Con Bluetooth, el sonido se vuelve a comprimir (SBC, AAC, LDAC…) y esa compresión puede pasarse un poco de
+     *  los picos: el techo baja a -2 dB para que los auriculares nunca reciban algo que tengan que recortar. */
+    private volatile boolean bt;
+    public void setBluetooth(boolean on) { if (on != bt) { bt = on; limiter.ceiling(on ? -2f : -1f); } }
+    public boolean bluetooth() { return bt; }
     public void setViz(boolean on) { viz = on; }
     public boolean anyPlaying() { for (Slot s : slots) if (s.playing) return true; return false; }
     public double position(int slot) { return slots[slot].position(); }
@@ -177,7 +184,7 @@ public final class NovaAudioEngine {
             boolean any = false;
             for (Slot s : slots) if (s.playing) { any = true; break; }
             if (!any) {
-                if (outPlaying) { out.pause(); outPlaying = false; limiter.reset(); }
+                if (outPlaying) { out.pause(); outPlaying = false; limiter.reset(); specQ.clear(); }
                 synchronized (lock) {
                     boolean still = true;
                     for (Slot s : slots) if (s.playing) still = false;
@@ -194,14 +201,37 @@ public final class NovaAudioEngine {
             if (viz) bands.push(mix, BLOCK);   // 3.9: antes del volumen general: las luces no dependen de lo alto que lo tengas
             process(mix, BLOCK);
             out.write(mix, BLOCK);
+            outFrames += BLOCK;
+            try { long lt = out.latencyFrames(); latNow = lt < 0 ? 0 : Math.min(lt, 2L * rate); } catch (Throwable ignored) { }
             for (Slot s : slots) s.afterBlock();
             if (viz) {
                 long now = System.nanoTime();
                 spectrum.push(mix, BLOCK);
-                if (now - lastSpec > 33_000_000L) { lastSpec = now; try { byte[] b = spectrum.bins(); bands.fill(b, 768); listener.onSpectrum(b); } catch (Throwable ignored) { } }
-            }
+                /* 4.0b3 · lo que ve el visualizador se guarda con «cuándo se va a oír» y se entrega en ese momento: antes
+                   llegaba en cuanto se escribía, entre 0,2 s (altavoz) y 0,5 s (Bluetooth) antes de oírse. Un golpe de
+                   bombo se apunta en el momento justo (no espera a la siguiente foto). */
+                boolean hit = (bands.flags & 1) != 0 && now - lastSpec > 8_000_000L;
+                if (hit || now - lastSpec > 33_000_000L) {
+                    lastSpec = now;
+                    try { byte[] b = spectrum.bins(); bands.fill(b, 768); specQ.add(new Object[] { outFrames, b }); } catch (Throwable ignored) { }
+                    while (specQ.size() > 120) { Object[] o = specQ.poll(); Object[] nx = specQ.peek(); if (nx != null) ((byte[]) nx[1])[774] |= ((byte[]) o[1])[774]; }
+                }
+                long heard = outFrames - latNow; byte[] due = null; int fl = 0;
+                while (!specQ.isEmpty() && (Long) specQ.peek()[0] <= heard) { byte[] b = (byte[]) specQ.poll()[1]; fl |= b[774]; due = b; }
+                if (due != null) { due[774] = (byte) fl; try { listener.onSpectrum(due); } catch (Throwable ignored) { } }
+            } else if (!specQ.isEmpty()) specQ.clear();
         }
     }
+
+    /* 4.0b3 · lo que lleva escrito la salida, lo que tarda en oírse y las fotos del visualizador esperando a su momento */
+    private long outFrames;
+    private volatile long latNow;
+    private final ArrayDeque<Object[]> specQ = new ArrayDeque<>();
+    /** Cuánto tarda en oírse lo que sale del motor ahora mismo (segundos). */
+    public double latency() { return latNow / (double) rate; }
+    /** 4.0b3 · Por dónde va lo que SE OYE (lo de position() menos lo que aún espera en la salida): para la barra, la letra
+     *  y el ritmo de las luces. */
+    public double heardPosition(int slot) { Slot s = slots[slot]; long pf = s.playedFrames - latNow; return s.baseSec + Math.max(0, pf) / (double) rate; }
 
     private volatile boolean mixingNow;
     private void process(float[] buf, int frames) {
@@ -465,7 +495,8 @@ public final class NovaAudioEngine {
                                     xf = (Item) o[0]; d2 = (Decoder) o[1]; rs2[0] = null; f2.clear();
                                     xfLen = Math.max(1, Math.round(xf.xf * rate)); xfDone = 0;
                                     bPos = xf.st; bRate = xf.rate > 0 ? xf.rate : 1;
-                                    hpA.reset(); lpA.reset(); hpB.reset();
+                                    hpA.reset(); lpA.reset(); hpB.reset(); hpA.identity(); lpA.identity();
+                                    wA = 0f; wL = 0f; wB = 1f;
                                     overlapping = true; addMark(r, xf, d2);
                                     continue;
                                 }
@@ -525,23 +556,37 @@ public final class NovaAudioEngine {
                         double p0 = xfDone / (double) xfLen, p1 = Math.min(1.0, (xfDone + m) / (double) xfLen);
                         float[] g0 = gains(xf, p0), g1 = gains(xf, p1);
                         final float gB = Float.isNaN(xf.g) ? 1f : clamp(xf.g, 0f, 4f);
-                        boolean useHpA = shape(xf, p0, hpA, lpA, hpB);
+                        boolean useHpA = false;
                         for (int i = 0; i < m; i++) {
+                            /* 4.0b3 · los barridos de los filtros avanzan cada 0,7 ms (antes cada 10 ms, a saltos: se oía un
+                               «zumbido» fino en los graves que entraban y en los agudos que se iban) */
+                            if ((i & 31) == 0) useHpA = shape(xf, (xfDone + i) / (double) xfLen, hpA, lpA, hpB);
                             float u = m > 1 ? i / (float) (m - 1) : 0;
                             float gOut = g0[0] + (g1[0] - g0[0]) * u, gIn = g0[1] + (g1[1] - g0[1]) * u;
                             /* 3.7 · margen: con las dos casi a tope, se bajan juntas lo justo para que la suma no pase de
                                la potencia de una sola (el nivel que se oye no cambia; los picos ya no chocan con el techo) */
                             float pw = gOut * gOut + gIn * gIn;
                             if (pw > 1f) { float h = (float) (1 / Math.sqrt(pw)); gOut *= h; gIn *= h; }
+                            /* 4.0b3 · con las dos sonando fuerte a la vez, un poco menos de volumen (menos de 1 dB en el centro):
+                               el limitador casi no tiene que trabajar y el cambio suena limpio */
+                            final float trim = 1f - 0.12f * Math.min(gOut, gIn);
+                            gOut *= trim; gIn *= trim;
                             float al = 0, ar = 0;
                             if (i < f1.frames()) {
                                 al = f1.l(i); ar = f1.r(i);
-                                if (useHpA) { al = hpA.l(al); ar = hpA.r(ar); }
-                                if (lpOn) { al = lpA.l(al); ar = lpA.r(ar); }
+                                /* 4.0b3 · los filtros trabajan desde el principio del fundido (hasta que les toca, dejan pasar
+                                   todo): así, cuando entran, no dan un chasquido */
+                                /* y no entran ni salen de golpe: se mezclan con el sonido sin filtrar en 30 ms (al quitar un
+                                   filtro de un tirón, la onda saltaba un poco: un chasquido) */
+                                float hl = hpA.l(al), hr = hpA.r(ar);
+                                wA = step(wA, useHpA); al += (hl - al) * wA; ar += (hr - ar) * wA;
+                                float ll = lpA.l(al), lr = lpA.r(ar);
+                                wL = step(wL, lpOn); al += (ll - al) * wL; ar += (lr - ar) * wL;
                             }
                             al *= gNow; ar *= gNow;
                             float bl = f2.l(i) * gB, br = f2.r(i) * gB;
-                            if (hpBOn) { bl = hpB.l(bl); br = hpB.r(br); }
+                            float fl = hpB.l(bl), fr = hpB.r(br);
+                            wB = step(wB, hpBOn); bl += (fl - bl) * wB; br += (fr - br) * wB;
                             outb[2 * i] = al * gOut + bl * gIn; outb[2 * i + 1] = ar * gOut + br * gIn;
                         }
                         if (my != gen) return;
@@ -551,7 +596,9 @@ public final class NovaAudioEngine {
                         if (xf.style == Item.DJ && xf.beatA > 0 && xf.beatB > 0) {
                             double err = (curPos - xf.gridA) / xf.beatA - (bPos - xf.gridB) / xf.beatB;
                             err -= Math.floor(err); if (err > 0.5) err -= 1;
-                            bRate = xf.rate * (1 + Math.max(-0.04, Math.min(0.04, err * 0.25)));
+                            /* 4.0b3 · corrección pequeña y suave (antes hasta ±4 % de golpe cada 10 ms: la entrante «ondulaba») */
+                            double want = xf.rate * (1 + Math.max(-0.008, Math.min(0.008, err * 0.12)));
+                            bRate += (want - bRate) * 0.12;
                             rs2[0].setSpeed(bRate);
                         }
                     }
@@ -559,9 +606,11 @@ public final class NovaAudioEngine {
                         // terminado: la nueva sigue sola (y si iba acelerada o frenada, vuelve despacio a su velocidad)
                         d.close(); d = d2; d2 = null; rs[0] = rs2[0]; rs2[0] = null;
                         if (!Float.isNaN(xf.g)) { songGain = clamp(xf.g, 0f, 4f); gNow = songGain; }
+                        else { songGain = 1f; gNow = 1f; }   // 4.0b3 · la entrante sonó a 1 en el fundido: sigue igual (sin escalón)
                         Fifo tmp = f1; f1 = f2; f2 = tmp; f2.clear();
                         cur = xf.src; curDurUs = d.durationUs(); curPos = bPos; curRate = bRate;
-                        glide = Math.abs(curRate - 1) > 1e-4 ? (1 - curRate) / (6.0 * rate) : 0;
+                        // 4.0b3 · vuelve a su velocidad en 16 s (antes 6: se notaba cómo cambiaba el tono al empezar)
+                        glide = Math.abs(curRate - 1) > 1e-4 ? (1 - curRate) / (16.0 * rate) : 0;
                         d1Done = d2Done; xf = null; overlapping = false;
                     }
                 }
@@ -578,6 +627,9 @@ public final class NovaAudioEngine {
 
         /* ---- las curvas de cada estilo (las mismas que los fundidos de la app) ---- */
         private boolean lpOn, hpBOn;
+        /* 4.0b3 · cuánto se oye cada filtro (0 = nada, 1 = del todo): va hacia donde toca en 30 ms */
+        private float wA, wL, wB;
+        private float step(float w, boolean on) { final float k = 1f / (0.03f * rate); return on ? Math.min(1f, w + k) : Math.max(0f, w - k); }
         private float cUp(double x) { x = Math.max(0, Math.min(1, x)); return (float) Math.sin(x * Math.PI / 2); }
         private float cDown(double x) { x = Math.max(0, Math.min(1, x)); return (float) Math.cos(x * Math.PI / 2); }
         private float cS(double x) { x = Math.max(0, Math.min(1, x)); return (float) (0.5 - 0.5 * Math.cos(x * Math.PI)); }
@@ -829,54 +881,77 @@ public final class NovaAudioEngine {
         /** Para los barridos de los fundidos: cambia ya (cada 10 ms), sin perder lo que lleva dentro. */
         void now(int type, double f, int fs) { double[] c = coefs(type, f, 0.707, 0, fs); b0 = tb0 = c[0]; b1 = tb1 = c[1]; b2 = tb2 = c[2]; a1 = ta1 = c[3]; a2 = ta2 = c[4]; flat = false; }
         void reset() { l1 = l2 = r1 = r2 = lo1 = lo2 = ro1 = ro2 = 0; }
+        /** Deja pasar todo tal cual (pero sigue llevando la cuenta de lo que pasa, para entrar sin chasquido). */
+        void identity() { b0 = tb0 = 1; b1 = tb1 = b2 = tb2 = a1 = ta1 = a2 = ta2 = 0; flat = true; }
         float l(float x) { double y = b0 * x + b1 * l1 + b2 * l2 - a1 * lo1 - a2 * lo2; l2 = l1; l1 = x; lo2 = lo1; lo1 = y; return (float) y; }
         float r(float x) { double y = b0 * x + b1 * r1 + b2 * r2 - a1 * ro1 - a2 * ro2; r2 = r1; r1 = x; ro2 = ro1; ro1 = y; return (float) y; }
     }
 
     /**
-     * Limitador de seguridad con anticipación (3.7): el sonido pasa por un retraso de 3 ms y el volumen empieza a bajar en
-     * cuanto el pico entra, así cuando el pico sale ya está por debajo de -1 dB. Lo devuelve despacio (220 ms).
-     * Nunca deja pasar nada por encima del umbral (el último paso lo asegura muestra a muestra), sin recortes en seco.
+     * Limitador de seguridad con anticipación. 4.0b3: rehecho. El de la 3.7 bajaba el volumen demasiado tarde y, en el
+     * último momento, lo ajustaba muestra a muestra: en los picos eso equivale a recortar la onda (sonaba «sucio» cuando
+     * dos canciones fuertes se juntaban en un fundido). Ahora:
+     *  1) cada muestra pide la ganancia que necesita para no pasar de -1 dB;
+     *  2) se toma la menor de las que piden las muestras que vienen en los próximos 5 ms;
+     *  3) baja al instante a ese valor y vuelve despacio (220 ms);
+     *  4) esa curva se suaviza con una media de 5 ms.
+     * Como el sonido sale con 5 ms de retraso, la media ya ha llegado abajo cuando el pico sale: nunca se pasa del umbral y
+     * el volumen nunca da saltos de una muestra a otra. Sin trabajo (o apagado), la ganancia es exactamente 1.
      */
     static final class Limiter {
-        private final float thr = (float) Math.pow(10, -1 / 20.0), rel;
-        private final int look;
-        private final float[] dl, dr, need;   // retraso (izquierda, derecha) y la ganancia que pide cada muestra
+        private volatile float thr;
+        private final float rel;
+        private final int L;                         // muestras de anticipación (5 ms)
+        private final float[] dl, dr, need;          // retraso (izquierda, derecha) y lo que pidió cada muestra
         private final long[] qi; private final float[] qv; private int qh, qt;   // mínimo de la ventana (cola monótona)
+        private final double[] avg; private double sum;   // la media de los últimos L valores
         private long n;
-        private float g = 1f;
+        private float hold = 1f;
         float outL, outR;
-        Limiter(int fs) {
-            look = Math.max(16, Math.round(0.003f * fs));
-            dl = new float[look + 1]; dr = new float[look + 1]; need = new float[look + 1];
-            qi = new long[look + 2]; qv = new float[look + 2];
-            java.util.Arrays.fill(need, 1f);
+        Limiter(int fs) { this(fs, -1f); }
+        Limiter(int fs, float ceilDb) {
+            thr = (float) Math.pow(10, ceilDb / 20.0);
+            L = Math.max(32, Math.round(0.005f * fs));
+            dl = new float[L]; dr = new float[L]; need = new float[L];
+            qi = new long[L + 3]; qv = new float[L + 3];
+            avg = new double[L];
             rel = (float) (1 - Math.exp(-1 / (0.22 * fs)));
+            reset();
         }
+        int delay() { return L; }
+        /** El techo, en dB (‑1 normalmente; ‑2 con Bluetooth). */
+        void ceiling(float db) { thr = (float) Math.pow(10, db / 20.0); }
+        int clamps;   // (pruebas) veces que hizo falta el seguro
         /** Al quedarse en silencio (pausa, fin): se vacía el retraso, para que nada de lo anterior salga al volver a sonar. */
-        void reset() { java.util.Arrays.fill(dl, 0f); java.util.Arrays.fill(dr, 0f); java.util.Arrays.fill(need, 1f); qh = qt = 0; g = 1f; }
-        /** Entra una muestra; sale (en outL/outR) la de hace look muestras, ya con su volumen. on=false: pasa tal cual (con el mismo retraso). */
+        void reset() {
+            java.util.Arrays.fill(dl, 0f); java.util.Arrays.fill(dr, 0f); java.util.Arrays.fill(need, 1f);
+            java.util.Arrays.fill(avg, 1.0); sum = L; qh = qt = 0; hold = 1f;
+        }
+        /** Entra una muestra; sale (en outL/outR) la de hace L muestras, ya con su volumen. on=false: no pide bajar (y en
+         *  cuanto termina lo que estaba bajando, pasa tal cual: ganancia 1 exacta). */
         void push(float l, float r, boolean on) {
-            int w = (int) (n % (look + 1));
+            final int w = (int) (n % L);
             float pk = Math.max(Math.abs(l), Math.abs(r));
             float want = on && pk > thr ? thr / pk : 1f;
-            // la que sale ahora es la más antigua del retraso (la de la posición w, antes de pisarla)
             float ol = dl[w], or = dr[w], oNeed = need[w];
             dl[w] = l; dr[w] = r; need[w] = want;
-            // mínimo de lo que piden las muestras que están dentro del retraso (incluida la que acaba de entrar)
-            int cap = qi.length;
+            // el mínimo de lo que piden las L+1 últimas muestras (la que sale ahora y las L que vienen detrás)
+            final int cap = qi.length;
             while (qh != qt && qv[(qt - 1 + cap) % cap] >= want) qt = (qt - 1 + cap) % cap;
             qi[qt] = n; qv[qt] = want; qt = (qt + 1) % cap;
-            long oldest = n - look;
-            while (qh != qt && qi[qh] < oldest) qh = (qh + 1) % cap;
-            float target = qh != qt ? qv[qh] : 1f;
-            // bajar: en línea recta hasta el objetivo en lo que queda de retraso; subir: despacio
-            if (target < g) g = Math.max(target, g - (g - target) / Math.max(1, look / 2f));
-            else g += (target - g) * rel;
-            if (!on) g = 1f;
-            float gg = Math.min(g, oNeed);   // la muestra que sale nunca pasa del umbral
-            outL = ol * gg; outR = or * gg;
+            while (qh != qt && qi[qh] < n - L) qh = (qh + 1) % cap;
+            float h = qh != qt ? qv[qh] : 1f;
+            // baja al instante, sube despacio
+            if (h < hold) hold = h; else { hold += (h - hold) * rel; if (hold > 0.99995f) hold = 1f; }
+            // media de L: suave, y cuando el pico sale ya ha llegado abajo
+            final int k = (int) (n % L);
+            sum += hold - avg[k]; avg[k] = hold;
+            float g = (float) (sum / L);
+            if (g > 0.99995f) g = 1f;
+            if (g > oNeed) { g = oNeed; clamps++; }   // (seguro: con lo anterior no llega a pasar)
+            outL = ol * g; outR = or * g;
             n++;
+            if ((n & 0xFFFF) == 0) { double t = 0; for (double v : avg) t += v; sum = t; }   // sin errores que se acumulen
         }
     }
 

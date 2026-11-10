@@ -126,6 +126,18 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         }
     }
 
+    /* 4.0b3 · ¿suena por Bluetooth? (se mira cada 2 s) */
+    private int btTick;
+    private boolean btOut() {
+        try {
+            for (android.media.AudioDeviceInfo d : audio().getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                int t = d.getType();
+                if (t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || t == 26 || t == 27) return true;   // 26, 27: auriculares y altavoces BLE
+            }
+        } catch (Throwable ignored) { }
+        return false;
+    }
+
     private AudioManager audio() {
         if (am == null) am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
         return am;
@@ -166,13 +178,14 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
                 JSObject o = new JSObject();
                 o.put("type", "pos");
                 o.put("slot", i);
-                o.put("pos", e.position(i));
+                o.put("pos", e.heardPosition(i));   // 4.0b3: lo que se oye (la barra, la letra y las luces van con el sonido)
                 o.put("dur", e.duration(i));
                 notifyListeners("audio", o);
             }
             keepAwake(any);
             countListen(e);
             sleepTick(e);
+            if (++btTick % 8 == 0) e.setBluetooth(btOut());
         } catch (Throwable ignored) {
         }
     }
@@ -284,6 +297,9 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         r.put("available", true);
         r.put("rate", outputRate());
         r.put("v", 2);
+        NovaAudioEngine e = engine;   // 4.0b3 · para el diagnóstico: salida y lo que tarda en oírse
+        r.put("bt", btOut());
+        r.put("lat", e != null ? Math.round(e.latency() * 1000) : -1);
         call.resolve(r);
     }
 
@@ -381,7 +397,7 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
 
     private void stateToSession(int slot) {
         NovaSession s = session; NovaAudioEngine e = engine;
-        if (s != null && e != null && slot == s.slot && !s.external) s.setState(e.playing(slot), e.position(slot), e.duration(slot));
+        if (s != null && e != null && slot == s.slot && !s.external) s.setState(e.playing(slot), e.heardPosition(slot), e.duration(slot));
     }
 
     /**
@@ -613,8 +629,9 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
         int s = slot(call);
         JSObject r = new JSObject();
         NovaAudioEngine e = engine;
-        r.put("pos", e != null ? e.position(s) : 0);
+        r.put("pos", e != null ? e.heardPosition(s) : 0);
         r.put("dur", e != null ? e.duration(s) : 0);
+        r.put("lat", e != null ? e.latency() : 0);
         r.put("playing", e != null && e.playing(s));
         call.resolve(r);
     }
@@ -904,6 +921,11 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
     static final class AndroidOutput implements NovaAudioEngine.Output {
         private final AudioTrack track;
         private final int sr;
+        /* 4.0b3 · cuánto tarda en oírse lo que se escribe: se pregunta a Android cada 0,2 s qué trama está sonando de
+           verdad (incluye el retraso del Bluetooth en los móviles que lo dicen) */
+        private long written, lastQ;
+        private volatile long lat;
+        private final android.media.AudioTimestamp ts = new android.media.AudioTimestamp();
 
         AndroidOutput(int sr) {
             this.sr = sr;
@@ -912,6 +934,8 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
             AudioFormat af = new AudioFormat.Builder().setSampleRate(sr).setEncoding(AudioFormat.ENCODING_PCM_FLOAT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build();
             track = new AudioTrack.Builder().setAudioAttributes(aa).setAudioFormat(af)
                 .setBufferSizeInBytes(Math.max(min * 2, sr / 5 * 2 * 4)).setTransferMode(AudioTrack.MODE_STREAM).build();
+            long b = sr / 5; try { b = track.getBufferSizeInFrames(); } catch (Throwable ignored) { }
+            lat = b;
         }
 
         public int sampleRate() { return sr; }
@@ -920,7 +944,22 @@ public class NovaAudioPlugin extends Plugin implements NovaAudioEngine.Listener 
             try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Throwable ignored) { }
             try { track.play(); } catch (Throwable ignored) { }
         }
-        public void write(float[] st, int frames) { track.write(st, 0, frames * 2, AudioTrack.WRITE_BLOCKING); }
+        public void write(float[] st, int frames) {
+            track.write(st, 0, frames * 2, AudioTrack.WRITE_BLOCKING);
+            written += frames;
+            long now = System.nanoTime();
+            if (now - lastQ > 200_000_000L) { lastQ = now; measure(now); }
+        }
+        private void measure(long now) {
+            long l = -1;
+            try {
+                if (track.getTimestamp(ts)) l = written - (ts.framePosition + Math.round((now - ts.nanoTime) * (double) sr / 1e9));
+            } catch (Throwable ignored) { }
+            if (l < 0 || l > 2L * sr) { try { l = written - (track.getPlaybackHeadPosition() & 0xFFFFFFFFL); } catch (Throwable ignored) { l = -1; } }
+            if (l < 0 || l > 2L * sr) return;
+            long c = lat; lat = c <= 0 ? l : (c * 3 + l) / 4;
+        }
+        public long latencyFrames() { return lat; }
         public void pause() { try { track.pause(); } catch (Throwable ignored) { } }
         public void flush() { try { track.flush(); } catch (Throwable ignored) { } }
         public void close() { try { track.stop(); } catch (Throwable ignored) { } track.release(); }

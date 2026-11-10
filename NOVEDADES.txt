@@ -23,6 +23,13 @@ Revisión general (beta 2)
 - A pantalla completa, el nombre de la canción ya cabe entero en el móvil.
 - Nova ya no intenta leer en voz alta emojis como ⭐ o 👨‍👩‍👧.
 
+Sonido y visualizadores (beta 3)
+- Transiciones limpias: el limitador del motor está rehecho. Antes, cuando dos canciones fuertes se juntaban en un fundido, ensuciaba el sonido; ahora baja el volumen con suavidad y a tiempo. Los filtros de los fundidos (los graves que cambian de manos, la que se apaga por arriba) entran y salen sin chasquidos.
+- Mezclas DJ: la canción que entra cambia menos de velocidad para cuadrar el ritmo (como mucho un 3 %), sin ondular, y vuelve a su tono despacio. Si los ritmos están más lejos, se usa un fundido con filtro.
+- Los visualizadores y las luces van con lo que oyes: antes iban por delante (unas décimas con el altavoz y casi medio segundo con Bluetooth). Ahora esperan a que el sonido salga, y laten con los golpes de bombo que suenan de verdad. La letra karaoke y la barra también van con el sonido.
+- Visualizadores más fluidos: ya no bajan a 30 fotogramas cuando llevas un rato mirándolos sin tocar, y si el móvil no llega, dibujan con algo menos de resolución en vez de ir a tirones.
+- Con auriculares Bluetooth, Órbita deja un poco más de margen en los picos (el Bluetooth vuelve a comprimir el sonido y, sin ese margen, puede saturar).
+
 Órbita 3.9: luces con la música, letras tipo karaoke, la música se pausa con suavidad cuando suena otra app o se desconectan los auriculares, y arrastrar el reproductor es más fluido.
 
 Luces con la música

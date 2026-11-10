@@ -998,7 +998,7 @@ function ensureGraph() {
     });
     G = { pre, post, duck, master, eq, last: n, lim, limOn: null, an, nyq, echo: { eIn, eDel, eFb }, dk };
     if (tapSrc) { try { tapSrc.disconnect(); } catch {} tapSrc = null; }
-    analyser = an; freq = new Uint8Array(an.frequencyBinCount);
+    analyser = webDelay(an, c); freq = new Uint8Array(an.frequencyBinCount);
     routeLimiter(); applyEq(); applyVol();
     const t = current(); if (t && A < 2) applyNorm(A, t, 0);
   } catch { G = null; }
@@ -1085,12 +1085,26 @@ function tween(key, to, ms) {
     tweens[key] = rec;
   });
 }
+/* 4.0b3 · the analyser, a few frames behind: as long as the sound takes to come out (speaker or Bluetooth) */
+function webDelay(an, c) {
+  const N = 48, fq = [], td = [], at = new Float64Array(N); let w = 0, last = 0;
+  for (let i = 0; i < N; i++) { fq.push(new Uint8Array(an.frequencyBinCount)); td.push(new Uint8Array(an.fftSize)); }
+  const lat = () => { const v = (c.outputLatency || 0) + (c.baseLatency || 0); return isFinite(v) ? Math.min(0.6, Math.max(0, v)) * 1000 : 0; };
+  const pick = () => {
+    const now = performance.now();
+    if (now - last > 6) { last = now; an.getByteFrequencyData(fq[w]); an.getByteTimeDomainData(td[w]); at[w] = now; w = (w + 1) % N; }
+    const goal = now - lat(); let best = (w - 1 + N) % N;
+    for (let k = 1; k <= N; k++) { const i = (w - k + N) % N; if (!at[i]) break; best = i; if (at[i] <= goal) break; }
+    return best;
+  };
+  return { wrapped: true, fftSize: an.fftSize, frequencyBinCount: an.frequencyBinCount, getByteFrequencyData(a) { a.set(fq[pick()].subarray(0, a.length)); }, getByteTimeDomainData(a) { a.set(td[pick()].subarray(0, a.length)); } };
+}
 function tapAnalyser(d) {
   if (G || d === netEl || d === ytEl) return;
   try {
     if (typeof d.captureStream !== 'function') return;
     const c = audioCtx(); if (!c) return;
-    if (!analyser) { analyser = c.createAnalyser(); analyser.fftSize = 512; analyser.smoothingTimeConstant = 0.8; freq = new Uint8Array(analyser.frequencyBinCount); const mute = c.createGain(); mute.gain.value = 0; analyser.connect(mute); mute.connect(c.destination); }
+    if (!analyser || analyser.wrapped) { analyser = c.createAnalyser(); analyser.fftSize = 512; analyser.smoothingTimeConstant = 0.8; freq = new Uint8Array(analyser.frequencyBinCount); const mute = c.createGain(); mute.gain.value = 0; analyser.connect(mute); mute.connect(c.destination); }
     wakeCtx();
     const stream = d.captureStream(); if (!stream.getAudioTracks().length) return;
     if (tapSrc) { try { tapSrc.disconnect(); } catch {} }
@@ -2462,8 +2476,9 @@ function naFade(p, t) {
   if (!durA || !a) return { xf: Math.max(2, Math.min(16, AUD.mixLen)), at: 0, st, style: 0 };
   const pl = planMix(a, b, durA);
   /* 3.5b4 · the engine does the DJ styles too: «filtro», and «dj» with the beats squared (the echo-out becomes a short filter) */
-  /* the engine squares the beat by changing the speed (and so, a little, the pitch): only up to 4 %; more than that, a filter mix */
-  const djOk = pl.style === 'dj' && Math.abs((pl.rateB || 1) - 1) <= 0.04;
+  /* the engine squares the beat by changing the speed (and so, a little, the pitch): only up to 3 % (4.0b3, was 4 %: the
+     song coming in sounded out of tune); more than that, a filter mix */
+  const djOk = pl.style === 'dj' && Math.abs((pl.rateB || 1) - 1) <= 0.03;
   const style = djOk ? 2 : pl.style === 'dj' || pl.style === 'filtro' || pl.style === 'eco' ? 1 : 0;
   if (pl.style === 'dj' && !djOk) pl.len = Math.min(pl.len, 6);
   const o = { xf: Math.max(1, Math.min(16, pl.style === 'eco' ? 4 : pl.len)), at: pl.start > 1 ? pl.start : 0, st: Math.max(0, pl.bStart || 0), style };
@@ -3587,7 +3602,11 @@ $('#onb').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.m
 $('#onbSkip').onclick = () => { if (OB_STEPS[OB.step] === 'gustos') obSaveTastes(); if (OB_STEPS[OB.step] === 'dj') obSaveDj(); closeOnboarding(); };
 $('#obAgain').onclick = () => openOnboarding(true);
 $('#diagCopy').onclick = async () => {
-  const txt = diagText();
+  let txt = diagText();
+  if (NA_ON) { try { const st = await NA_PLUGIN.status(); txt += `
+Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda en oírse ${st.lat} ms` : ''}`; } catch {} }
+  if (GLV.scale && GLV.scale < 1) txt += `
+Visualizador 3D: resolución ×${GLV.scale.toFixed(2)} (el móvil no llegaba)`;
   try { await navigator.clipboard.writeText(txt); }
   catch { const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch {} ta.remove(); }
   toast('Diagnóstico copiado: pégamelo en el chat', 4200);
@@ -5703,6 +5722,7 @@ function plRead(ts) {
   const d = act(), playing = !!current() && !d.paused && A < 2;
   let k = 0, sn = 0, lv = 0, hit = 0;
   if (playing && analyser && freq) {
+    PL.liveAt = ts;
     analyser.getByteFrequencyData(freq);   // (with the Android engine this also keeps it listening)
     if (NA_ON && performance.now() - naBandsAt < 500) { k = naBands[0] / 255; sn = naBands[2] / 255; lv = naBands[5] / 255; PL.v = naBands[3] / 255; hit = naFlags; naFlags = 0; }
     else {
@@ -5884,14 +5904,20 @@ function vizRead(ts) {
   const sm = (a, b, up, dn) => a + (b - a) * (b > a ? up : dn);
   VZ.bass = sm(VZ.bass, bass, 0.55, 0.12); VZ.mid = sm(VZ.mid, mid, 0.4, 0.1); VZ.high = sm(VZ.high, high, 0.5, 0.15); VZ.level = sm(VZ.level, level, 0.4, 0.08);
   /* Beats: from the song's analysed beat grid when we have it, otherwise from sudden bass hits */
+  /* 4.0b3 · the beat: the kicks that are sounding right now (the engine's, or the web's), in time with what you hear.
+     The song's beat grid only sets the pace (and is the beat when there's nothing live): if it was a little off, the
+     visualizer pulsed out of time for the whole song. */
   let beat = false; const an = t && !t.net && anaCache.get(t.id);
+  const live = playing && ts - (PL.liveAt || 0) < 300;
+  const lag = !NA_ON && actx ? Math.min(0.6, Math.max(0, (actx.outputLatency || 0) + (actx.baseLatency || 0))) : 0;
   if (playing && an && an.bpm && an.conf >= 2) {
-    const ph = ((d.currentTime - an.gridIn) / (60 / an.bpm)) % 1; if (ph < VZ.lastPhase - 0.5) beat = true; VZ.lastPhase = ph; VZ.phase = ph; VZ.bpm = an.bpm;
+    const ph = (((d.currentTime - lag - an.gridIn) / (60 / an.bpm)) % 1 + 1) % 1; if (!live && ph < VZ.lastPhase - 0.5) beat = true; VZ.lastPhase = ph; VZ.phase = ph; VZ.bpm = an.bpm;
   } else {
     VZ.avgBass += (bass - VZ.avgBass) * 0.04;
-    if (playing && bass > VZ.avgBass * 1.32 && bass > 0.22 && ts - VZ.lastBeat > 260) beat = true;
+    if (!live && playing && bass > VZ.avgBass * 1.32 && bass > 0.22 && ts - VZ.lastBeat > 260) beat = true;
     VZ.bpm = 0;
   }
+  if (live && PL.kickAt === ts) beat = true;
   if (beat) { VZ.lastBeat = ts; VZ.beatK = 1; VZ.waves.push({ r: 0, a: 0.8 }); if (VZ.waves.length > 6) VZ.waves.shift(); }
   VZ.beatK *= Math.pow(0.02, dt);
   return { dt, playing, beat };
@@ -6236,14 +6262,31 @@ function glColors(o, t, img) {
   GLV.pal = [c[0], c[1], c3]; GLV.palKey = key;
   return GLV.pal;
 }
+/* 4.0b3 · smooth first: every 1,2 s it looks at how long the frames take. If frames are being lost, it draws with 15 %
+   fewer pixels (down to half); when it goes well for a while, it goes back up. Barely visible, and no more jerks. */
+const useGLnow = () => glWanted() && GLV.ok !== false;
+function glAdapt(ts, slow) {
+  const dt = ts - (GLV.lastTs || ts); GLV.lastTs = ts;
+  if (slow || dt <= 0 || dt > 250) { GLV.win = 0; GLV.acc = 0; return; }
+  GLV.acc = (GLV.acc || 0) + dt; GLV.win = (GLV.win || 0) + 1;
+  if (GLV.acc < 1200) return;
+  const avg = GLV.acc / GLV.win, vs = 16.7; GLV.acc = 0; GLV.win = 0;   // the aim: 60 frames a second (a 120 Hz screen doesn't need 120)
+  const sc = GLV.scale || 1;
+  if (avg > vs * 1.3 && sc > 0.5) { GLV.scale = Math.max(0.5, sc * 0.85); GLV.good = 0; }
+  else if (avg < vs * 1.08) { GLV.good = (GLV.good || 0) + 1; if (GLV.good >= 4 && sc < 1) { GLV.scale = Math.min(1, sc * 1.1); GLV.good = 0; } }
+  else GLV.good = 0;
+}
 function glDraw(cv, f, ts) {
   if (cv.dataset.kind === 'lost') return false;
   let S = GLV.ctx.get(cv);
   if (!S) { S = glInit(cv); if (!S) return false; GLV.ctx.set(cv, S); }
   const gl = S.gl, sc = VZ.scene, o = vizOpts(sc), t = current(), img = t && coverImg(t);
   const heavy = sc === 'ondas' || sc === 'aurora' || sc === 'tunel';
-  const dpr = Math.min(window.devicePixelRatio || 1, o.detail === 'bajo' ? 0.75 : o.detail === 'alto' ? 2 : heavy ? 1 : 1.5);
-  const r = cv.getBoundingClientRect(), W = Math.max(2, Math.round(r.width * dpr)), H = Math.max(2, Math.round(r.height * dpr));
+  const dpr = Math.min(window.devicePixelRatio || 1, o.detail === 'bajo' ? 0.75 : o.detail === 'alto' ? 2 : heavy ? 1 : 1.5) * (GLV.scale || 1);
+  /* (the size of the canvas, measured only when it changes: measuring it every frame made the phone recalculate the page) */
+  if (!S.ro && window.ResizeObserver) { S.ro = new ResizeObserver(() => { S.rect = null; }); S.ro.observe(cv); }
+  if (!S.rect || (!S.ro && ts - (S.rectAt || 0) > 500)) { S.rect = cv.getBoundingClientRect(); S.rectAt = ts; }
+  const r = S.rect, W = Math.max(2, Math.round(r.width * dpr)), H = Math.max(2, Math.round(r.height * dpr));
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   gl.viewport(0, 0, W, H);
   if (S.built !== sc + ':' + o.detail || GLV.rebuild) { glBuild(S, sc, o); }
@@ -6373,10 +6416,13 @@ function vizFrame(ts) {
   const cvs = document.hidden || root.classList.contains('booting') ? [] : vizCanvases();
   if (!cvs.length) return;
   VZ.raf = requestAnimationFrame(vizFrame);
-  if ((state.anim === 'lite' || idleSlow() || !current() || act().paused) && ts - (VZ.lastDraw || 0) < 31) return;
+  const watching = cvs.some(c => c.id === 'vizFS' || c.id === 'vizNP');
+  const slow = state.anim === 'lite' || (!watching && idleSlow()) || !current() || act().paused;
+  if (slow && ts - (VZ.lastDraw || 0) < 31) return;
   VZ.lastDraw = ts;
-  const f = vizRead(ts), t = current(), img = t && coverImg(t);
   try { plRead(ts); } catch {}
+  const f = vizRead(ts), t = current(), img = t && coverImg(t);
+  if (useGLnow()) glAdapt(ts, slow);
   const useGL = glWanted(); if (useGL) glTick(f, ts);
   for (let cv of cvs) {
     if (useGL) { cv = vizSwap(cv, 'gl'); let ok = false; try { ok = glDraw(cv, f, ts); } catch (e) { diag('visualizador 3D: ' + String(e.message || e).slice(0, 100)); GLV.ok = false; } if (ok) continue; }
@@ -6459,7 +6505,10 @@ const NEWS = {
     'Con las animaciones «Ligeras» se ven los tres visualizadores de siempre.',
     '<b>Revisión general</b>: si pausas y enseguida das a «play», la música vuelve (antes el segundo toque la volvía a pausar): mientras baja, el botón ya muestra «play». Y si otra app suena solo un momento, Órbita vuelve sola aunque no le diera tiempo a bajar del todo.',
     '<b>Gasta menos batería</b>: con la música en pausa, el vinilo, el halo y el fondo del reproductor dejan de redibujarse sin necesidad; Montañas y los demás visualizadores trabajan menos por fotograma.',
-    '<b>Arrastrar el reproductor</b>: al soltar cuenta hacia dónde iba el dedo en ese momento (si te paras antes de soltar, no «sale disparado»; y si lo devuelves con un gesto rápido, te hace caso).'
+    '<b>Arrastrar el reproductor</b>: al soltar cuenta hacia dónde iba el dedo en ese momento (si te paras antes de soltar, no «sale disparado»; y si lo devuelves con un gesto rápido, te hace caso).',
+    '<b>Transiciones limpias</b>: el limitador del motor está rehecho (antes, cuando dos canciones fuertes se juntaban, ensuciaba el sonido) y los filtros de los fundidos entran y salen sin chasquidos. En las mezclas DJ la canción que entra cambia menos de velocidad y vuelve a su tono despacio.',
+    '<b>Los visualizadores van con lo que oyes</b>: antes iban por delante (unas décimas con el altavoz, casi medio segundo con Bluetooth). Ahora esperan a que el sonido salga, y laten con los golpes de bombo que suenan de verdad. La letra karaoke y la barra también van con el sonido.',
+    '<b>Visualizadores más fluidos</b>: ya no bajan a 30 fotogramas cuando llevas un rato mirándolos sin tocar, y si el móvil no llega, dibujan con algo menos de resolución en vez de ir a tirones.'
   ],
   '3.9': [
     '<b>Pausa suave cuando suena otra app</b>: si pones un vídeo de TikTok, una nota de voz o cualquier otro audio, la música se va apagando y se pausa (también con la pantalla apagada). Si era algo corto, vuelve sola subiendo poco a poco.',
@@ -8359,7 +8408,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }
