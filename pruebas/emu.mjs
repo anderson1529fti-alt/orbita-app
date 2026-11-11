@@ -400,6 +400,13 @@ try {
     }
     // una sugerencia
     await tapText('Ayuda', 3000); cn = ui(); shot('chat-ayuda');
+    for (let k = 0; k < 3 && !find(cn, 'Puedes pedirme'); k++) { await sleep(1500); cn = ui(); }   // (a veces el emulador da la pantalla de un momento antes)
+    {
+      // mantener pulsado un mensaje lo copia (aquí solo se comprueba que no rompe nada)
+      const bub = find(cn, 'Puedes pedirme'); if (bub) { const [bx, by] = center(bub); sh(`input swipe ${bx} ${by} ${bx} ${by} 900`); await sleep(1200); }
+      check('mantener pulsado un mensaje (copiarlo) no rompe nada', alive() && crashes() === 0 && (await js(`return window.__orbita.NUI.shown;`)) === true);
+      cn = ui();
+    }
     check('tocar una sugerencia: sale mi mensaje y Nova contesta', cn.filter(n => n.text === 'Ayuda').length === 2 && !!find(cn, 'Puedes pedirme'), cn.filter(n => n.text).map(n => n.text.slice(0, 18)).join(' | ').slice(0, 300));
     // escribir con el teclado
     const inp = cn.find(n => n.text === 'Escribe a la DJ…') || cn.find(n => n.desc === 'Mensaje para la DJ');

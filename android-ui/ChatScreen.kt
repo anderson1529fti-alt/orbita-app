@@ -1,7 +1,12 @@
 package __PACKAGE__
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -38,8 +43,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -105,7 +114,7 @@ fun ChatScreen() {
     }
 }
 
-/** Un mensaje: los míos a la derecha, con el color de la app; los de Nova a la izquierda. */
+/** Un mensaje: los míos a la derecha, con el color de la app; los de Nova a la izquierda. Mantenerlo pulsado lo copia. */
 @Composable
 private fun Bubble(m: UiMsg, sk: Skin, maxW: Dp) {
     val p = sk.pal
@@ -115,6 +124,18 @@ private fun Bubble(m: UiMsg, sk: Skin, maxW: Dp) {
     var mod = Modifier.widthIn(max = maxW).clip(shape)
     mod = if (m.me) mod.background(p.grad) else mod.background(Color.White.copy(alpha = 0.06f)).border(sk.b, p.line2, shape)
     val b = if (m.me) 0.dp else sk.b
+    val ctx = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    mod = mod.pointerInput(m.text) {
+        detectTapGestures(onLongPress = {
+            try {
+                (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Órbita", m.text))
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                // (desde Android 13 el propio sistema avisa de que se ha copiado)
+                if (Build.VERSION.SDK_INT < 33) { UiState.toast = "Mensaje copiado"; UiState.toastMs = 1800L; UiState.toastN = UiState.toastN + 1 }
+            } catch (ignored: Throwable) { }
+        })
+    }
     Box(mod.padding(horizontal = 14.dp + b, vertical = 10.dp + b)) {
         T(m.text, 15f * sk.tk, if (m.me) p.onAccent else p.fg, weight = if (m.me) FontWeight.Bold else FontWeight.Normal, lh = 1.4f)
     }
