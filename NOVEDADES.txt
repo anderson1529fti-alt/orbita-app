@@ -1,3 +1,12 @@
+Órbita 4.3: «Mi música» ya es una pantalla nativa.
+
+El segundo paso para que Órbita sea una app nativa
+- La pantalla «Mi música» la dibuja ahora Android (Kotlin y Compose), no la página web de antes. Se ve igual que siempre: mismo aspecto, mismos colores y lo que elijas en «Personaliza Órbita».
+- La lista solo dibuja las canciones que están a la vista, así que ya no hace falta «Mostrar más»: están todas desde el principio, por grande que sea tu biblioteca.
+- Buscar es más cómodo: al tocar la caja de búsqueda, sube arriba del todo para que veas los resultados con el teclado abierto, y tiene una ✕ para vaciarla.
+- Los botones de cada canción (favorita, editar, quitar) dicen lo que son a los lectores de pantalla.
+- Si algo no se viera bien en tu móvil, en Ajustes › Sonido y mezclas puedes apagar «Mi música nativa» y vuelve la pantalla de siempre. Las demás pantallas siguen igual por ahora.
+
 Órbita 4.2: el reproductor ya es de Android.
 
 El primer paso para que Órbita sea una app nativa

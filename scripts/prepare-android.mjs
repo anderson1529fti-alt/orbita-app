@@ -100,6 +100,8 @@ if (extras) {
 const nativeAudio = extras && process.env.NATIVEAUDIO !== '0' && fs.existsSync(path.join(root, 'android-audio'));
 // 4.2 · El reproductor en Kotlin con Media3 (carpeta android-player). PLAYER=java es un respaldo del workflow: el de la 4.1.
 const kotlinPlayer = nativeAudio && process.env.PLAYER !== 'java' && fs.existsSync(path.join(root, 'android-player'));
+// 4.3 · Las pantallas nativas (carpeta android-ui, Kotlin con Compose). NATIVEUI=0 es un respaldo del workflow: sin ellas.
+const nativeUi = kotlinPlayer && process.env.NATIVEUI !== '0' && fs.existsSync(path.join(root, 'android-ui'));
 if (kotlinPlayer && !manifest.includes('.OrbitaService')) {
   // el servicio de música (Media3) y los botones de los auriculares con Órbita cerrada
   manifest = manifest.replace('</application>', `    <service android:name=".OrbitaService" android:exported="true" android:foregroundServiceType="mediaPlayback">
@@ -167,6 +169,12 @@ if (nativeAudio && kotlinPlayer) {
   put('android-audio', 'NovaAudioEngine.java');
   for (const f of fs.readdirSync(path.join(root, 'android-player')).filter(f => f.endsWith('.java') || f.endsWith('.kt'))) put('android-player', f);
   console.log('Motor de sonido de Android: incluido, con el reproductor de Kotlin (Media3)');
+  // 4.3 · Fase 2: las pantallas nativas (Kotlin y Compose) y sus tipos de letra
+  if (nativeUi) {
+    for (const f of fs.readdirSync(path.join(root, 'android-ui')).filter(f => f.endsWith('.kt'))) put('android-ui', f);
+    if (fs.existsSync(path.join(root, 'android-ui', 'res'))) copyDir(path.join(root, 'android-ui', 'res'), res);
+    console.log('Pantallas nativas (Compose): incluidas');
+  }
 } else if (nativeAudio) {
   for (const f of fs.readdirSync(path.join(root, 'android-audio')).filter(f => f.endsWith('.java'))) {
     fs.writeFileSync(path.join(javaDir, f), fs.readFileSync(path.join(root, 'android-audio', f), 'utf8').replace(/__PACKAGE__/g, appId));
@@ -312,6 +320,25 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
   let props = fs.existsSync(propsPath) ? fs.readFileSync(propsPath, 'utf8') : '';
   if (!props.includes('kotlin.jvm.target.validation.mode')) fs.writeFileSync(propsPath, props.replace(/\n*$/, '\n') + 'kotlin.jvm.target.validation.mode=warning\n');
   console.log('Reproductor de Kotlin: Kotlin 2.2.20 y Media3 1.9.4');
+  // 4.3 · Compose para las pantallas nativas
+  if (nativeUi && !gradle.includes('compose-bom')) {
+    let rg = fs.readFileSync(rootGradlePath, 'utf8');
+    if (!rg.includes('compose-compiler-gradle-plugin')) {
+      rg = rg.replace(/(classpath\s+'org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^']+')/, `$1\n        classpath 'org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.2.20'`);
+      if (!rg.includes('compose-compiler-gradle-plugin')) throw new Error('No encuentro dónde añadir Compose en android/build.gradle');
+      fs.writeFileSync(rootGradlePath, rg);
+    }
+    gradle = gradle.replace(/apply plugin:\s*'kotlin-android'/, m => `${m}\napply plugin: 'org.jetbrains.kotlin.plugin.compose'`);
+    gradle = gradle.replace(/dependencies\s*\{/, m => `${m}\n    implementation platform('androidx.compose:compose-bom:2025.09.00')\n    implementation 'androidx.compose.ui:ui'\n    implementation 'androidx.compose.foundation:foundation'`);
+    gradle += `
+android {
+    buildFeatures {
+        compose true
+    }
+}
+`;
+    console.log('Pantallas nativas: Compose (BOM 2025.09.00)');
+  }
 }
 fs.writeFileSync(gradlePath, gradle);
 

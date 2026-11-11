@@ -259,6 +259,7 @@ html.lite .pressed{scale:none}
 .progress .bar i{display:block;height:100%;width:0;background:var(--grad);transition:width .25s}
 
 /* Rows */
+html.nui-lib #view-biblioteca{visibility:hidden}
 .rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .row,.col-hd{display:grid;grid-template-columns:minmax(0,1fr) 150px 52px 56px 36px 72px;gap:6px 10px;align-items:center}
 .row{padding:5px 6px;border-radius:calc(12px * var(--round,1));border:1px solid transparent;content-visibility:auto;contain-intrinsic-size:auto 60px}
@@ -1194,6 +1195,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
           <div class="row-wrap"><h2>Sonido y mezclas</h2><span class="spacer"></span><button class="toggle" id="tDirect" aria-pressed="false"><span class="sw"></span>Sonido directo</button></div>
           <p class="note" id="soundNote"></p>
           <div class="row-wrap" id="engineRow" hidden><button class="toggle" id="tEngine" aria-pressed="false"><span class="sw"></span>Motor de sonido de Android <span class="beta-tag">recomendado</span></button><span class="note" id="engineNote"></span></div>
+          <div class="row-wrap" id="nuiRow" hidden><button class="toggle" id="tNui" aria-pressed="false"><span class="sw"></span>«Mi música» nativa <span class="beta-tag">nuevo</span></button><span class="note" id="nuiNote"></span></div>
           <div class="stack" id="soundBody">
             <div class="eyebrow">Entre canciones</div>
             <div class="chips" id="mixChips" role="group" aria-label="Tipo de mezcla"></div>
