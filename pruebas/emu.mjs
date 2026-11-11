@@ -449,6 +449,40 @@ try {
   }
   // ================= fin de la fase 3 · paso 1 =================
 
+  // ---- 4.4 · las muestras de 30 s, con Deezer de verdad (si el emulador llega a Internet)
+  {
+    const info = await js(`
+      try {
+        const r = await Capacitor.Plugins.CapacitorHttp.get({ url: 'https://api.deezer.com/track/3135556' });
+        const j = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+        return { status: r.status, title: j && j.title, artist: j && j.artist && j.artist.name, preview: (j && j.preview) || '', error: j && j.error };
+      } catch (e) { return { err: String(e && e.message || e) }; }`);
+    if (!info || typeof info !== 'object' || !info.preview) log('(Deezer no contesta desde el emulador: ' + JSON.stringify(info).slice(0, 220) + '; las muestras de verdad no se prueban aquí)');
+    else {
+      const exp = /exp=(\d{9,11})/.exec(info.preview);
+      log('muestra de Deezer «' + info.title + '»: ' + (exp ? 'su dirección caduca en ' + Math.round((+exp[1] * 1000 - Date.now()) / 60000) + ' min' : 'su dirección no dice cuándo caduca') + ' · ' + info.preview.replace(/hmac=.*/, 'hmac=…').slice(0, 170));
+      const raw = u => js(`return await new Promise(res => { const a = new Audio(); let done = false; const end = v => { if (done) return; done = true; try { a.pause(); a.removeAttribute('src'); a.load(); } catch {} res(v); }; a.muted = true; a.addEventListener('error', () => end('no se puede (error ' + (a.error && a.error.code) + ')')); a.addEventListener('playing', () => end('suena')); a.addEventListener('canplay', () => end('suena')); setTimeout(() => end('nada en 10 s'), 10000); a.src = ${JSON.stringify(u)}; const p = a.play(); if (p && p.catch) p.catch(() => {}); });`);
+      // la misma dirección con la fecha de ayer: lo que le llegaba a la app al tocar una recomendación horas después
+      const stale = exp ? info.preview.replace(/exp=\d+/, 'exp=' + (Math.floor(Date.now() / 1000) - 86400)) : '';
+      const rFresh = await raw(info.preview), rStale = stale ? await raw(stale) : '';
+      log('  una dirección recién pedida: ' + rFresh + (stale ? ' · una caducada: ' + rStale : ''));
+      check('una muestra de Deezer recién pedida suena en la app', rFresh === 'suena', rFresh);
+      if (stale) {
+        const res = await js(`
+          const o = window.__orbita, stale = ${JSON.stringify(stale)};
+          const r = { id: 'dz:3135556', key: 'prueba|x', title: ${JSON.stringify(info.title || 'Muestra')}, artist: ${JSON.stringify(info.artist || '')}, album: '', art: '', artBig: '', url: stale, full: 200, link: '', akey: 'x', from: ['Kora'], own: false, s: 1, why: 'prueba' };
+          o.REC.list.length = 0; o.REC.list.push(r); o.REC.at = Date.now() - 6 * 3600e3;
+          const tw = document.querySelector('#toast'); if (tw) tw.hidden = true;
+          o.recPlay(0, false);
+          await new Promise(z => setTimeout(z, 9000));
+          const t = o.trackById(o.state.queue[o.state.qi]), d = o.decks[o.A];
+          return { cur: t && t.id, nueva: !!t && t.url !== stale, paused: d ? d.paused : null, t: d ? d.currentTime : -1, deck: o.A, toast: tw && !tw.hidden ? tw.textContent : '', guardada: !!o.REC.list[0] && o.REC.list[0].url !== stale };`);
+        shot('muestra-sonando');
+        check('una recomendación guardada con la dirección caducada: la app pide la nueva y suena, sin aviso de error', res && res.cur === 'dz:3135556' && res.nueva && res.paused === false && res.t > 1 && !res.toast && res.guardada, 'la caducada a pelo: ' + rStale + ' · ' + JSON.stringify(res));
+      }
+    }
+  }
+
   const st0 = await js(`return await Capacitor.Plugins.NovaAudio.status();`);
   check('el reproductor es el de Kotlin', st0 && st0.player === 'kotlin', JSON.stringify(st0));
 
