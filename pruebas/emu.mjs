@@ -475,10 +475,11 @@ try {
           const tw = document.querySelector('#toast'); if (tw) tw.hidden = true;
           o.recPlay(0, false);
           await new Promise(z => setTimeout(z, 9000));
-          const t = o.trackById(o.state.queue[o.state.qi]), d = o.decks[o.A];
-          return { cur: t && t.id, nueva: !!t && t.url !== stale, paused: d ? d.paused : null, t: d ? d.currentTime : -1, deck: o.A, toast: tw && !tw.hidden ? tw.textContent : '', guardada: !!o.REC.list[0] && o.REC.list[0].url !== stale };`);
+          const t = o.trackById(o.state.queue[o.state.qi]), b = document.querySelector('[data-ctl="play"]'), c = document.querySelector('[data-t="cur"]');
+          const sec = v => { const m = /(\\d+):(\\d\\d)/.exec(v || ''); return m ? +m[1] * 60 + +m[2] : -1; };
+          return { cur: t && t.id, nueva: !!t && t.url !== stale, boton: b ? b.getAttribute('aria-label') : '', t: sec(c && c.textContent), toast: tw && !tw.hidden ? tw.textContent : '', guardada: !!o.REC.list[0] && o.REC.list[0].url !== stale };`);
         shot('muestra-sonando');
-        check('una recomendación guardada con la dirección caducada: la app pide la nueva y suena, sin aviso de error', res && res.cur === 'dz:3135556' && res.nueva && res.paused === false && res.t > 1 && !res.toast && res.guardada, 'la caducada a pelo: ' + rStale + ' · ' + JSON.stringify(res));
+        check('una recomendación guardada con la dirección caducada: la app pide la nueva y suena, sin aviso de error', res && res.cur === 'dz:3135556' && res.nueva && /Pausa/i.test(res.boton || '') && res.t > 1 && !res.toast && res.guardada, 'la caducada a pelo: ' + rStale + ' · ' + JSON.stringify(res));
       }
     }
   }
