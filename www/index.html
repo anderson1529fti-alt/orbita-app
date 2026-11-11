@@ -104,8 +104,8 @@ svg{display:block}
 .gear{width:34px;height:34px;display:inline-grid;place-items:center;border-radius:50%;border:1px solid var(--line-2);color:var(--muted);background:rgba(0,0,0,.35)}
 .gear:hover{color:var(--fg);border-color:var(--accent)}
 .hero h1{margin:0;font-family:var(--f-display);font-weight:900;font-size:clamp(2.6rem,7.4vw,5.6rem);line-height:.9;letter-spacing:-.045em;text-transform:uppercase}
-.hero h1 .d{display:block;white-space:nowrap;background:linear-gradient(95deg,#fff 10%,var(--accent) 55%,var(--accent-2) 95%);-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero h1 .f{display:block;font-weight:700;font-size:.5em;letter-spacing:-.02em;color:transparent;-webkit-text-stroke:1.5px var(--accent-2);margin-top:.18em;text-transform:none}
+.hero h1 .d{display:block;white-space:nowrap;padding-top:.3em;margin-top:-.3em;background:linear-gradient(95deg,#fff 10%,var(--accent) 55%,var(--accent-2) 95%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero h1 .f{display:block;font-weight:500;font-size:.5em;letter-spacing:.03em;color:transparent;-webkit-text-stroke:1.15px var(--accent-2);margin-top:.18em;text-transform:none}
 .hint{margin:0;color:var(--muted);font-size:1.02rem;max-width:44ch}
 .vinyl-wrap{width:min(330px,44vw);aspect-ratio:1;max-width:100%;cursor:pointer}
 #vinyl{width:100%;height:100%}
@@ -214,7 +214,7 @@ html.lite .pressed{scale:none}
 .mix{display:flex;flex-direction:column;gap:18px}
 .mix-head{display:flex;gap:16px;justify-content:space-between;align-items:flex-end;flex-wrap:wrap}
 .mix-head>div:first-child{min-width:0;flex:1 1 340px}
-.mix-head h2{margin:8px 0 6px;font-family:var(--f-display);font-weight:900;font-size:clamp(1.6rem,4vw,2.6rem);letter-spacing:-.04em;line-height:1;text-wrap:balance;background:linear-gradient(95deg,#fff,var(--accent) 70%,var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.mix-head h2{margin:calc(8px - .3em) 0 6px;padding-top:.3em;font-family:var(--f-display);font-weight:900;font-size:clamp(1.6rem,4vw,2.6rem);letter-spacing:-.04em;line-height:1;text-wrap:balance;background:linear-gradient(95deg,#fff,var(--accent) 70%,var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
 .mix-head p{margin:0;color:var(--muted);max-width:62ch}
 .mix-actions{display:flex;gap:8px;flex-wrap:wrap}
 .mix-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
@@ -243,7 +243,7 @@ html.lite .pressed{scale:none}
 
 /* Heads */
 .head{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
-.head h1{margin:0;font-family:var(--f-display);font-weight:900;font-size:clamp(2.1rem,5.6vw,3.6rem);letter-spacing:-.045em;line-height:.95;text-transform:uppercase;background:linear-gradient(95deg,#fff 20%,var(--accent) 80%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.head h1{margin:-.3em 0 0;padding-top:.3em;font-family:var(--f-display);font-weight:900;font-size:clamp(2.1rem,5.6vw,3.6rem);letter-spacing:-.045em;line-height:.95;text-transform:uppercase;background:linear-gradient(95deg,#fff 20%,var(--accent) 80%);-webkit-background-clip:text;background-clip:text;color:transparent}
 .head .meta{color:var(--muted);font-size:.9rem;font-family:var(--f-mono)}
 .lead{margin:0;color:var(--muted);max-width:68ch;font-size:1rem}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -260,6 +260,7 @@ html.lite .pressed{scale:none}
 
 /* Rows */
 html.nui-lib #view-biblioteca{visibility:hidden}
+html.nui-chat #chat>*{visibility:hidden}
 .rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .row,.col-hd{display:grid;grid-template-columns:minmax(0,1fr) 150px 52px 56px 36px 72px;gap:6px 10px;align-items:center}
 .row{padding:5px 6px;border-radius:calc(12px * var(--round,1));border:1px solid transparent;content-visibility:auto;contain-intrinsic-size:auto 60px}
@@ -1195,7 +1196,7 @@ setTimeout(function(){start();go();},2500);setTimeout(function(){leave(false);},
           <div class="row-wrap"><h2>Sonido y mezclas</h2><span class="spacer"></span><button class="toggle" id="tDirect" aria-pressed="false"><span class="sw"></span>Sonido directo</button></div>
           <p class="note" id="soundNote"></p>
           <div class="row-wrap" id="engineRow" hidden><button class="toggle" id="tEngine" aria-pressed="false"><span class="sw"></span>Motor de sonido de Android <span class="beta-tag">recomendado</span></button><span class="note" id="engineNote"></span></div>
-          <div class="row-wrap" id="nuiRow" hidden><button class="toggle" id="tNui" aria-pressed="false"><span class="sw"></span>«Mi música» nativa <span class="beta-tag">nuevo</span></button><span class="note" id="nuiNote"></span></div>
+          <div class="row-wrap" id="nuiRow" hidden><button class="toggle" id="tNui" aria-pressed="false"><span class="sw"></span>Pantallas nativas <span class="beta-tag">nuevo</span></button><span class="note" id="nuiNote"></span></div>
           <div class="stack" id="soundBody">
             <div class="eyebrow">Entre canciones</div>
             <div class="chips" id="mixChips" role="group" aria-label="Tipo de mezcla"></div>

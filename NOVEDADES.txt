@@ -1,3 +1,15 @@
+Órbita 4.4: arreglos y la conversación con Nova, nativa.
+
+Arreglos
+- Las recomendaciones («Podrían gustarte», muestras de 30 segundos) vuelven a sonar. Dejaban de funcionar al cabo de un rato porque la dirección de cada muestra caduca; ahora se pide una nueva justo antes de ponerla.
+- Los títulos grandes recuperan sus tildes: «MIÉRCOLES», «SÁBADO», «TÚ».
+- La línea de debajo del día («por la mañana», «por la noche»…) se lee limpia: las letras ya no se pisan.
+
+Fase 3, primer paso: Nova
+- La pantalla de conversación con Nova la dibuja ahora Android (Kotlin y Compose). Se ve igual que siempre.
+- Al abrirse el teclado, lo último que se ha dicho queda siempre a la vista.
+- En Ajustes › Sonido y mezclas, el interruptor pasa a llamarse «Pantallas nativas»: sirve para «Mi música» y para la conversación. Si algo no se viera bien, apágalo y vuelven las pantallas de siempre.
+
 Órbita 4.3: «Mi música» ya es una pantalla nativa.
 
 El segundo paso para que Órbita sea una app nativa

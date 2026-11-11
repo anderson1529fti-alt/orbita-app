@@ -102,14 +102,14 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------- el aspecto de Órbita (los mismos valores que su CSS)
-private val Body = FontFamily(
+internal val Body = FontFamily(
     Font(R.font.figtree_400, FontWeight.Normal), Font(R.font.figtree_500, FontWeight.Medium), Font(R.font.figtree_600, FontWeight.SemiBold),
     Font(R.font.figtree_700, FontWeight.Bold), Font(R.font.figtree_800, FontWeight.ExtraBold)
 )
-private val Display = FontFamily(Font(R.font.unbounded_500, FontWeight.Medium), Font(R.font.unbounded_700, FontWeight.Bold), Font(R.font.unbounded_900, FontWeight.Black))
-private val Mono = FontFamily(Font(R.font.plexmono_400, FontWeight.Normal), Font(R.font.plexmono_500, FontWeight.Medium), Font(R.font.plexmono_600, FontWeight.SemiBold))
+internal val Display = FontFamily(Font(R.font.unbounded_500, FontWeight.Medium), Font(R.font.unbounded_700, FontWeight.Bold), Font(R.font.unbounded_900, FontWeight.Black))
+internal val Mono = FontFamily(Font(R.font.plexmono_400, FontWeight.Normal), Font(R.font.plexmono_500, FontWeight.Medium), Font(R.font.plexmono_600, FontWeight.SemiBold))
 
-private fun hsl(h: Float, s: Float, l: Float, a: Float = 1f): Color = Color.hsl(((h % 360f) + 360f) % 360f, s.coerceIn(0f, 1f), l.coerceIn(0f, 1f), a.coerceIn(0f, 1f))
+internal fun hsl(h: Float, s: Float, l: Float, a: Float = 1f): Color = Color.hsl(((h % 360f) + 360f) % 360f, s.coerceIn(0f, 1f), l.coerceIn(0f, 1f), a.coerceIn(0f, 1f))
 
 /** Los colores de la app: los fijos y los que salen del color del momento (o de la portada). */
 internal class Pal(h: Float, s: Float, glowK: Float, black: Boolean) {
@@ -141,7 +141,7 @@ internal class Skin(val pal: Pal, val round: Float, val tk: Float, val titles: S
 
 /** Texto con las medidas de la web: tamaño en «px» de CSS (no cambia con el tamaño de letra del móvil), interlineado y espaciado. */
 @Composable
-private fun T(
+internal fun T(
     text: String, size: Float, color: Color, modifier: Modifier = Modifier, family: FontFamily = Body, weight: FontWeight = FontWeight.Normal,
     lh: Float = 1.45f, ls: Float = 0f, maxLines: Int = Int.MAX_VALUE, align: TextAlign = TextAlign.Start, brush: Brush? = null
 ) {
@@ -152,7 +152,7 @@ private fun T(
  * El alto que ocupa el texto en la web: cada renglón mide justo lo que dice su CSS (con decimales). Android solo sabe
  * hacer renglones de píxeles enteros, y en un texto de varios renglones (o en una pantalla larga) eso se va sumando.
  */
-private fun Modifier.lines(lineDp: Float): Modifier = layout { measurable, constraints ->
+internal fun Modifier.lines(lineDp: Float): Modifier = layout { measurable, constraints ->
     val p = measurable.measure(constraints)
     val exact = lineDp * density
     val each = maxOf(1f, exact.roundToInt().toFloat())
@@ -162,7 +162,7 @@ private fun Modifier.lines(lineDp: Float): Modifier = layout { measurable, const
 }
 
 @Composable
-private fun style(size: Float, color: Color, family: FontFamily = Body, weight: FontWeight = FontWeight.Normal, lh: Float = 1.45f, ls: Float = 0f, align: TextAlign = TextAlign.Start, brush: Brush? = null): TextStyle {
+internal fun style(size: Float, color: Color, family: FontFamily = Body, weight: FontWeight = FontWeight.Normal, lh: Float = 1.45f, ls: Float = 0f, align: TextAlign = TextAlign.Start, brush: Brush? = null): TextStyle {
     val d = LocalDensity.current
     // el renglón, en píxeles enteros del móvil (el más cercano a lo que dice el CSS; Android, si no, redondea hacia arriba)
     val linePx = maxOf(1f, (size * lh * d.density).roundToInt().toFloat()) - 0.02f
@@ -179,7 +179,7 @@ private fun style(size: Float, color: Color, family: FontFamily = Body, weight: 
 
 /** Un icono de la app: el mismo dibujo (trazado SVG de 24 × 24) que usa la web. */
 @Composable
-private fun Ico(path: String, size: Float, color: Color, modifier: Modifier = Modifier, fill: Boolean = false, sw: Float = 2f, round: Boolean = true) {
+internal fun Ico(path: String, size: Float, color: Color, modifier: Modifier = Modifier, fill: Boolean = false, sw: Float = 2f, round: Boolean = true) {
     val p = remember(path) { PathParser().parsePathString(path).toPath() }
     Canvas(modifier.size(size.dp)) {
         val k = this.size.width / 24f
@@ -198,7 +198,7 @@ private const val I_SEARCH = "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0M20 20l-4-4"
 private const val I_DOWN = "M6 9l6 6 6-6"
 
 /** El brillo de color de debajo de los botones principales (la sombra de CSS: desplazada, difuminada y encogida). */
-private fun Modifier.glow(color: Color, radius: Dp, blur: Dp, dy: Dp, spread: Dp): Modifier = drawBehind {
+internal fun Modifier.glow(color: Color, radius: Dp, blur: Dp, dy: Dp, spread: Dp): Modifier = drawBehind {
     if (color.alpha <= 0.01f) return@drawBehind
     // como una sombra de CSS: solo se ve por fuera de la caja (aunque la caja sea medio transparente)
     val own = Path().apply { addRoundRect(RoundRect(Rect(0f, 0f, size.width, size.height), CornerRadius(radius.toPx()))) }
@@ -218,7 +218,7 @@ private fun Modifier.glow(color: Color, radius: Dp, blur: Dp, dy: Dp, spread: Dp
 
 /** Al tocar, los botones se encogen un poco (como en la web). */
 @Composable
-private fun Modifier.press(scale: Float = 0.94f, enabled: Boolean = true, onClick: () -> Unit): Modifier {
+internal fun Modifier.press(scale: Float = 0.94f, enabled: Boolean = true, onClick: () -> Unit): Modifier {
     val src = remember { MutableInteractionSource() }
     val down by src.collectIsPressedAsState()
     val k by animateFloatAsState(if (down && enabled) scale else 1f, tween(120), label = "p")
@@ -226,7 +226,7 @@ private fun Modifier.press(scale: Float = 0.94f, enabled: Boolean = true, onClic
 }
 
 @Composable
-private fun Btn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: Boolean = false, small: Boolean = false, enabled: Boolean = true, icon: String? = null, onClick: () -> Unit) {
+internal fun Btn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: Boolean = false, small: Boolean = false, enabled: Boolean = true, icon: String? = null, onClick: () -> Unit) {
     val p = sk.pal
     val shape = sk.r(if (small) 11f else 14f)
     var m = modifier
@@ -234,7 +234,7 @@ private fun Btn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: 
     m = m.press(enabled = enabled, onClick = onClick).clip(shape)
     m = if (primary) m.background(p.grad) else m.background(Color.White.copy(alpha = 0.04f)).border(sk.b, p.line2, shape)
     Row(m.graphicsLayer { alpha = if (enabled) 1f else 0.5f }.padding(horizontal = (if (small) 13.dp else 18.dp) + sk.b, vertical = (if (small) 8.dp else 12.dp) + sk.b),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
         if (icon != null) Ico(icon, 18f, if (primary) p.onAccent else p.fg, sw = 2.4f)
         T(text, (if (small) 13.6f else 15f) * sk.tk, if (primary) p.onAccent else p.fg, weight = FontWeight.ExtraBold, maxLines = 1)
     }
@@ -363,6 +363,23 @@ private fun fmt(s: Double): String {
 }
 
 // ---------------------------------------------------------------- la pantalla
+/** El aspecto del momento (color, esquinas, tamaño de letra…), para cualquier pantalla. */
+@Composable
+internal fun rememberSkin(): Skin {
+    val look = UiState.look
+    val h by animateFloatAsState(look.h, tween(1100), label = "h")
+    val s by animateFloatAsState(look.s, tween(1100), label = "s")
+    val pal = remember(h, s, look.glowK, look.black) { Pal(h, s, look.glowK, look.black) }
+    val dens = LocalDensity.current.density
+    return remember(pal, look.round, look.tk, look.titles, dens) { Skin(pal, look.round, look.tk, look.titles, (maxOf(1f, floor(dens)) / dens).dp) }
+}
+
+/** La pantalla nativa que toca. */
+@Composable
+fun OrbitaScreens() {
+    if (UiState.screen == "chat") ChatScreen() else LibraryScreen()
+}
+
 private val SORTS = listOf("recent" to "Recientes", "title" to "Título", "artist" to "Artista", "plays" to "Más escuchadas")
 
 @Composable
@@ -512,7 +529,7 @@ private fun dropText(s: String, strong: Color): AnnotatedString = buildAnnotated
 }
 
 /** Borde de rayas (los recuadros «vacíos» de la app). */
-private fun Modifier.dashed(color: Color, radius: Dp, width: Dp): Modifier = drawBehind {
+internal fun Modifier.dashed(color: Color, radius: Dp, width: Dp): Modifier = drawBehind {
     val w = width.toPx()
     drawRoundRect(color, Offset(w / 2, w / 2), Size(size.width - w, size.height - w), CornerRadius(radius.toPx()),
         style = Stroke(w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(w * 3, w * 3))))
@@ -597,7 +614,7 @@ private fun SortSelect(sk: Skin) {
 
 /** Los avisos cortos de la app, encima de la lista (los de la web quedarían tapados). */
 @Composable
-private fun ToastHost(sk: Skin, modifier: Modifier) {
+internal fun ToastHost(sk: Skin, modifier: Modifier) {
     val n = UiState.toastN
     var show by remember { mutableStateOf(false) }
     LaunchedEffect(n) { if (n > 0 && UiState.toast.isNotEmpty()) { show = true; delay(UiState.toastMs); show = false } }

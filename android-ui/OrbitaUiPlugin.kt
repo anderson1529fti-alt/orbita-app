@@ -47,6 +47,9 @@ class UiBox(val title: String, val text: String, val button: String, val act: St
 /** El aspecto que el usuario ha elegido en «Personaliza Órbita» y el color del momento. */
 class UiLook(val h: Float = 276f, val s: Float = 1f, val glowK: Float = 1f, val round: Float = 1f, val tk: Float = 1f, val titles: String = "", val black: Boolean = false)
 
+/** Un mensaje de la conversación: de quien usa la app, o de Nova. */
+class UiMsg(val me: Boolean, val text: String)
+
 /** Lo que enseñan las pantallas nativas. Lo escribe la app (por el plugin) y lo lee Compose. */
 object UiState {
     var look by mutableStateOf(UiLook())
@@ -65,6 +68,20 @@ object UiState {
     var toast by mutableStateOf("")
     var toastN by mutableStateOf(0)
     var toastMs = 2600L
+    // ---- 4.4 · la conversación con Nova
+    /** Qué pantalla se dibuja: «biblioteca» o «chat». */
+    var screen by mutableStateOf("biblioteca")
+    var chatName by mutableStateOf("Nova")
+    var chatNow by mutableStateOf("")
+    var chatMsgs by mutableStateOf<List<UiMsg>>(emptyList())
+    var chatChips by mutableStateOf<List<String>>(emptyList())
+    var chatMic by mutableStateOf(false)
+    /** Lo que se está escribiendo (se conserva si la pantalla se aparta un momento). */
+    var chatDraft by mutableStateOf("")
+    /** Los márgenes de la pantalla de la web (arriba, derecha, abajo, izquierda): cuentan la barra de estado y los bordes. */
+    var chatPad by mutableStateOf(listOf(14f, 16f, 14f, 16f))
+    val chatList = LazyListState()
+
     /** Por dónde va la lista (fuera de la pantalla, para que la app pueda subirla al entrar en «Mi música»). */
     val list = LazyListState()
     val covers = mutableStateMapOf<String, ImageBitmap>()
@@ -141,6 +158,13 @@ class OrbitaUiPlugin : Plugin() {
         x = num(call, "x", x); y = num(call, "y", y); w = num(call, "w", w); h = num(call, "h", h); dpr = num(call, "dpr", dpr)
     }
 
+    /** Los márgenes que manda la web con la pantalla (si los manda). */
+    private fun readPad(call: PluginCall): List<Float>? {
+        val a = call.getArray("pad") ?: return null
+        if (a.length() != 4) return null
+        return List(4) { i -> a.optDouble(i, 14.0).toFloat().coerceIn(0f, 200f) }
+    }
+
     private fun place() {
         val v = host ?: return
         val wv = bridge.webView
@@ -155,7 +179,7 @@ class OrbitaUiPlugin : Plugin() {
     private fun ensureHost() {
         if (host != null) return
         val v = ComposeView(activity)
-        v.setContent { LibraryScreen() }
+        v.setContent { OrbitaScreens() }
         v.visibility = View.GONE
         (bridge.webView.parent as ViewGroup).addView(v, ViewGroup.LayoutParams(1, 1))
         host = v
@@ -164,8 +188,11 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 2)
-        try { r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size) } catch (ignored: Throwable) { }
+        r.put("available", true); r.put("v", 3)
+        try {
+            r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
+            r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
+        } catch (ignored: Throwable) { }
         call.resolve(r)
     }
 
@@ -174,9 +201,17 @@ class OrbitaUiPlugin : Plugin() {
     fun show(call: PluginCall) {
         readRect(call)
         val top = call.getBoolean("top", false) == true
+        val screen = if (call.getString("screen", "biblioteca") == "chat") "chat" else "biblioteca"
+        val pad = readPad(call)
         activity.runOnUiThread {
             try {
                 ensureHost(); place()
+                if (pad != null && pad != UiState.chatPad) UiState.chatPad = pad
+                if (UiState.screen != screen) {
+                    // otra pantalla: se suelta el teclado de la anterior
+                    try { host?.clearFocus() } catch (ignored: Throwable) { }
+                    UiState.screen = screen
+                }
                 // al entrar desde otra pestaña, la lista empieza arriba (como la pantalla de siempre)
                 if (top) UiState.list.requestScrollToItem(0)
                 host?.visibility = View.VISIBLE
@@ -190,7 +225,8 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun rect(call: PluginCall) {
         readRect(call)
-        activity.runOnUiThread { try { place() } catch (ignored: Throwable) { } }
+        val pad = readPad(call)
+        activity.runOnUiThread { try { place(); if (pad != null && pad != UiState.chatPad) UiState.chatPad = pad } catch (ignored: Throwable) { } }
         call.resolve()
     }
 
@@ -205,6 +241,29 @@ class OrbitaUiPlugin : Plugin() {
                     (activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
                 } catch (ignored: Throwable) { }
             }
+        }
+        call.resolve()
+    }
+
+    /** 4.4 · La conversación con Nova: quién es, qué suena, los mensajes, las sugerencias y si hay micrófono. */
+    @PluginMethod
+    fun chat(call: PluginCall) {
+        val msgs = ArrayList<UiMsg>()
+        val arr = call.getArray("msgs")
+        if (arr != null) for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            msgs.add(UiMsg(o.optInt("me") == 1, o.optString("t")))
+        }
+        val chips = ArrayList<String>()
+        val ca = call.getArray("chips")
+        if (ca != null) for (i in 0 until ca.length()) { val c = ca.optString(i); if (c.isNotEmpty()) chips.add(c) }
+        val name = call.getString("name", "Nova") ?: "Nova"
+        val now = call.getString("now", "") ?: ""
+        val mic = call.getBoolean("mic", false) == true
+        val draft = call.getString("draft", "") ?: ""
+        activity.runOnUiThread {
+            UiState.chatName = name; UiState.chatNow = now; UiState.chatMsgs = msgs; UiState.chatChips = chips; UiState.chatMic = mic
+            if (draft.isNotEmpty()) UiState.chatDraft = draft.take(240)
         }
         call.resolve()
     }
