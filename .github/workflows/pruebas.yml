@@ -31,9 +31,19 @@ jobs:
         with:
           packages: 'platform-tools'
       - name: Dependencias
+        timeout-minutes: 8
+        run: npm install --no-audit --no-fund
+      # (para fabricar la música de prueba; si los servidores de Ubuntu van lentos, se baja el de npm)
+      - name: ffmpeg
+        timeout-minutes: 8
         run: |
-          npm install --no-audit --no-fund
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          if ! command -v ffmpeg > /dev/null; then
+            (timeout 150 sudo apt-get -o Acquire::http::Timeout=20 -o Acquire::Retries=1 update -qq && timeout 180 sudo apt-get -o Acquire::http::Timeout=20 install -y -qq ffmpeg > /dev/null) || true
+          fi
+          if ! command -v ffmpeg > /dev/null; then
+            mkdir -p "$RUNNER_TEMP/ff" && cd "$RUNNER_TEMP/ff" && npm init -y > /dev/null && npm install --no-audit --no-fund ffmpeg-static > /dev/null
+            echo "$(dirname "$(node -p "require('ffmpeg-static')")")" >> "$GITHUB_PATH"
+          fi
       - name: Proyecto Android
         env:
           BUILD_NUMBER: 9${{ github.run_number }}
