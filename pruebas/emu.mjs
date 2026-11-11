@@ -17,7 +17,7 @@ function finish(why) {
   } catch {}
   process.exit(0);
 }
-setTimeout(() => finish('pasó de 16 minutos'), 16 * 60000).unref();
+setTimeout(() => finish('pasó de 22 minutos'), 22 * 60000).unref();
 let adbFails = 0;
 const adb = (c, o = {}) => { if (adbFails > 12) finish('el emulador dejó de contestar'); try { const r = execSync('adb ' + c, { encoding: 'utf8', timeout: 45000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64e6, ...o }); adbFails = 0; return r; } catch (e) { if (e.killed || /ETIMEDOUT|offline|no devices/.test(String(e.message) + e.stderr)) adbFails++; return 'ERR ' + (e.stdout || '') + (e.stderr || e.message); } };
 const sh = c => adb(`shell "${c.replace(/"/g, '\\"')}"`);
@@ -365,6 +365,82 @@ try {
   check('sin cierres por error tras reiniciar la parte web con la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
   await goView('inicio'); await sleep(800);
   // ================= fin de la fase 2 =================
+
+  // ================= FASE 3 · paso 1 (4.4): la conversación con Nova, nativa =================
+  {
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
+    await goView('inicio'); await sleep(900);
+    const dpr3 = await js(`return devicePixelRatio;`);
+    // la de siempre, de referencia (y sus medidas)
+    await js(`window.__orbita.NUI.classic = true; localStorage.setItem('orbita:chat', '[]'); document.querySelector('#toast').hidden = true; document.querySelector('#openChat').click(); return 1;`); await sleep(1500);
+    const CHATQ = `const R = e => { if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(v => Math.round(v * 100) / 100); }; const q = s => document.querySelector(s);
+      const tr = e => { if (!e) return null; const rg = document.createRange(); rg.selectNodeContents(e); return R(rg); };
+      return { name: tr(q('#chatName')), now: tr(q('#chatNow')), borrar: R(q('[data-chat="clear"]')), cerrar: R(q('[data-chat="close"]')), msg: R(q('#chatLog .msg')), msgT: tr(q('#chatLog .msg')), chips: [...document.querySelectorAll('#chatChips .idea')].map(e => [e.textContent, R(e)]), input: R(q('#chatIn')), mic: q('#chatMic').hidden ? null : R(q('#chatMic')), enviar: R(q('#chatForm [type=submit]')), log: R(q('#chatLog')), nowTxt: q('#chatNow').textContent };`;
+    const webC = await js(CHATQ); ui(); await sleep(300); shot('chat-web');
+    // la nativa
+    await js(`window.__orbita.NUI.classic = false; return 1;`); await sleep(1800);
+    const cst = await js(`const N = window.__orbita.NUI; return { shown: N.shown, screen: N.screen, chatOk: N.chatOk, err: N.err, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    let cn = ui(); shot('chat-nativa');
+    check('la conversación con Nova sale nativa', !!cst && cst.shown && cst.screen === 'chat' && cst.st.screen === 'chat' && cst.st.shown === true && cst.st.msgs >= 1 && !!find(cn, 'Hola, soy') && !!find(cn, 'Enviar') && !!find(cn, 'Cerrar'), JSON.stringify(cst));
+    {
+      // cada cosa, donde en la pantalla de siempre (± 3)
+      const wv = cn.find(n => n.cls === 'android.webkit.WebView'), top = wv ? wv.b[1] : 0;
+      const nat = t => { const n = cn.find(x => x.text === t) || cn.find(x => t.length > 12 && x.text.startsWith(t)); return n ? [n.b[0] / dpr3, (n.b[1] - top) / dpr3, n.b[2] / dpr3, (n.b[3] - top) / dpr3] : null; };
+      const cx = r => (r[0] + r[2]) / 2, cy = r => (r[1] + r[3]) / 2, diffs = [];
+      const cmp = (name, w, n, how) => { if (!w || !n) { diffs.push([name, 'falta', !!w, !!n]); return; } const dx = how === 'left' ? n[0] - w[0] : cx(n) - cx(w), dy = cy(n) - cy(w); diffs.push([name, +dx.toFixed(1), +dy.toFixed(1)]); };
+      cmp('Nova', webC.name, nat('Nova'), 'left'); cmp('qué suena', webC.now, nat(webC.nowTxt), 'left');
+      cmp('Borrar', webC.borrar, nat('Borrar')); cmp('Cerrar', webC.cerrar, nat('Cerrar')); cmp('Enviar', webC.enviar, nat('Enviar'));
+      cmp('saludo', webC.msgT, nat('Hola, soy Nova. Puedes'), 'left');
+      for (const [t, r] of webC.chips) cmp('«' + t + '»', r, nat(t));
+      const ph = nat('Escribe a la DJ…'); if (ph && webC.input) diffs.push(['caja', +(ph[0] - (webC.input[0] + 16 + Math.floor(dpr3) / dpr3)).toFixed(1), +(cy(ph) - cy(webC.input)).toFixed(1)]); else diffs.push(['caja', 'falta']);
+      const mic = cn.find(n => n.desc === 'Háblale'); if (webC.mic || mic) { const m = mic ? [mic.b[0] / dpr3, (mic.b[1] - top) / dpr3, mic.b[2] / dpr3, (mic.b[3] - top) / dpr3] : null; cmp('micrófono', webC.mic, m); }
+      const worst = diffs.filter(d => d[1] === 'falta' || Math.abs(d[1]) > 3 || Math.abs(d[2]) > 3);
+      check('la conversación nativa: cada cosa donde en la de siempre (± 3)', worst.length === 0 && diffs.length >= 12, JSON.stringify(diffs));
+      fs.writeFileSync(`${OUT}/paridad-chat.json`, JSON.stringify({ web: webC, nat: cn.filter(n => n.text || n.desc).map(n => ({ t: (n.text || n.desc).slice(0, 40), b: n.b })), top, dpr: dpr3, diffs }));
+    }
+    // una sugerencia
+    await tapText('Ayuda', 3000); cn = ui(); shot('chat-ayuda');
+    check('tocar una sugerencia: sale mi mensaje y Nova contesta', cn.filter(n => n.text === 'Ayuda').length === 2 && !!find(cn, 'Puedes pedirme'), cn.filter(n => n.text).map(n => n.text.slice(0, 18)).join(' | ').slice(0, 300));
+    // escribir con el teclado
+    const inp = cn.find(n => n.text === 'Escribe a la DJ…') || cn.find(n => n.desc === 'Mensaje para la DJ');
+    if (inp) {
+      tap(...center(inp)); await sleep(2200); sh('input text gracias'); await sleep(1800);
+      const kb = /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'));
+      cn = ui(); shot('chat-teclado');
+      const wv2 = cn.find(n => n.cls === 'android.webkit.WebView');
+      check('con el teclado abierto se ve lo último que dijo Nova y lo que escribo', kb && !!find(cn, 'Puedes pedirme') && cn.some(n => n.text === 'gracias') && !!find(cn, 'Enviar'), 'teclado ' + kb + ' · alto de la app ' + (wv2 ? wv2.b[3] - wv2.b[1] : '?'));
+      sh('input keyevent KEYCODE_ENTER'); await sleep(4000); cn = ui(); shot('chat-enviado');
+      const log1 = await js(`return JSON.parse(localStorage.getItem('orbita:chat') || '[]').map(m => [m.who, m.text.slice(0, 30)]);`);
+      check('«enviar» en el teclado manda el mensaje, la caja se vacía y Nova contesta', log1.length >= 4 && log1[2][0] === 'me' && log1[2][1] === 'gracias' && log1[3][0] !== 'me' && cn.filter(n => n.text === 'gracias').length === 1 && !!find(cn, 'Escribe a la DJ…'), JSON.stringify(log1));
+      // y con el botón
+      sh('input text hola'); await sleep(1500); await tapText('Enviar', 4000);
+      const log2 = await js(`return JSON.parse(localStorage.getItem('orbita:chat') || '[]').map(m => [m.who, m.text.slice(0, 30)]);`);
+      cn = ui(); shot('chat-enviado-2');
+      check('el botón «Enviar» manda el mensaje', log2.length >= 6 && log2[4][0] === 'me' && log2[4][1] === 'hola' && cn.some(n => n.text === 'hola'), JSON.stringify(log2.slice(4)));
+    } else check('encuentro la caja para escribir', false);
+    // un aviso de la app encima de la conversación
+    await js(`window.__orbita.toast('Aviso de prueba en la conversación', 15000); return 1;`); await sleep(500);
+    const seenT = !!find(ui(), 'Aviso de prueba en la conversación'); shot('chat-aviso');
+    check('los avisos de la app se ven encima de la conversación nativa', seenT);
+    await js(`window.__orbita.toast('Listo', 900); return 1;`); await sleep(1800);
+    // algo de la app encima (el temporizador): la nativa se aparta y vuelve
+    await js(`document.querySelector('#sleepOverlay').hidden = false; return 1;`); await sleep(900);
+    const as1 = await js(`return window.__orbita.NUI.shown;`); shot('chat-con-ventana');
+    await js(`document.querySelector('#sleepOverlay').hidden = true; return 1;`); await sleep(1200);
+    const as2 = await js(`const N = window.__orbita.NUI; return N.shown && N.screen === 'chat';`);
+    check('si una ventana de la app se pone encima, la nativa se aparta y luego vuelve', as1 === false && as2 === true, `${as1} → ${as2}`);
+    // borrar y cerrar
+    await tapText('Borrar', 1800); cn = ui();
+    const log3 = await js(`return JSON.parse(localStorage.getItem('orbita:chat') || '[]').length;`);
+    check('«Borrar» vacía la conversación', log3 === 0 && !!find(cn, 'Hola, soy') && !cn.some(n => n.text === 'gracias'), String(log3));
+    await tapText('Cerrar', 1800);
+    const cl = await js(`const N = window.__orbita.NUI; return { cerrada: document.querySelector('#chat').hidden, shown: N.shown, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    const kb2 = /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'));
+    ui(); shot('chat-cerrada');
+    check('«Cerrar» cierra la conversación, quita la nativa y baja el teclado', cl && cl.cerrada && !cl.shown && cl.st.shown === false && !kb2, JSON.stringify(cl) + ' · teclado ' + kb2);
+    check('sin cierres por error con la conversación nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+  }
+  // ================= fin de la fase 3 · paso 1 =================
 
   const st0 = await js(`return await Capacitor.Plugins.NovaAudio.status();`);
   check('el reproductor es el de Kotlin', st0 && st0.player === 'kotlin', JSON.stringify(st0));
