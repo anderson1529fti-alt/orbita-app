@@ -149,9 +149,9 @@ try {
       search: R(q('.toolbar .search', v)), searchIn: R(q('#search')), seg: R(q('#filterSeg')), segBtns: [...document.querySelectorAll('#filterSeg button')].filter(b => !b.hidden).map(R), sort: R(q('#sortSel')), playAll: R(q('#btnPlayAll')), playAllT: T(q('#btnPlayAll')), colhd: R(q('.col-hd', v)), colT: T(q('.col-hd span', v)),
       rows: [...document.querySelectorAll('#libRows .row')].slice(0, 5).map(r => ({ row: R(r), cover: R(q('.cover', r)), title: T(q('.t-title', r)), sub: R(q('.t-sub', r)), dur: T(r.querySelectorAll('.num')[1]), like: R(q('[data-act="like"]', r)), acts: [...r.querySelectorAll('.acts button')].map(R) })),
       demo: R(q('#demoBar')), demoNote: T(q('#demoBar .note')), demoBtn: R(q('#demoBar button')), total: q('#main').scrollHeight };`;
-  await js(`document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(700); shot('par-web-arriba');
+  await js(`document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(700); ui(); await sleep(300); shot('par-web-arriba');
   const web0 = await js(WEBQ);
-  await js(`document.querySelector('#main').scrollTop = 99999; return 1;`); await sleep(900); shot('par-web-abajo');
+  await js(`document.querySelector('#main').scrollTop = 99999; return 1;`); await sleep(900); ui(); await sleep(300); shot('par-web-abajo');
   const web1 = await js(WEBQ);
   await js(`document.querySelector('#main').scrollTop = 0; return 1;`);
   // --- se enciende con su interruptor
@@ -254,8 +254,8 @@ try {
     const n0 = await js(`return window.__orbita.state.tracks.length;`);
     const trash = rowBtn(r2.text, /^(Quitar de Órbita|Borrar$)/);
     if (trash) {
-      tap(...center(trash)); await sleep(150);
-      const t0 = Date.now(), armN = ui(), dt = Date.now() - t0, arm = !!find(armN, '¿Borrar?'); shot('nativa-borrar');
+      tap(...center(trash)); await sleep(350); shot('nativa-borrar');
+      const t0 = Date.now(), armN = ui(), dt = Date.now() - t0, arm = !!find(armN, '¿Borrar?');
       const n1 = await js(`return window.__orbita.state.tracks.length;`);
       if (arm || dt < 2500) check('la papelera pide confirmar («¿Borrar?»)', arm, 'mirar la pantalla tardó ' + dt + ' ms');
       else log('  (no da tiempo a comprobar «¿Borrar?» mirando la pantalla: tardó ' + dt + ' ms; se ve en la captura nativa-borrar)');
@@ -265,6 +265,14 @@ try {
       if (arm) check('mientras pregunta, la fila no se descoloca', durA && durB && durA.b[0] === durB.b[0] && durA.b[2] === durB.b[2], JSON.stringify([durA && durA.b, durB && durB.b]));
       await sleep(3400);
       check('si no se confirma, a los 3 s vuelve a su sitio', !find(ui(), '¿Borrar?') && !!rowBtn(r2.text, /^(Quitar de Órbita|Borrar$)/));
+      // dos toques seguidos (papelera y «¿Borrar?»): ahora sí se quita
+      const trash2 = rowBtn(r2.text, /^(Quitar de Órbita|Borrar$)/);
+      if (trash2) {
+        tap(...center(trash2)); await sleep(500); tap(...center(trash2)); await sleep(2500);
+        const n2 = await js(`return window.__orbita.state.tracks.length;`), still = await js(`return window.__orbita.state.tracks.some(t => t.dev && t.title === ${JSON.stringify(r2.text)});`);
+        shot('nativa-borrada');
+        check('papelera y luego «¿Borrar?»: la canción se quita de Órbita', n2 === n0 - 1 && still === false && !titlesOnScreen(ui()).includes(r2.text) , `${n0} → ${n2}`);
+      }
     } else check('encuentro la papelera', false, r2.text);
   }
   // --- aviso corto encima de la lista
@@ -314,7 +322,21 @@ try {
     const topAct = () => sh('dumpsys activity activities | grep -m1 topResumedActivity').trim();
     const inPicker = /documentsui/i.test(topAct());
     let fileN = null;
-    for (let k = 0; k < 4 && inPicker && !fileN; k++) { fileN = ui().find(n => /^c\d\.mp3$/.test(n.text)); if (!fileN) await sleep(1500); }
+    if (inPicker) {
+      // «Recent» suele estar vacío en el emulador: se prueba la etiqueta «Audio» y, si no, el almacenamiento del móvil › Music
+      const look = () => { const ns = ui(); fileN = ns.find(n => /^c\d\.mp3$/.test(n.text)) || null; return ns; };
+      let ns = look();
+      if (!fileN) { const chip = ns.find(n => n.text === 'Audio'); if (chip) { tap(...center(chip)); await sleep(3000); ns = look(); shot('selector-audio'); } }
+      if (!fileN) {
+        const roots = ns.find(n => /Show roots/i.test(n.desc));
+        if (roots) {
+          tap(...center(roots)); await sleep(2000); ns = ui(); shot('selector-sitios');
+          const dev = ns.find(n => /sdk_gphone|Android SDK|^Pixel|emulator/i.test(n.text));
+          if (dev) { tap(...center(dev)); await sleep(3000); ns = ui(); const mus = ns.find(n => n.text === 'Music'); if (mus) { tap(...center(mus)); await sleep(3000); ns = look(); } }
+        }
+      }
+      if (!fileN) log('  (lo que enseña el selector: ' + ns.filter(n => n.text).map(n => n.text.slice(0, 24)).join(' | ').slice(0, 500) + ')');
+    }
     shot('selector-de-archivos');
     check('«Añadir canciones» abre el selector de archivos de Android', inPicker, topAct().slice(0, 200));
     if (fileN) {
@@ -380,10 +402,14 @@ try {
   shot('recogida');
 
   // ---- cerrar la app desde las recientes con la música sonando
-  sh('input keyevent KEYCODE_APP_SWITCH'); await sleep(2500); shot('recientes');
-  sh('input swipe 540 1300 540 150 180'); await sleep(3500);
-  sh('input keyevent KEYCODE_HOME'); await sleep(1500);
-  const actGone = !new RegExp(PKG + '/').test(sh('dumpsys activity activities | grep -E "ResumedActivity|topResumedActivity"'));
+  let actGone = false;
+  for (let k = 0; k < 3 && !actGone; k++) {
+    if (k) { log('  (el lanzador del emulador no cerró la tarjeta; lo intento otra vez)'); ui(); }
+    sh('input keyevent KEYCODE_APP_SWITCH'); await sleep(2500 + k * 1500); if (!k) shot('recientes');
+    sh('input swipe 540 1300 540 150 180'); await sleep(3500);
+    sh('input keyevent KEYCODE_HOME'); await sleep(1500);
+    actGone = !new RegExp(PKG + '/').test(sh('dumpsys activity activities | grep -E "ResumedActivity|topResumedActivity"'));
+  }
   check('cerrada desde las recientes: la música sigue', actGone && alive() && playing(), `actividad cerrada ${actGone} · proceso ${alive()} · ${sessState()} · ${fgService()}`);
   sh('cmd statusbar expand-notifications'); await sleep(2500); shot('aviso-app-cerrada'); sh('cmd statusbar collapse'); await sleep(800);
   sh('input keyevent KEYCODE_MEDIA_NEXT'); await sleep(3500);
