@@ -91,7 +91,13 @@ const titlesOnScreen = nodes => nodes.filter(n => SONGS.includes(n.text)).sort((
 const SONGS = ['Luz de las siete', 'Faros', 'Pulso', 'Marea lenta', 'Viernes 23:59', 'Domingo', 'Andén 3', 'Lámpara de escritorio'];
 const gfx = () => { const d = adb(`shell dumpsys gfxinfo ${PKG}`); const t = (d.match(/Total frames rendered: (\d+)/) || [])[1], j = (d.match(/Janky frames: (\d+) \(([\d.]+)%\)/) || []), p90 = (d.match(/90th percentile: (\d+)ms/) || [])[1], p99 = (d.match(/99th percentile: (\d+)ms/) || [])[1]; return `${t} fotogramas · lentos ${j[1]} (${j[2]} %) · p90 ${p90} ms · p99 ${p99} ms`; };
 
-const crashes = () => adb('logcat -d -b crash').split('\n').filter(l => l.trim()).length;
+// los cierres por error DE ÓRBITA (las herramientas del propio emulador, como la que mira la pantalla, también se caen a veces: no cuentan)
+const crashText = () => {
+  const blocks = []; let cur = null;
+  for (const l of adb('logcat -d -b crash').split('\n')) { if (/FATAL EXCEPTION|\*\*\* \*\*\* \*\*\*|beginning of crash/.test(l)) { cur = []; blocks.push(cur); } if (cur) cur.push(l); }
+  return blocks.map(b => b.join('\n')).filter(b => b.includes(PKG)).join('\n');
+};
+const crashes = () => (crashText() ? 1 : 0);
 
 try {
   // ---- música de prueba
@@ -164,7 +170,7 @@ try {
   const nscroll = async to => { await js(`await Capacitor.Plugins.OrbitaUi.scroll({ to: '${to}' }); return 1;`); await sleep(900); };
   ui(); await sleep(400); shot('par-nativa-arriba');
   check('«Mi música» nativa a la vista', nui1 && nui1.on && nui1.shown && !nui1.err, JSON.stringify(nui1));
-  check('sin cierres al abrir la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+  check('sin cierres al abrir la pantalla nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
   const txt = nodes => nodes.filter(n => n.text).map(n => ({ t: n.text.slice(0, 40), b: n.b }));
   let nodes = ui();
   const nat0 = txt(nodes);
@@ -314,7 +320,7 @@ try {
   log('fluidez de la lista de siempre (mismo gesto):', gfx());
   await js(`window.__orbita.NUI.classic = false; document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(1500);
   shot('nativa-final');
-  check('sin cierres por error en las pruebas de la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+  check('sin cierres por error en las pruebas de la pantalla nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
   // --- «Añadir canciones»: el selector de archivos de Android y la importación de siempre
   await goView('biblioteca'); await sleep(1200); await nscroll('top');
   const nB = await js(`return window.__orbita.state.tracks.length;`);
@@ -362,7 +368,7 @@ try {
   const fab = await js(`const N = window.__orbita.NUI; return { on: N.on, shown: N.shown, err: N.err, guardado: localStorage.getItem('orbita:nativeUi') };`);
   const fabN = ui(); shot('nativa-de-fabrica');
   check('recién instalada, «Mi música» nativa viene encendida sin tocar nada', fab && fab.on && fab.shown && !fab.err && fab.guardado == null && !!find(fabN, 'BIBLIOTECA') && titlesOnScreen(fabN).length + (find(fabN, 'Reproducir todo') ? 1 : 0) >= 1, JSON.stringify(fab));
-  check('sin cierres por error tras reiniciar la parte web con la pantalla nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+  check('sin cierres por error tras reiniciar la parte web con la pantalla nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
   await goView('inicio'); await sleep(800);
   // ================= fin de la fase 2 =================
 
@@ -403,15 +409,17 @@ try {
     for (let k = 0; k < 3 && !find(cn, 'Puedes pedirme'); k++) { await sleep(1500); cn = ui(); }   // (a veces el emulador da la pantalla de un momento antes)
     {
       // mantener pulsado un mensaje lo copia (aquí solo se comprueba que no rompe nada)
-      const bub = find(cn, 'Puedes pedirme'); if (bub) { const [bx, by] = center(bub); sh(`input swipe ${bx} ${by} ${bx} ${by} 900`); await sleep(1200); }
+      let copied = false; const bub = find(cn, 'Puedes pedirme'); if (bub) { const [bx, by] = center(bub); sh(`input swipe ${bx} ${by} ${bx} ${by} 900`); await sleep(1200); copied = true; }
       check('mantener pulsado un mensaje (copiarlo) no rompe nada', alive() && crashes() === 0 && (await js(`return window.__orbita.NUI.shown;`)) === true);
+      // Android enseña unos segundos lo copiado abajo a la izquierda (encima de la caja de escribir): se espera a que se quite
+      if (copied) await sleep(7500);
       cn = ui();
     }
     check('tocar una sugerencia: sale mi mensaje y Nova contesta', cn.filter(n => n.text === 'Ayuda').length === 2 && !!find(cn, 'Puedes pedirme'), cn.filter(n => n.text).map(n => n.text.slice(0, 18)).join(' | ').slice(0, 300));
     // escribir con el teclado
     const inp = cn.find(n => n.text === 'Escribe a la DJ…') || cn.find(n => n.desc === 'Mensaje para la DJ');
     if (inp) {
-      tap(...center(inp)); await sleep(2200); sh('input text gracias'); await sleep(1800);
+      tap(inp.b[2] - 60, center(inp)[1]); await sleep(2200); sh('input text gracias'); await sleep(1800);
       const kb = /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'));
       cn = ui(); shot('chat-teclado');
       const wv2 = cn.find(n => n.cls === 'android.webkit.WebView');
@@ -445,7 +453,7 @@ try {
     const kb2 = /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'));
     ui(); shot('chat-cerrada');
     check('«Cerrar» cierra la conversación, quita la nativa y baja el teclado', cl && cl.cerrada && !cl.shown && cl.st.shown === false && !kb2, JSON.stringify(cl) + ' · teclado ' + kb2);
-    check('sin cierres por error con la conversación nativa', alive() && crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+    check('sin cierres por error con la conversación nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
   }
   // ================= fin de la fase 3 · paso 1 =================
 
@@ -495,7 +503,7 @@ try {
   check('suena y la app sigue abierta', alive() && playing(), sessState());
   check('el servicio de música arrancó (Media3)', st1 && st1.service === true && !st1.serviceError, JSON.stringify(st1));
   check('el servicio está en primer plano mientras suena', fgService() === 'en primer plano', fgService());
-  check('sin cierres por error hasta aquí', crashes() === 0, adb('logcat -d -b crash').slice(0, 1500));
+  check('sin cierres por error hasta aquí', crashes() === 0, crashText().slice(0, 1500));
   sh('cmd statusbar expand-notifications'); await sleep(2500); shot('aviso'); sh('cmd statusbar collapse'); await sleep(800);
   await js(`location.hash = '#biblioteca'; return 1;`); await sleep(1800); shot('web-biblioteca-sonando');
   await js(`document.querySelector('#main').scrollTop = 400; return 1;`); await sleep(800); shot('web-biblioteca-abajo');
@@ -548,7 +556,7 @@ try {
   sh('input keyevent KEYCODE_MEDIA_PLAY'); await sleep(8000);
   check('«play» con Órbita cerrada: vuelve la música', playing(), `proceso ${alive()} · ${sessState()} · ${fgService()}`);
   sh('cmd statusbar expand-notifications'); await sleep(2500); shot('reanudada'); sh('cmd statusbar collapse');
-  check('ningún cierre por error en toda la prueba', crashes() === 0, adb('logcat -d -b crash').slice(0, 2500));
+  check('ningún cierre por error en toda la prueba', crashes() === 0, crashText().slice(0, 2500));
 } catch (e) {
   check('la prueba terminó sin errores propios', false, e && e.stack || e);
 }
