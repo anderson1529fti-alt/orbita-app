@@ -1,0 +1,254 @@
+Downloading https://services.gradle.org/distributions/gradle-8.14.3-all.zip
+.....................10%.....................20%......................30%.....................40%......................50%.....................60%.....................70%......................80%.....................90%......................100%
+
+Welcome to Gradle 8.14.3!
+
+Here are the highlights of this release:
+ - Java 24 support
+ - GraalVM Native Image toolchain selection
+ - Enhancements to test reporting
+ - Build Authoring improvements
+
+For more details see https://docs.gradle.org/8.14.3/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :app
+WARNING: Using flatDir should be avoided because it doesn't support any meta-data formats.
+
+> Configure project :capacitor-cordova-android-plugins
+WARNING: Using flatDir should be avoided because it doesn't support any meta-data formats.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :capacitor-android:preBuild UP-TO-DATE
+> Task :capacitor-android:preDebugBuild UP-TO-DATE
+> Task :capacitor-community-text-to-speech:preBuild UP-TO-DATE
+> Task :capacitor-community-text-to-speech:preDebugBuild UP-TO-DATE
+> Task :capacitor-cordova-android-plugins:preBuild UP-TO-DATE
+> Task :capacitor-cordova-android-plugins:preDebugBuild UP-TO-DATE
+> Task :capgo-capacitor-media-session:preBuild UP-TO-DATE
+> Task :capgo-capacitor-media-session:preDebugBuild UP-TO-DATE
+> Task :capacitor-cordova-android-plugins:writeDebugAarMetadata
+> Task :capacitor-community-text-to-speech:writeDebugAarMetadata
+> Task :capgo-capacitor-media-session:writeDebugAarMetadata
+> Task :capacitor-android:writeDebugAarMetadata
+> Task :capacitor-android:processDebugNavigationResources
+> Task :capacitor-community-text-to-speech:processDebugNavigationResources
+> Task :app:checkDebugAarMetadata
+> Task :capacitor-cordova-android-plugins:processDebugNavigationResources
+> Task :capgo-capacitor-media-session:processDebugNavigationResources
+> Task :app:processDebugNavigationResources
+> Task :app:compileDebugNavigationResources
+> Task :app:generateDebugResValues
+> Task :capacitor-android:generateDebugResValues
+> Task :capacitor-android:generateDebugResources
+> Task :capacitor-android:packageDebugResources
+> Task :capacitor-community-text-to-speech:generateDebugResValues
+> Task :capacitor-community-text-to-speech:generateDebugResources
+> Task :capacitor-community-text-to-speech:packageDebugResources
+> Task :capacitor-cordova-android-plugins:generateDebugResValues
+> Task :capacitor-cordova-android-plugins:generateDebugResources
+> Task :capacitor-cordova-android-plugins:packageDebugResources
+> Task :capgo-capacitor-media-session:generateDebugResValues
+> Task :capgo-capacitor-media-session:generateDebugResources
+> Task :capgo-capacitor-media-session:packageDebugResources
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :capacitor-android:extractDeepLinksDebug
+> Task :capacitor-community-text-to-speech:extractDeepLinksDebug
+> Task :capacitor-cordova-android-plugins:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+> Task :capacitor-android:processDebugManifest
+> Task :capacitor-cordova-android-plugins:processDebugManifest
+> Task :capacitor-community-text-to-speech:processDebugManifest
+> Task :capgo-capacitor-media-session:extractDeepLinksDebug
+> Task :capgo-capacitor-media-session:processDebugManifest
+> Task :capacitor-android:compileDebugLibraryResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:processDebugManifestForPackage
+> Task :capacitor-community-text-to-speech:compileDebugLibraryResources
+> Task :capacitor-android:parseDebugLocalResources
+> Task :capacitor-cordova-android-plugins:compileDebugLibraryResources
+> Task :capacitor-community-text-to-speech:parseDebugLocalResources
+> Task :capgo-capacitor-media-session:compileDebugLibraryResources
+> Task :capacitor-cordova-android-plugins:parseDebugLocalResources
+> Task :capgo-capacitor-media-session:parseDebugLocalResources
+> Task :capacitor-android:generateDebugRFile
+> Task :capacitor-cordova-android-plugins:generateDebugRFile
+> Task :capacitor-community-text-to-speech:generateDebugRFile
+> Task :capgo-capacitor-media-session:generateDebugRFile
+> Task :capacitor-android:javaPreCompileDebug
+> Task :app:processDebugResources
+
+> Task :capacitor-android:compileDebugJavaWithJavac
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :capacitor-community-text-to-speech:javaPreCompileDebug
+> Task :capacitor-cordova-android-plugins:javaPreCompileDebug
+> Task :capgo-capacitor-media-session:javaPreCompileDebug
+> Task :capacitor-cordova-android-plugins:compileDebugJavaWithJavac NO-SOURCE
+> Task :capacitor-cordova-android-plugins:bundleLibCompileToJarDebug
+> Task :app:javaPreCompileDebug
+> Task :capacitor-android:bundleLibCompileToJarDebug
+> Task :app:mergeDebugShaders
+
+> Task :capacitor-community-text-to-speech:compileDebugJavaWithJavac
+Note: /home/runner/work/orbita-app/orbita-app/node_modules/@capacitor-community/text-to-speech/android/src/main/java/com/getcapacitor/community/tts/TextToSpeech.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: /home/runner/work/orbita-app/orbita-app/node_modules/@capacitor-community/text-to-speech/android/src/main/java/com/getcapacitor/community/tts/TextToSpeech.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :capacitor-community-text-to-speech:bundleLibCompileToJarDebug
+
+> Task :capgo-capacitor-media-session:compileDebugJavaWithJavac
+Note: /home/runner/work/orbita-app/orbita-app/node_modules/@capgo/capacitor-media-session/android/src/main/java/com/capgo/mediasession/MediaSessionService.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :capgo-capacitor-media-session:bundleLibCompileToJarDebug
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :capacitor-android:mergeDebugShaders
+> Task :capacitor-android:compileDebugShaders NO-SOURCE
+> Task :capacitor-android:generateDebugAssets UP-TO-DATE
+> Task :capacitor-android:mergeDebugAssets
+> Task :capacitor-community-text-to-speech:mergeDebugShaders
+> Task :capacitor-community-text-to-speech:compileDebugShaders NO-SOURCE
+> Task :capacitor-community-text-to-speech:generateDebugAssets UP-TO-DATE
+> Task :capacitor-community-text-to-speech:mergeDebugAssets
+> Task :capacitor-cordova-android-plugins:mergeDebugShaders
+> Task :capacitor-cordova-android-plugins:compileDebugShaders NO-SOURCE
+> Task :capacitor-cordova-android-plugins:generateDebugAssets UP-TO-DATE
+> Task :capacitor-cordova-android-plugins:mergeDebugAssets
+> Task :capgo-capacitor-media-session:mergeDebugShaders
+> Task :capgo-capacitor-media-session:compileDebugShaders NO-SOURCE
+> Task :capgo-capacitor-media-session:generateDebugAssets UP-TO-DATE
+> Task :capgo-capacitor-media-session:mergeDebugAssets
+> Task :app:mergeDebugAssets
+> Task :capacitor-community-text-to-speech:bundleLibRuntimeToJarDebug
+> Task :capgo-capacitor-media-session:bundleLibRuntimeToJarDebug
+> Task :app:compressDebugAssets
+> Task :capacitor-android:bundleLibRuntimeToJarDebug
+> Task :capacitor-cordova-android-plugins:bundleLibRuntimeToJarDebug
+> Task :app:desugarDebugFileDependencies
+> Task :capacitor-android:processDebugJavaRes NO-SOURCE
+> Task :capacitor-community-text-to-speech:processDebugJavaRes NO-SOURCE
+> Task :capacitor-cordova-android-plugins:processDebugJavaRes NO-SOURCE
+> Task :capgo-capacitor-media-session:processDebugJavaRes NO-SOURCE
+> Task :capacitor-community-text-to-speech:bundleLibRuntimeToDirDebug
+> Task :app:checkDebugDuplicateClasses
+> Task :app:compileDebugKotlin
+> Task :app:mergeExtDexDebug
+
+> Task :app:compileDebugKotlin
+w: file:///home/runner/work/orbita-app/orbita-app/android/app/src/main/java/io/github/orbita/musica/OrbitaUiPlugin.kt:116:68 'constructor(p0: String!): Locale' is deprecated. Deprecated in Java.
+
+> Task :app:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :app:dexBuilderDebug
+> Task :app:mergeDebugGlobalSynthetics
+> Task :app:processDebugJavaRes
+> Task :capgo-capacitor-media-session:bundleLibRuntimeToDirDebug
+> Task :capacitor-cordova-android-plugins:bundleLibRuntimeToDirDebug
+> Task :capacitor-android:bundleLibRuntimeToDirDebug
+> Task :app:mergeDebugJniLibFolders
+> Task :capacitor-android:mergeDebugJniLibFolders
+> Task :capacitor-android:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-android:copyDebugJniLibsProjectOnly
+> Task :capacitor-community-text-to-speech:mergeDebugJniLibFolders
+> Task :capacitor-community-text-to-speech:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-community-text-to-speech:copyDebugJniLibsProjectOnly
+> Task :app:mergeProjectDexDebug
+> Task :capacitor-cordova-android-plugins:mergeDebugJniLibFolders
+> Task :capacitor-cordova-android-plugins:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-cordova-android-plugins:copyDebugJniLibsProjectOnly
+> Task :capgo-capacitor-media-session:mergeDebugJniLibFolders
+> Task :capgo-capacitor-media-session:mergeDebugNativeLibs NO-SOURCE
+> Task :capgo-capacitor-media-session:copyDebugJniLibsProjectOnly
+> Task :app:mergeDebugJavaResource
+> Task :app:validateSigningDebug
+> Task :app:mergeLibDexDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:mergeDebugNativeLibs
+> Task :capacitor-android:checkDebugAarMetadata
+> Task :capacitor-android:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-android:copyDebugJniLibsProjectAndLocalJars
+
+> Task :app:stripDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so, libonnxruntime.so, libonnxruntime4j_jni.so. Run with --info option to learn more.
+
+> Task :capacitor-android:extractDebugAnnotations
+> Task :capacitor-android:extractDeepLinksForAarDebug
+> Task :capacitor-android:mergeDebugGeneratedProguardFiles
+> Task :capacitor-android:mergeDebugConsumerProguardFiles
+> Task :capacitor-android:prepareDebugArtProfile
+> Task :capacitor-android:prepareLintJarForPublish
+> Task :capacitor-android:mergeDebugJavaResource
+> Task :capacitor-community-text-to-speech:checkDebugAarMetadata
+> Task :capacitor-android:syncDebugLibJars
+> Task :capacitor-android:bundleDebugAar
+> Task :capacitor-android:assembleDebug
+> Task :capacitor-community-text-to-speech:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-community-text-to-speech:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-community-text-to-speech:extractDebugAnnotations
+> Task :capacitor-community-text-to-speech:extractDeepLinksForAarDebug
+> Task :capacitor-community-text-to-speech:mergeDebugGeneratedProguardFiles
+> Task :capacitor-community-text-to-speech:mergeDebugConsumerProguardFiles
+> Task :capacitor-community-text-to-speech:prepareDebugArtProfile
+> Task :capacitor-community-text-to-speech:prepareLintJarForPublish
+> Task :capacitor-community-text-to-speech:mergeDebugJavaResource
+> Task :capacitor-cordova-android-plugins:checkDebugAarMetadata
+> Task :capacitor-community-text-to-speech:syncDebugLibJars
+> Task :capacitor-community-text-to-speech:bundleDebugAar
+> Task :capacitor-community-text-to-speech:assembleDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+> Task :capacitor-cordova-android-plugins:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-cordova-android-plugins:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-cordova-android-plugins:extractDebugAnnotations
+> Task :capacitor-cordova-android-plugins:extractDeepLinksForAarDebug
+> Task :capacitor-cordova-android-plugins:mergeDebugGeneratedProguardFiles
+> Task :capacitor-cordova-android-plugins:mergeDebugConsumerProguardFiles
+> Task :capacitor-cordova-android-plugins:prepareDebugArtProfile
+> Task :capacitor-cordova-android-plugins:prepareLintJarForPublish
+> Task :capacitor-cordova-android-plugins:mergeDebugJavaResource
+> Task :capgo-capacitor-media-session:checkDebugAarMetadata
+> Task :capacitor-cordova-android-plugins:syncDebugLibJars
+> Task :capacitor-cordova-android-plugins:bundleDebugAar
+> Task :capacitor-cordova-android-plugins:assembleDebug
+> Task :capgo-capacitor-media-session:stripDebugDebugSymbols NO-SOURCE
+> Task :capgo-capacitor-media-session:copyDebugJniLibsProjectAndLocalJars
+> Task :capgo-capacitor-media-session:extractDebugAnnotations
+> Task :capgo-capacitor-media-session:extractDeepLinksForAarDebug
+> Task :capgo-capacitor-media-session:mergeDebugGeneratedProguardFiles
+> Task :capgo-capacitor-media-session:mergeDebugConsumerProguardFiles
+> Task :capgo-capacitor-media-session:prepareDebugArtProfile
+> Task :capgo-capacitor-media-session:prepareLintJarForPublish
+> Task :capgo-capacitor-media-session:mergeDebugJavaResource
+> Task :capgo-capacitor-media-session:syncDebugLibJars
+> Task :capgo-capacitor-media-session:bundleDebugAar
+> Task :capgo-capacitor-media-session:assembleDebug
+
+[Incubating] Problems report is available at: file:///home/runner/work/orbita-app/orbita-app/android/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 2m 32s
+157 actionable tasks: 157 executed

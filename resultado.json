@@ -1,0 +1,332 @@
+[
+ {
+  "name": "la app se instala",
+  "ok": true,
+  "info": "Success"
+ },
+ {
+  "name": "la app sigue abierta tras arrancar",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "se puede manejar por dentro (depuración del WebView)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "la app ve la música del emulador",
+  "ok": true,
+  "info": "6 canciones"
+ },
+ {
+  "name": "la app lee las portadas de las canciones del móvil",
+  "ok": true,
+  "info": "2 con portada"
+ },
+ {
+  "name": "Ajustes: el interruptor de «Mi música» nativa se enciende",
+  "ok": true,
+  "info": "true · Activadas: «Mi música» y la conversación con Nova las dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre."
+ },
+ {
+  "name": "«Mi música» nativa a la vista",
+  "ok": true,
+  "info": "{\"on\":true,\"shown\":true,\"err\":\"\",\"rect\":\"{\\\"x\\\":0,\\\"y\\\":0,\\\"w\\\":412.19049072265625,\\\"h\\\":630.2261962890625,\\\"dpr\\\":2.625}\"}"
+ },
+ {
+  "name": "sin cierres al abrir la pantalla nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "la pantalla nativa enseña el título, la música del móvil y los filtros",
+  "ok": true,
+  "info": "Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | ♪ | Abrir Ahora suena | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador para dormir | 0:00 | Posición | 0:00 | BIBLIOTECA | 10 canciones · 6 min | Añadir canciones | 6 canciones tienen poca calida | Música del móvil | 6 canciones conectadas. Se rep | Actualizar | Filtrar por título, artista o  | Todas | Favoritas | Mi voz | Del móvil | Recientes | Reproducir todo"
+ },
+ {
+  "name": "al final de la lista, todo queda donde en la pantalla de siempre (± 3)",
+  "ok": true,
+  "info": "nativa 563.4 · web 563.4"
+ },
+ {
+  "name": "se ven las canciones",
+  "ok": true,
+  "info": "Marea lenta | Viernes 23:59 | Domingo | Luz de las siete | Andén 3 | Lámpara de escritorio | Viernes 23:59"
+ },
+ {
+  "name": "las portadas llegan a la pantalla nativa",
+  "ok": true,
+  "info": "{\"available\":true,\"v\":3,\"covers\":2,\"songs\":10,\"screen\":\"biblioteca\",\"msgs\":0,\"shown\":true}"
+ },
+ {
+  "name": "tocar una canción en la pantalla nativa la pone",
+  "ok": true,
+  "info": "{\"title\":\"Marea lenta\",\"paused\":false,\"q\":10} · estado PLAYING(3) · activa true · Marea lenta, Los Rayos, Mar"
+ },
+ {
+  "name": "el corazón marca la canción como favorita",
+  "ok": true,
+  "info": "true"
+ },
+ {
+  "name": "el filtro «Favoritas» deja solo la favorita",
+  "ok": true,
+  "info": "Marea lenta"
+ },
+ {
+  "name": "ordenar por título",
+  "ok": true,
+  "info": "Andén 3 | Domingo | Faros | Lámpara de escritorio"
+ },
+ {
+  "name": "el orden elegido se guarda en la app",
+  "ok": true,
+  "info": "{\"sort\":\"title\",\"guardado\":\"title\"}"
+ },
+ {
+  "name": "buscar «kora»: la caja sube arriba del todo y se ven resultados con el teclado abierto",
+  "ok": true,
+  "info": "Luz de las siete | Pulso · la caja queda a 6.9 del borde"
+ },
+ {
+  "name": "«buscar» en el teclado lo cierra y quedan las dos canciones de Kora",
+  "ok": true,
+  "info": "teclado false · Luz de las siete | Pulso"
+ },
+ {
+  "name": "la ✕ vacía la búsqueda",
+  "ok": true,
+  "info": "Andén 3 | Domingo | Faros | Lámpara de escritorio | Luz de las siete"
+ },
+ {
+  "name": "«editar» abre el diálogo de la app (con esa canción) y la pantalla nativa se aparta",
+  "ok": true,
+  "info": "{\"shown\":false,\"dialog\":true,\"titulo\":\"Domingo\"}"
+ },
+ {
+  "name": "al cerrar el diálogo, la pantalla nativa vuelve",
+  "ok": true,
+  "info": "{\"shown\":true,\"kb\":0}"
+ },
+ {
+  "name": "un solo toque en la papelera no borra nada",
+  "ok": true,
+  "info": "10 → 10"
+ },
+ {
+  "name": "si no se confirma, a los 3 s vuelve a su sitio",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "papelera y luego «¿Borrar?»: la canción se quita de Órbita",
+  "ok": true,
+  "info": "10 → 9"
+ },
+ {
+  "name": "los avisos de la app se ven encima de la pantalla nativa",
+  "ok": true,
+  "info": "mirar la pantalla tardó 11040 ms"
+ },
+ {
+  "name": "al cambiar de pestaña se quita, y al volver vuelve",
+  "ok": true,
+  "info": "false → true"
+ },
+ {
+  "name": "al volver de otra pestaña, la lista empieza arriba (como la de siempre)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "el reproductor a pantalla completa se abre por encima (la nativa se aparta)",
+  "ok": true,
+  "info": "{\"shown\":false,\"np\":true}"
+ },
+ {
+  "name": "al cerrarlo, la nativa vuelve",
+  "ok": true,
+  "info": "{\"shown\":true,\"np\":false,\"view\":\"biblioteca\"}"
+ },
+ {
+  "name": "el aspecto elegido en «Personaliza Órbita» llega a la pantalla nativa (letra más grande)",
+  "ok": true,
+  "info": "[true,true,true] · alto del título 126 px"
+ },
+ {
+  "name": "sin cierres por error en las pruebas de la pantalla nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Añadir canciones» abre el selector de archivos de Android",
+  "ok": true,
+  "info": "topResumedActivity=ActivityRecord{ab8ed38 u0 com.google.android.documentsui/com.android.documentsui.picker.PickActivity t8}"
+ },
+ {
+  "name": "la canción elegida en el selector entra en la biblioteca",
+  "ok": true,
+  "info": "9 → 10 · {\"id\":\"tmwdedmcfxa107\",\"title\":\"Marea lenta\",\"artist\":\"Los Rayos\",\"shown\":true}"
+ },
+ {
+  "name": "borrar desde la pantalla nativa la quita de la biblioteca",
+  "ok": true,
+  "info": "10 → 9"
+ },
+ {
+  "name": "tras el selector, la app sigue abierta y la pantalla nativa vuelve",
+  "ok": true,
+  "info": "topResumedActivity=ActivityRecord{19e62c u0 io.github.orbita.musica/.MainActivity t8}"
+ },
+ {
+  "name": "recién instalada, «Mi música» nativa viene encendida sin tocar nada",
+  "ok": true,
+  "info": "{\"on\":true,\"shown\":true,\"err\":\"\",\"guardado\":null}"
+ },
+ {
+  "name": "sin cierres por error tras reiniciar la parte web con la pantalla nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "la conversación con Nova sale nativa",
+  "ok": true,
+  "info": "{\"shown\":true,\"screen\":\"chat\",\"chatOk\":true,\"err\":\"\",\"st\":{\"available\":true,\"v\":3,\"covers\":2,\"songs\":9,\"screen\":\"chat\",\"msgs\":1,\"shown\":true}}"
+ },
+ {
+  "name": "la conversación nativa: cada cosa donde en la de siempre (± 3)",
+  "ok": true,
+  "info": "[[\"Nova\",0,0.1],[\"qué suena\",0,0],[\"Borrar\",0,0],[\"Cerrar\",0,0],[\"Enviar\",0,-0.3],[\"saludo\",0.1,0.2],[\"«¿Qué recuerdas de mí?»\",0.1,-1],[\"«Más movida»\",0.3,-1],[\"«Más tranquila»\",0.6,-1],[\"«¿Por qué esta?»\",0.2,-0.7],[\"«Resumen de mi semana»\",0.6,-0.7],[\"«Ayuda»\",0.9,-0.7],[\"caja\",0,-0.4],[\"micrófono\",-0.1,-0.1]]"
+ },
+ {
+  "name": "mantener pulsado un mensaje (copiarlo) no rompe nada",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "tocar una sugerencia: sale mi mensaje y Nova contesta",
+  "ok": true,
+  "info": "Nova | Suena: Marea lenta | Borrar | Cerrar | Ayuda | Puedes pedirme cos | ¿Qué recuerdas de  | Más movida | Más tranquila | ¿Por qué esta? | Resumen de mi sema | Ayuda | Escribe a la DJ… | Enviar | Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | ÓRBITA FM | 10:22 | Ajustes: tema, voc |"
+ },
+ {
+  "name": "con el teclado abierto se ve lo último que dijo Nova y lo que escribo",
+  "ok": true,
+  "info": "teclado true · alto de la app 1389"
+ },
+ {
+  "name": "«enviar» en el teclado manda el mensaje, la caja se vacía y Nova contesta",
+  "ok": true,
+  "info": "[[\"me\",\"Ayuda\"],[\"nova\",\"Puedes pedirme cosas como: más\"],[\"me\",\"gracias\"],[\"nova\",\"¡A ti!\"]]"
+ },
+ {
+  "name": "el botón «Enviar» manda el mensaje",
+  "ok": true,
+  "info": "[[\"me\",\"hola\"],[\"nova\",\"¡Hola! Aquí estoy. ¿Te pongo a\"]]"
+ },
+ {
+  "name": "los avisos de la app se ven encima de la conversación nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "si una ventana de la app se pone encima, la nativa se aparta y luego vuelve",
+  "ok": true,
+  "info": "false → true"
+ },
+ {
+  "name": "«Borrar» vacía la conversación",
+  "ok": true,
+  "info": "0"
+ },
+ {
+  "name": "«Cerrar» cierra la conversación, quita la nativa y baja el teclado",
+  "ok": true,
+  "info": "{\"cerrada\":true,\"shown\":false,\"st\":{\"available\":true,\"v\":3,\"covers\":2,\"songs\":9,\"screen\":\"chat\",\"msgs\":1,\"shown\":false}} · teclado false"
+ },
+ {
+  "name": "sin cierres por error con la conversación nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "una muestra de Deezer recién pedida suena en la app",
+  "ok": true,
+  "info": "suena"
+ },
+ {
+  "name": "una recomendación guardada con la dirección caducada: la app pide la nueva y suena, sin aviso de error",
+  "ok": true,
+  "info": "la caducada a pelo: no se puede (error 4) · {\"cur\":\"dz:3135556\",\"nueva\":true,\"boton\":\"Pausar\",\"t\":7,\"toast\":\"\",\"guardada\":true}"
+ },
+ {
+  "name": "el reproductor es el de Kotlin",
+  "ok": true,
+  "info": "{\"available\":true,\"rate\":48000,\"v\":3,\"bt\":false,\"lat\":178,\"player\":\"kotlin\",\"service\":true}"
+ },
+ {
+  "name": "suena y la app sigue abierta",
+  "ok": true,
+  "info": "estado PLAYING(3) · activa true · Marea lenta, Los Rayos, Mar"
+ },
+ {
+  "name": "el servicio de música arrancó (Media3)",
+  "ok": true,
+  "info": "{\"available\":true,\"rate\":48000,\"v\":3,\"bt\":false,\"lat\":179,\"player\":\"kotlin\",\"service\":true}"
+ },
+ {
+  "name": "el servicio está en primer plano mientras suena",
+  "ok": true,
+  "info": "en primer plano"
+ },
+ {
+  "name": "sin cierres por error hasta aquí",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«siguiente» de los auriculares: cambia la canción y la app la sigue",
+  "ok": true,
+  "info": "Marea lenta → Viernes 23:59 · estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad"
+ },
+ {
+  "name": "«pausa» de los auriculares",
+  "ok": true,
+  "info": "estado PAUSED(2) · activa true · Viernes 23:59, Neón Norte, Ciudad"
+ },
+ {
+  "name": "«play» de los auriculares",
+  "ok": true,
+  "info": "estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad"
+ },
+ {
+  "name": "la parte web se reinicia y recoge lo que suena (misma canción, sigue avanzando)",
+  "ok": true,
+  "info": "{\"before\":{\"id\":\"dev:1000000020\",\"t\":6.499737500000046},\"after\":{\"id\":\"dev:1000000020\",\"t\":19.70288333333326,\"paused\":false}}"
+ },
+ {
+  "name": "cerrada desde las recientes: la música sigue",
+  "ok": true,
+  "info": "actividad cerrada true · proceso true · estado PLAYING(3) · activa true · Luz de las siete, Kora, Amanecer · en primer plano"
+ },
+ {
+  "name": "con la app cerrada, «siguiente» funciona",
+  "ok": true,
+  "info": "estado PLAYING(3) · activa true · Faros, Banda Sur, Costa"
+ },
+ {
+  "name": "al volver a abrirla, sigue sonando y la app lo muestra",
+  "ok": true,
+  "info": "{\"boton\":\"Pausar\",\"titulo\":\"Nada sonando\"} · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa"
+ },
+ {
+  "name": "«play» con Órbita cerrada: vuelve la música",
+  "ok": true,
+  "info": "proceso true · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa · en primer plano"
+ },
+ {
+  "name": "ningún cierre por error en toda la prueba",
+  "ok": true,
+  "info": ""
+ }
+]

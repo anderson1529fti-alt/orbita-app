@@ -1,0 +1,77 @@
+música en el emulador: 6 canciones
+ok    · la app se instala · Success
+ok    · la app sigue abierta tras arrancar
+ok    · se puede manejar por dentro (depuración del WebView)
+ok    · la app ve la música del emulador · 6 canciones
+ok    · la app lee las portadas de las canciones del móvil · 2 con portada
+  (aviso del sistema del emulador: Pixel Launcher isn't responding)
+ok    · Ajustes: el interruptor de «Mi música» nativa se enciende · true · Activadas: «Mi música» y la conversación con Nova las dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.
+ok    · «Mi música» nativa a la vista · {"on":true,"shown":true,"err":"","rect":"{\"x\":0,\"y\":0,\"w\":412.19049072265625,\"h\":630.2261962890625,\"dpr\":2.625}"}
+ok    · sin cierres al abrir la pantalla nativa
+ok    · la pantalla nativa enseña el título, la música del móvil y los filtros · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | ♪ | Abrir Ahora suena | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador para dormir | 0:00 | Posición | 0:00 | BIBLIOTECA | 10 canciones · 6 min | Añadir canciones | 6 canciones tienen poca calida | Música del móvil | 6 canciones conectadas. Se rep | Actualizar | Filtrar por título, artista o  | Todas | Favoritas | Mi voz | Del móvil | Recientes | Reproducir todo
+ok    · al final de la lista, todo queda donde en la pantalla de siempre (± 3) · nativa 563.4 · web 563.4
+ok    · se ven las canciones · Marea lenta | Viernes 23:59 | Domingo | Luz de las siete | Andén 3 | Lámpara de escritorio | Viernes 23:59
+ok    · las portadas llegan a la pantalla nativa · {"available":true,"v":3,"covers":2,"songs":10,"screen":"biblioteca","msgs":0,"shown":true}
+ok    · tocar una canción en la pantalla nativa la pone · {"title":"Marea lenta","paused":false,"q":10} · estado PLAYING(3) · activa true · Marea lenta, Los Rayos, Mar
+ok    · el corazón marca la canción como favorita · true
+ok    · el filtro «Favoritas» deja solo la favorita · Marea lenta
+ok    · ordenar por título · Andén 3 | Domingo | Faros | Lámpara de escritorio
+ok    · el orden elegido se guarda en la app · {"sort":"title","guardado":"title"}
+ok    · buscar «kora»: la caja sube arriba del todo y se ven resultados con el teclado abierto · Luz de las siete | Pulso · la caja queda a 6.9 del borde
+ok    · «buscar» en el teclado lo cierra y quedan las dos canciones de Kora · teclado false · Luz de las siete | Pulso
+ok    · la ✕ vacía la búsqueda · Andén 3 | Domingo | Faros | Lámpara de escritorio | Luz de las siete
+ok    · «editar» abre el diálogo de la app (con esa canción) y la pantalla nativa se aparta · {"shown":false,"dialog":true,"titulo":"Domingo"}
+ok    · al cerrar el diálogo, la pantalla nativa vuelve · {"shown":true,"kb":0}
+  (no da tiempo a comprobar «¿Borrar?» mirando la pantalla: tardó 4224 ms; se ve en la captura nativa-borrar)
+ok    · un solo toque en la papelera no borra nada · 10 → 10
+ok    · si no se confirma, a los 3 s vuelve a su sitio
+ok    · papelera y luego «¿Borrar?»: la canción se quita de Órbita · 10 → 9
+ok    · los avisos de la app se ven encima de la pantalla nativa · mirar la pantalla tardó 11040 ms
+ok    · al cambiar de pestaña se quita, y al volver vuelve · false → true
+ok    · al volver de otra pestaña, la lista empieza arriba (como la de siempre)
+ok    · el reproductor a pantalla completa se abre por encima (la nativa se aparta) · {"shown":false,"np":true}
+ok    · al cerrarlo, la nativa vuelve · {"shown":true,"np":false,"view":"biblioteca"}
+ok    · el aspecto elegido en «Personaliza Órbita» llega a la pantalla nativa (letra más grande) · [true,true,true] · alto del título 126 px
+fluidez de la lista nativa: 119 fotogramas · lentos 119 (100.00 %) · p90 200 ms · p99 250 ms
+fluidez de la lista de siempre (mismo gesto): 123 fotogramas · lentos 123 (100.00 %) · p90 200 ms · p99 300 ms
+ok    · sin cierres por error en las pruebas de la pantalla nativa
+ok    · «Añadir canciones» abre el selector de archivos de Android · topResumedActivity=ActivityRecord{ab8ed38 u0 com.google.android.documentsui/com.android.documentsui.picker.PickActivity t8}
+ok    · la canción elegida en el selector entra en la biblioteca · 9 → 10 · {"id":"tmwdedmcfxa107","title":"Marea lenta","artist":"Los Rayos","shown":true}
+ok    · borrar desde la pantalla nativa la quita de la biblioteca · 10 → 9
+ok    · tras el selector, la app sigue abierta y la pantalla nativa vuelve · topResumedActivity=ActivityRecord{19e62c u0 io.github.orbita.musica/.MainActivity t8}
+ok    · recién instalada, «Mi música» nativa viene encendida sin tocar nada · {"on":true,"shown":true,"err":"","guardado":null}
+ok    · sin cierres por error tras reiniciar la parte web con la pantalla nativa
+ok    · la conversación con Nova sale nativa · {"shown":true,"screen":"chat","chatOk":true,"err":"","st":{"available":true,"v":3,"covers":2,"songs":9,"screen":"chat","msgs":1,"shown":true}}
+ok    · la conversación nativa: cada cosa donde en la de siempre (± 3) · [["Nova",0,0.1],["qué suena",0,0],["Borrar",0,0],["Cerrar",0,0],["Enviar",0,-0.3],["saludo",0.1,0.2],["«¿Qué recuerdas de mí?»",0.1,-1],["«Más movida»",0.3,-1],["«Más tranquila»",0.6,-1],["«¿Por qué esta?»",0.2,-0.7],["«Resumen de mi semana»",0.6,-0.7],["«Ayuda»",0.9,-0.7],["caja",0,-0.4],["micrófono",-0.1,-0.1]]
+ok    · mantener pulsado un mensaje (copiarlo) no rompe nada
+ok    · tocar una sugerencia: sale mi mensaje y Nova contesta · Nova | Suena: Marea lenta | Borrar | Cerrar | Ayuda | Puedes pedirme cos | ¿Qué recuerdas de  | Más movida | Más tranquila | ¿Por qué esta? | Resumen de mi sema | Ayuda | Escribe a la DJ… | Enviar | Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | ÓRBITA FM | 10:22 | Ajustes: tema, voc |
+ok    · con el teclado abierto se ve lo último que dijo Nova y lo que escribo · teclado true · alto de la app 1389
+ok    · «enviar» en el teclado manda el mensaje, la caja se vacía y Nova contesta · [["me","Ayuda"],["nova","Puedes pedirme cosas como: más"],["me","gracias"],["nova","¡A ti!"]]
+ok    · el botón «Enviar» manda el mensaje · [["me","hola"],["nova","¡Hola! Aquí estoy. ¿Te pongo a"]]
+ok    · los avisos de la app se ven encima de la conversación nativa
+ok    · si una ventana de la app se pone encima, la nativa se aparta y luego vuelve · false → true
+ok    · «Borrar» vacía la conversación · 0
+ok    · «Cerrar» cierra la conversación, quita la nativa y baja el teclado · {"cerrada":true,"shown":false,"st":{"available":true,"v":3,"covers":2,"songs":9,"screen":"chat","msgs":1,"shown":false}} · teclado false
+ok    · sin cierres por error con la conversación nativa
+muestra de Deezer «Harder, Better, Faster, Stronger»: su dirección caduca en 15 min · https://cdnt-preview.dzcdn.net/api/1/1/6/a/2/0/6a2c0a5670afe821e08fc5154909534a.mp3?hdnea=exp=1794479963~acl=/api/1/1/6/a/2/0/6a2c0a5670afe821e08fc5154909534a.mp3*~data=u
+  una dirección recién pedida: suena · una caducada: no se puede (error 4)
+ok    · una muestra de Deezer recién pedida suena en la app · suena
+ok    · una recomendación guardada con la dirección caducada: la app pide la nueva y suena, sin aviso de error · la caducada a pelo: no se puede (error 4) · {"cur":"dz:3135556","nueva":true,"boton":"Pausar","t":7,"toast":"","guardada":true}
+ok    · el reproductor es el de Kotlin · {"available":true,"rate":48000,"v":3,"bt":false,"lat":178,"player":"kotlin","service":true}
+ok    · suena y la app sigue abierta · estado PLAYING(3) · activa true · Marea lenta, Los Rayos, Mar
+ok    · el servicio de música arrancó (Media3) · {"available":true,"rate":48000,"v":3,"bt":false,"lat":179,"player":"kotlin","service":true}
+ok    · el servicio está en primer plano mientras suena · en primer plano
+ok    · sin cierres por error hasta aquí
+ok    · «siguiente» de los auriculares: cambia la canción y la app la sigue · Marea lenta → Viernes 23:59 · estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad
+ok    · «pausa» de los auriculares · estado PAUSED(2) · activa true · Viernes 23:59, Neón Norte, Ciudad
+ok    · «play» de los auriculares · estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad
+ok    · la parte web se reinicia y recoge lo que suena (misma canción, sigue avanzando) · {"before":{"id":"dev:1000000020","t":6.499737500000046},"after":{"id":"dev:1000000020","t":19.70288333333326,"paused":false}}
+  (el lanzador del emulador no cerró la tarjeta; lo intento otra vez)
+ok    · cerrada desde las recientes: la música sigue · actividad cerrada true · proceso true · estado PLAYING(3) · activa true · Luz de las siete, Kora, Amanecer · en primer plano
+ok    · con la app cerrada, «siguiente» funciona · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa
+ok    · al volver a abrirla, sigue sonando y la app lo muestra · {"boton":"Pausar","titulo":"Nada sonando"} · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa
+tras cerrar en pausa: proceso vivo = true · estado PAUSED(2) · activa true · Faros, Banda Sur, Costa
+ok    · «play» con Órbita cerrada: vuelve la música · proceso true · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa · en primer plano
+ok    · ningún cierre por error en toda la prueba
+
+66 de 66 bien
