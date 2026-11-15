@@ -565,7 +565,7 @@ try {
         const cs = getComputedStyle(p); if (cs.display === 'none') continue;
         const g = document.createRange(); g.selectNodeContents(n); const r = g.getBoundingClientRect(); if (!r.width || r.top < mr.top + 6 || r.bottom > mr.bottom - 6) continue;
         let t = n.textContent.replace(/\\s+/g, ' ').trim(); if (cs.textTransform === 'uppercase') t = t.toUpperCase();
-        out.push({ t: t.slice(0, 60), x: +(r.left).toFixed(1), y: +((r.top + r.bottom) / 2 - mr.top).toFixed(1), top: +(r.top - mr.top).toFixed(1), rows: Math.round(r.height / (parseFloat(cs.lineHeight) || r.height)) });
+        out.push({ t: t.slice(0, 60), x: +(r.left).toFixed(1), y: +((r.top + r.bottom) / 2 - mr.top).toFixed(1), top: +(r.top - mr.top).toFixed(1), h: +r.height.toFixed(1), rows: Math.round(r.height / (parseFloat(cs.lineHeight) || r.height)) });
       }
       return { scroll: m.scrollTop, total: m.scrollHeight, list: out };`;
     const par = [], bad = []; let last = -1;
@@ -584,7 +584,10 @@ try {
         const nx = part ? e.x : c[0].b[0] / dp, ny = ((c[0].b[1] + c[0].b[3]) / 2 - top) / dp, dx = +(nx - e.x).toFixed(1);
         let dy = +(ny - e.y).toFixed(1);
         // (un párrafo de varios renglones puede ir partido en dos textos en la nativa: entonces se mira dónde empieza)
-        if (e.rows > 1 && Math.abs(dy) > 3) { const dt = +((c[0].b[1] - top) / dp - e.top).toFixed(1); if (Math.abs(dt) < Math.abs(dy)) dy = dt; }
+        // (y a un texto que queda justo encima de un botón, Android le recorta por abajo el sitio que le cuenta al lector de pantalla,
+        //  porque el botón se toca desde un poco más arriba de donde se ve: si mide menos que sus propias letras, se mira también dónde empieza)
+        const cut = (c[0].b[3] - c[0].b[1]) / dp < e.h - 1;
+        if ((e.rows > 1 || cut) && Math.abs(dy) > 3) { const dt = +((c[0].b[1] - top) / dp - e.top).toFixed(1); if (Math.abs(dt) < Math.abs(dy)) dy = dt; }
         par.push({ at: w.scroll, t: e.t, web: [e.x, e.y], nat: [+nx.toFixed(1), +ny.toFixed(1)], dx, dy });
         if (Math.abs(dy) > 3 || Math.abs(dx) > 3) bad.push(`«${e.t.slice(0, 26)}» ${dx}/${dy}`);
       }
@@ -628,9 +631,10 @@ try {
     if (del) {
       const before = await js(`return window.__orbita.state.playlists.length;`);
       // (mirar la pantalla desde fuera tarda más de lo que dura el «¿Borrar?»: se pregunta a la app y se toca en el mismo sitio)
-      tap(...center(del)); await sleep(700); shot('listas-borrar');
+      tap(...center(del)); await sleep(900); shot('listas-borrar'); await sleep(3800);
+      tap(...center(del)); await sleep(700);
       const mid = await js(`return { n: window.__orbita.state.playlists.length, armed: !!document.querySelector('#view-listas .armed') };`);
-      tap(...center(del)); await sleep(1500);
+      tap(...center(del)); await sleep(1800);
       const after = await js(`return window.__orbita.state.playlists.length;`);
       check('la papelera pide confirmar y, al confirmar, borra la lista', mid && mid.armed && mid.n === before && after === before - 1, `armada ${mid && mid.armed} · ${before} → ${mid && mid.n} → ${after}`);
     } else check('encuentro la papelera de una lista', false, ln.filter(n => n.desc).map(n => n.desc).join(' | ').slice(0, 300));
