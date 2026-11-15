@@ -6371,7 +6371,7 @@ async function homeArt(u, side) {
 /* ---------- 4.6 · the screens that follow, with one mechanism for all ----------
    Each screen says which element of the app it is, how to read each of its parts and in which part an element is.
    The app sends a part only when what it shows changes; the native screen draws it and says what was touched. */
-const plCard = c => ({ covers: [...c.querySelectorAll('.pl-covers > *')].map(hCover), name: hTxt(c.querySelector('h3')), desc: hTxt(c.querySelector('p')), meta: hTxt(c.querySelector('.pl-meta')),
+const plCard = c => ({ h: hH(c), hs: [...c.children].map(hH), covers: [...c.querySelectorAll('.pl-covers > *')].map(hCover), name: hTxt(c.querySelector('h3')), desc: hTxt(c.querySelector('p')), meta: hTxt(c.querySelector('.pl-meta')),
   wrap: c.querySelector(':scope > div > h3') ? 1 : 0,
   btns: [...c.querySelectorAll('.pl-btns > button')].map(b => { const sv = b.querySelector('svg'); return b.classList.contains('icon-btn')
     ? { ic: b.dataset.act || '', armed: b.classList.contains('armed') ? 1 : 0, t: hTxt(b), l: b.getAttribute('aria-label') || '', k: hKey(b) }

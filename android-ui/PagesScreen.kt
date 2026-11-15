@@ -127,7 +127,9 @@ private fun ListasBody(sk: Skin) {
 private fun CardGrid(cards: List<JSONObject>, sk: Skin) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cols = maxOf(1, ((maxWidth.value + 16f) / 266f).toInt())
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // (en el móvil, una debajo de otra, cada una del alto exacto que tiene en la web: así no se van corriendo al bajar)
+        if (cols == 1 && cards.isNotEmpty() && cards.all { it.num("h", 0f) > 40f }) ExactColumn(16f, cards.map { it.num("h", 0f) }, Modifier.fillMaxWidth()) { for (c in cards) ListCard(c, sk, Modifier.fillMaxWidth()) }
+        else Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             for (row in cards.chunked(cols)) {
                 if (cols == 1) ListCard(row[0], sk, Modifier.fillMaxWidth())
                 else Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -143,7 +145,9 @@ private fun CardGrid(cards: List<JSONObject>, sk: Skin) {
 @Composable
 private fun ListCard(c: JSONObject, sk: Skin, modifier: Modifier) {
     val p = sk.pal
-    Column(modifier.panel(sk).padding(18.dp + sk.b), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val name = c.str("name")
+    val desc = c.str("desc")
+    val body: @Composable () -> Unit = {
         val covers = c.arr("covers")
         // cuatro portadas en dos filas, cuadradas, con 5 de separación
         Layout(content = { for (k in 0 until 4) HCover(covers.getOrNull(k), sk, Modifier, 16.8f, side = 170) }, modifier = Modifier.fillMaxWidth().clip(sk.r(14f))) { ms, cs ->
@@ -154,8 +158,6 @@ private fun ListCard(c: JSONObject, sk: Skin, modifier: Modifier) {
             val ps = ms.mapIndexed { i, m -> val cw = if (i % 2 == 0) a else b; val ch = if (i < 2) a else b; m.measure(Constraints.fixed(cw, ch)) }
             layout(w, w) { ps.forEachIndexed { i, pl -> pl.place(if (i % 2 == 0) 0 else a + g, if (i < 2) 0 else a + g) } }
         }
-        val name = c.str("name")
-        val desc = c.str("desc")
         if (c.on("wrap")) Column {
             T(name, 16.8f * sk.tk, p.fg, family = sk.display, weight = sk.displayWeight, lh = 1.15f, ls = -0.02f)
             if (desc.isNotEmpty()) T(desc, 13.76f * sk.tk, p.muted)
@@ -184,12 +186,18 @@ private fun ListCard(c: JSONObject, sk: Skin, modifier: Modifier) {
             }
         }
     }
+    // (cada trozo, del alto exacto de la web, si la web los ha dado todos; si no, uno debajo de otro)
+    val ja = c.optJSONArray("hs")
+    val hs = if (ja == null) emptyList() else (0 until ja.length()).map { ja.optDouble(it, 0.0).toFloat() }
+    val n = 3 + (if (c.on("wrap") || desc.isEmpty()) 1 else 2)
+    val box = modifier.panel(sk).padding(18.dp + sk.b)
+    if (hs.size == n && hs.all { it > 4f }) ExactColumn(12f, hs, box, body)
+    else Column(box, verticalArrangement = Arrangement.spacedBy(12.dp)) { body() }
 }
 
 // ---------------------------------------------------------------- «Tú»
 private const val P_X = "M6 6l12 12M18 6L6 18"
 private const val P_PLAY_S = "M7 4.5v15l13-7.5z"
-private const val P_TRI = "M8 5l9 7-9 7z"
 
 @Composable
 private fun TuBody(sk: Skin) {
@@ -429,7 +437,13 @@ private fun Chart(o: JSONObject, sk: Skin) {
         if (sum != null) {
             val open = sum.on("open")
             Row(Modifier.press(0.98f) { tap(sum) }, verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.width((sum.num("m", 0f).takeIf { it > 2f } ?: 13.2f).dp), contentAlignment = Alignment.CenterStart) { Ico(P_TRI, 10f, p.muted, Modifier.graphicsLayer { rotationZ = if (open) 90f else 0f }, fill = true) }
+                val mk = sum.num("m", 0f).takeIf { it > 2f } ?: 13.2f
+                Box(Modifier.width(mk.dp), contentAlignment = Alignment.CenterStart) {
+                    // (el triangulito de la web es una letra: ocupa unos dos tercios de ese hueco, pegado a la izquierda)
+                    Canvas(Modifier.size((mk * 0.68f).dp, (mk * 0.79f).dp).graphicsLayer { rotationZ = if (open) 90f else 0f }) {
+                        drawPath(Path().apply { moveTo(0f, 0f); lineTo(size.width, size.height / 2f); lineTo(0f, size.height); close() }, p.muted)
+                    }
+                }
                 T(sum.str("t"), 12.48f * sk.tk, p.muted, maxLines = 1)
             }
             val rows = o.arr2("rows")
