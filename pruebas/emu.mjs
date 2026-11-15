@@ -118,7 +118,10 @@ try {
   sh('content call --uri content://media --method scan_volume --arg external_primary');
   for (let i = 1; i <= songs.length; i++) sh(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Music/c${i}.mp3`);
   await sleep(4000);
-  log('música en el emulador:', sh('content query --uri content://media/external/audio/media --projection title').split('\n').filter(l => /title=/.test(l)).length, 'canciones');
+  // (a veces el emulador tarda en apuntar alguna canción: se le vuelve a pedir hasta que estén todas)
+  const inStore = () => sh('content query --uri content://media/external/audio/media --projection title').split('\n').filter(l => /title=/.test(l)).length;
+  for (let k = 0; k < 6 && inStore() < songs.length; k++) { sh('content call --uri content://media --method scan_volume --arg external_primary'); await sleep(5000); }
+  log('música en el emulador:', inStore(), 'canciones');
 
   // que los avisos de «no responde» del propio emulador no tapen la pantalla
   sh('settings put global hide_error_dialogs 1'); sh('settings put secure anr_show_background 0');
