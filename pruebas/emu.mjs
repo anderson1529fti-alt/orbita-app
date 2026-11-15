@@ -380,7 +380,7 @@ try {
     const st = async () => js(`${O} return { shown: N.shown, screen: N.screen, homeOk: N.homeOk, err: N.err, st: await Capacitor.Plugins.OrbitaUi.status() };`);
     const h0 = await st();
     let hn = ui(); shot('ahora-nativa');
-    check('«Ahora» sale nativa al entrar', !!h0 && h0.shown && h0.screen === 'inicio' && h0.st.screen === 'inicio' && h0.st.home === true && h0.st.shown === true && ['ÓRBITA FM', 'DJ Nova', 'Pedir', 'Conversación'].every(t => find(hn, t)), JSON.stringify(h0) + ' · ' + hn.filter(n => n.text).map(n => n.text.slice(0, 24)).join(' | ').slice(0, 300));
+    check('«Ahora» sale nativa al entrar', !!h0 && h0.shown && h0.screen === 'inicio' && h0.st.screen === 'inicio' && h0.st.home === true && h0.st.shown === true && ['ÓRBITA FM', 'DJ Nova', 'Voz', 'Conversación'].every(t => find(hn, t)), JSON.stringify(h0) + ' · ' + hn.filter(n => n.text).map(n => n.text.slice(0, 24)).join(' | ').slice(0, 300));
     check('sin cierres al abrir «Ahora» nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
     // --- cada cosa, donde en la pantalla de siempre (± 3), a varias alturas. (Sin animaciones mientras se mide: así mirar la pantalla no tarda.)
     await js(`document.documentElement.classList.add('lite'); return 1;`); await sleep(600);
@@ -390,7 +390,7 @@ try {
       for (let n = w.nextNode(); n; n = w.nextNode()) {
         const p = n.parentElement; if (!p || !n.textContent.trim() || p.closest('.ticker, select, [hidden], canvas')) continue;
         const cs = getComputedStyle(p); if (cs.display === 'none') continue;
-        const g = document.createRange(); g.selectNodeContents(n); const r = g.getBoundingClientRect(); if (!r.width || r.bottom < mr.top + 4 || r.top > mr.bottom - 4) continue;
+        const g = document.createRange(); g.selectNodeContents(n); const r = g.getBoundingClientRect(); if (!r.width || r.top < mr.top + 6 || r.bottom > mr.bottom - 6) continue;
         let t = n.textContent.replace(/\\s+/g, ' ').trim(); if (cs.textTransform === 'uppercase') t = t.toUpperCase();
         out.push({ t: t.slice(0, 60), x: +(r.left).toFixed(1), y: +((r.top + r.bottom) / 2 - mr.top).toFixed(1), h: +r.height.toFixed(1) });
       }
@@ -398,7 +398,7 @@ try {
     const par = [];
     const bad = [];
     let totalWeb = 0, lastY = 0;
-    for (const y of [0, 500, 1000, 1500, 2000, 2500, 99999]) {
+    for (const y of [0, 350, 700, 1050, 1400, 1750, 2100, 2450, 2800, 99999]) {
       await js(`${O} N.classic = true; await new Promise(r => setTimeout(r, 500)); document.querySelector('#main').scrollTop = ${y}; return 1;`); await sleep(500);
       const w = await js(HQ); if (!w) continue;
       totalWeb = w.total; if (y !== 0 && w.scroll === lastY) continue; lastY = w.scroll;
@@ -429,7 +429,8 @@ try {
     const in2 = await js(`return JSON.parse(localStorage.getItem('orbita:intros'));`);
     check('«Presenta cada canción» se enciende y se apaga', in1 === true && in2 === false, `${in1} → ${in2}`);
     // --- escribirle a Nova
-    hn = ui();
+    const yAsk = await js(`const m = document.querySelector('#main'), e = document.querySelector('#djInput'); return Math.max(0, Math.round(e.getBoundingClientRect().top - m.getBoundingClientRect().top + m.scrollTop - 140));`);
+    await toY(yAsk); hn = ui();
     const box = hn.find(n => n.desc === 'Pídele algo a la DJ');
     if (box) {
       tap(box.b[2] - 60, center(box)[1]); await sleep(2200); sh('input text ayuda'); await sleep(1500);
@@ -447,9 +448,9 @@ try {
     await top0();
     {
       const cur = await js(`const s = document.querySelector('#mixSel'); return { v: s.value, t: s.selectedOptions[0].textContent, otra: [...s.options].find(x => x.value !== s.value).textContent };`);
-      hn = ui();
-      let selN = find(hn, cur.t);
-      if (!selN) { await toY(500); hn = ui(); selN = find(hn, cur.t); }
+      const ySel = await js(`const m = document.querySelector('#main'), e = document.querySelector('#mixSel'); return Math.max(0, Math.round(e.getBoundingClientRect().top - m.getBoundingClientRect().top + m.scrollTop - 200));`);
+      await toY(ySel); hn = ui();
+      const selN = find(hn, cur.t);
       if (selN) {
         tap(...center(selN)); await sleep(1500); shot('ahora-desplegable');
         await tapText(cur.otra, 1800);
@@ -491,8 +492,8 @@ try {
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
     // --- la ruleta
     await top0();
-    hn = ui();
-    if (!find(hn, 'Girar la ruleta')) { await toY(520); }
+    const yRoul = await js(`const m = document.querySelector('#main'), e = document.querySelector('#slot').parentElement.querySelector('#djAsk'); return Math.max(0, Math.round(e.getBoundingClientRect().top - m.getBoundingClientRect().top + m.scrollTop - 160));`);
+    await toY(yRoul);
     await tapText('Girar la ruleta', 9000);
     const rl = await js(`${O} const t = o.trackById(o.state.queue[o.state.qi]), s = document.querySelector('#slot'); return { title: t && t.title, landed: s.classList.contains('landed'), radio: document.querySelector('#btnRadio').getAttribute('aria-pressed'), paused: o.decks[o.A].paused };`);
     hn = ui(); shot('ahora-ruleta');

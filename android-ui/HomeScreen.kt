@@ -334,6 +334,28 @@ private fun HFlow(hGap: Dp, vGap: Dp, modifier: Modifier = Modifier, grow: Int =
     }
 }
 
+/**
+ * Una columna de filas con la altura exacta de la web. En la web una fila puede medir «134,5 puntos de pantalla»; Android
+ * solo sabe de puntos enteros, y en una lista larga el medio punto de cada fila se va sumando. Aquí cada fila se coloca
+ * donde le toca según la cuenta exacta.
+ */
+@Composable
+private fun ExactColumn(gap: Float, heights: List<Float>, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Layout(content = content, modifier = modifier) { ms, c ->
+        val n = minOf(ms.size, heights.size)
+        val ys = IntArray(n + 1)
+        var y = 0f
+        for (i in 0 until n) { ys[i] = (y * density).roundToInt(); y += heights[i] + (if (i < n - 1) gap else 0f) }
+        ys[n] = (y * density).roundToInt()
+        val ps = ArrayList<androidx.compose.ui.layout.Placeable>(n)
+        for (i in 0 until n) {
+            val h = maxOf(1, (if (i < n - 1) ys[i + 1] - (gap * density).roundToInt() else ys[n]) - ys[i])
+            ps.add(ms[i].measure(Constraints(c.maxWidth, c.maxWidth, h, h)))
+        }
+        layout(c.maxWidth, ys[n]) { for (i in 0 until n) ps[i].place(0, ys[i]) }
+    }
+}
+
 /** Un botón de la app con las medidas de la web (normal, pequeño o grande), con su icono si lo lleva. */
 @Composable
 private fun HBtn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: Boolean = false, kind: Int = 0, enabled: Boolean = true, on: Boolean = false,
@@ -530,10 +552,11 @@ private fun Hero(top: JSONObject, sk: Skin, vw: Float, lite: Boolean) {
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
             // «ÓRBITA FM» y la hora
-            val blink = if (lite) 1f else rememberInfiniteTransition(label = "dot").animateFloat(1f, 0.35f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "b").value
+            val blink = if (lite) null else rememberInfiniteTransition(label = "dot").animateFloat(1f, 0.35f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "b")
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f, fill = false).clip(pill).background(Color.Black.copy(alpha = 0.35f)).border(sk.b, p.line2, pill).padding(horizontal = 12.dp + sk.b, vertical = 5.dp + sk.b),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.size(8.dp).graphicsLayer { alpha = blink }.glow(p.accent, 4.dp, 10.dp, 0.dp, 0.dp).background(p.accent, CircleShape))
+                Box(Modifier.size(8.dp).graphicsLayer { alpha = blink?.value ?: 1f }.glow(p.accent, 4.dp, 10.dp, 0.dp, 0.dp).background(p.accent, CircleShape))
                 T("ÓRBITA FM", 12.48f * sk.tk, p.fg, family = Mono, weight = FontWeight.SemiBold, ls = 0.08f, maxLines = 1)
                 T(top.str("clock"), 12.48f * sk.tk, p.fg, family = Mono, weight = FontWeight.SemiBold, ls = 0.08f, maxLines = 1)
             }
@@ -545,7 +568,8 @@ private fun Hero(top: JSONObject, sk: Skin, vw: Float, lite: Boolean) {
                     T(top.str("alarm"), 12.48f * sk.tk, p.fg, family = Mono, weight = FontWeight.SemiBold, ls = 0.08f, maxLines = 1)
                 }
             }
-            Spacer(Modifier.width(8.dp).weight(1f))
+            }
+            Spacer(Modifier.width(8.dp))
             Box(Modifier.size(34.dp).semantics { contentDescription = "Ajustes: tema, voces y animaciones" }.press(0.9f) { tap(".hero-top .gear") }.clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)).border(sk.b, p.line2, CircleShape),
                 contentAlignment = Alignment.Center) { Ico(H_GEAR, 17f, p.muted, sw = 2f) }
         }
@@ -731,7 +755,7 @@ private fun Ticker(o: JSONObject, sk: Skin, lite: Boolean) {
     val p = sk.pal
     val items = remember(o) { o.strs("items") }
     var half by remember { mutableStateOf(0) }
-    val ph = if (lite) 0f else rememberInfiniteTransition(label = "cinta").animateFloat(0f, 1f, infiniteRepeatable(tween(38000, easing = LinearEasing)), label = "x").value
+    val ph = if (lite) null else rememberInfiniteTransition(label = "cinta").animateFloat(0f, 1f, infiniteRepeatable(tween(38000, easing = LinearEasing)), label = "x")
     val look = UiState.look
     Box(Modifier.layout { m, c ->
         // (sobresale 6 por cada lado, como en la web)
@@ -744,7 +768,7 @@ private fun Ticker(o: JSONObject, sk: Skin, lite: Boolean) {
             val w = sk.b.toPx()
             drawRect(p.line2, Offset.Zero, Size(size.width, w)); drawRect(p.line2, Offset(0f, size.height - w), Size(size.width, w))
         }.clipToBounds().padding(vertical = 10.dp + sk.b)) {
-        Row(Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onSizeChanged { half = it.width / 2 }.graphicsLayer { translationX = -ph * half }) {
+        Row(Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onSizeChanged { half = it.width / 2 }.graphicsLayer { translationX = -(ph?.value ?: 0f) * half }) {
             for (k in 0..1) for (t in items) {
                 T(t.uppercase(), 14.72f * sk.tk, p.fg, Modifier.padding(end = 28.dp), family = sk.display, weight = sk.displayBold, ls = 0.02f, maxLines = 1)
                 T("✦", 14.72f * sk.tk, p.accent, Modifier.padding(end = 28.dp), family = sk.display, weight = sk.displayBold, ls = 0.02f, maxLines = 1)
@@ -759,11 +783,14 @@ private fun Ticker(o: JSONObject, sk: Skin, lite: Boolean) {
 private fun Avatar(sk: Skin, mine: Boolean, talk: Boolean, lite: Boolean) {
     val p = sk.pal
     val tr = if (lite) null else rememberInfiniteTransition(label = "nova")
-    val spin = tr?.animateFloat(0f, 360f, infiniteRepeatable(tween(if (talk) 3500 else 7000, easing = LinearEasing)), label = "s")?.value ?: 0f
-    val beat = if (tr != null && talk) tr.animateFloat(0f, 1f, infiniteRepeatable(tween(550), RepeatMode.Reverse), label = "b").value else 0f
-    val bars = if (tr != null && talk) tr.animateFloat(0f, 1f, infiniteRepeatable(tween(500, easing = LinearEasing)), label = "t").value else -1f
+    val spinS = tr?.animateFloat(0f, 360f, infiniteRepeatable(tween(if (talk) 3500 else 7000, easing = LinearEasing)), label = "s")
+    val beatS = if (tr != null && talk) tr.animateFloat(0f, 1f, infiniteRepeatable(tween(550), RepeatMode.Reverse), label = "b") else null
+    val barsS = if (tr != null && talk) tr.animateFloat(0f, 1f, infiniteRepeatable(tween(500, easing = LinearEasing)), label = "t") else null
     val lime = Color(0xFFA3E635); val teal = Color(0xFF21D4A8)
     Canvas(Modifier.size(66.dp)) {
+        val spin = spinS?.value ?: 0f
+        val beat = beatS?.value ?: 0f
+        val bars = barsS?.value ?: -1f
         val ctr = Offset(size.width / 2, size.height / 2)
         val ring = if (mine) Brush.sweepGradient(listOf(p.good, p.accent, p.good), ctr) else Brush.sweepGradient(listOf(lime, p.accent, p.accent2, teal, lime), ctr)
         val from = if (mine) -90f else -50f
@@ -772,7 +799,7 @@ private fun Avatar(sk: Skin, mine: Boolean, talk: Boolean, lite: Boolean) {
             drawIntoCanvas { cv ->
                 val pt = Paint()
                 ring.applyTo(size, pt, if (talk) 0.55f + 0.45f * beat else 0.7f)
-                pt.asFrameworkPaint().maskFilter = BlurMaskFilter(max(1f, 10.dp.toPx() * 0.5f), BlurMaskFilter.Blur.NORMAL)
+                pt.asFrameworkPaint().maskFilter = BlurMaskFilter(17.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
                 cv.drawCircle(ctr, (size.width / 2 + 8.dp.toPx()) * (1f + (if (talk) 0.18f * beat else 0f)), pt)
             }
             drawCircle(ring, size.width / 2, ctr)
@@ -830,10 +857,10 @@ private fun DjPanel(sk: Skin, lite: Boolean) {
                 Spacer(Modifier.height(4.dp))
             }
             val caret = bub.on("c")
-            val blink = if (caret && !lite) rememberInfiniteTransition(label = "cur").animateFloat(1f, 0.35f, infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse), label = "c").value else 1f
+            val blink = if (caret && !lite) rememberInfiniteTransition(label = "cur").animateFloat(1f, 0.35f, infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse), label = "c") else null
             val txt = buildAnnotatedString { append(bub.str("t")); if (caret) appendInlineContent("c", "▌") }
             val inline = mapOf("c" to InlineTextContent(Placeholder(0.58.em, 1.em, PlaceholderVerticalAlign.TextCenter)) {
-                Box(Modifier.fillMaxSize().padding(start = 2.dp).graphicsLayer { alpha = if (blink > 0.67f) 1f else 0.35f }.background(p.accent))
+                Box(Modifier.fillMaxSize().padding(start = 2.dp).graphicsLayer { alpha = if ((blink?.value ?: 1f) > 0.67f) 1f else 0.35f }.background(p.accent))
             })
             // (como mínimo ocupa lo de dos renglones largos, como en la web)
             Box(Modifier.layout { m, c ->
@@ -998,7 +1025,12 @@ private fun FyBody(card: JSONObject, sk: Skin, modifier: Modifier) {
                 "h3" -> T(el.str("t"), 16.8f * sk.tk, p.fg, Modifier.padding(top = 2.dp), family = sk.display, weight = sk.displayWeight, lh = 1.15f, ls = -0.02f)
                 "sub" -> T(el.str("t"), 13.44f * sk.tk, p.muted, Modifier.padding(top = 2.dp), maxLines = 1)
                 "btns" -> HFlow(8.dp, 8.dp, Modifier.fillMaxWidth().padding(top = 10.dp)) { for (b in el.arr("b")) JBtn(b, sk, 1) }
-                "mini" -> Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { for (r in el.arr("rows")) MiniRow(r, sk) }
+                "mini" -> {
+                    val rows = el.arr("rows")
+                    // (cada fila: 4 + la portada o los dos renglones con sus 2 de separación + 4)
+                    val rowH = 8f + maxOf(38f, 2f + (15f + 13.44f) * 1.45f * sk.tk)
+                    ExactColumn(4f, rows.map { rowH }, Modifier.fillMaxWidth().padding(top = 6.dp)) { for (r in rows) MiniRow(r, sk) }
+                }
                 else -> T(el.str("t"), 13.44f * sk.tk, p.muted, Modifier.padding(top = 6.dp))
             }
         }
@@ -1011,12 +1043,12 @@ private fun MiniRow(r: JSONObject, sk: Skin) {
     val p = sk.pal
     val acts = r.arr("acts")
     val hot = r.on("play") || r.on("liked")
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.weight(1f).press(0.98f) { tap(r) }.padding(4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.weight(1f).press(0.98f) { tap(r) }.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             HCover(r.obj("c"), sk, Modifier.size(38.dp).clip(sk.r(8f)), 16.8f)
             Column(Modifier.weight(1f, fill = false)) {
                 T(r.str("t"), 15f * sk.tk, if (hot) p.accent else p.fg, weight = FontWeight.ExtraBold, maxLines = 1)
-                T(r.str("s"), 13.44f * sk.tk, p.muted, maxLines = 1)
+                T(r.str("s"), 13.44f * sk.tk, p.muted, Modifier.padding(top = 2.dp), maxLines = 1)
             }
         }
         if (acts.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1114,7 +1146,9 @@ private fun MixPanel(mx: JSONObject, sk: Skin) {
             }
             HFlow(8.dp, 8.dp, Modifier.fillMaxWidth()) { for (b in mx.arr("acts")) JBtn(b, sk, 0, iconSize = 22f) }
         }
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) { for (song in mx.arr("items")) MixItem(song, sk) }
+        val songs = mx.arr("items")
+        // (cada fila: 8 + la portada o sus renglones + 8, más el borde)
+        ExactColumn(6f, songs.map { 16f + 2f * sk.b.value + maxOf(46f, (15f + 13.44f) * 1.45f * sk.tk + (if (it.str("w").isNotEmpty()) 2f + 12.8f * 1.45f * sk.tk else 0f)) }, Modifier.fillMaxWidth()) { for (song in songs) MixItem(song, sk) }
         val disc = mx.obj("disc")
         if (disc != null) {
             val r = (16f * sk.round).dp
@@ -1143,9 +1177,9 @@ private fun MixItem(o: JSONObject, sk: Skin) {
     val p = sk.pal
     val shape = sk.r(14f)
     val play = o.on("play")
-    var m = Modifier.fillMaxWidth().clip(shape)
+    var m = Modifier.fillMaxSize().clip(shape)
     if (play) m = m.background(Brush.horizontalGradient(listOf(p.wash, Color.Transparent))).border(sk.b, p.accent.copy(alpha = 0.3f), shape)
-    Row(m.press(0.98f) { tap(o) }.padding(start = 6.dp + sk.b, end = 12.dp + sk.b, top = 8.dp + sk.b, bottom = 8.dp + sk.b), verticalAlignment = Alignment.CenterVertically) {
+    Row(m.press(0.98f) { tap(o) }.padding(start = 6.dp + sk.b, end = 12.dp + sk.b), verticalAlignment = Alignment.CenterVertically) {
         // el número: solo el contorno (o relleno con el color del momento si es la que suena)
         val sw = with(LocalDensity.current) { 1.dp.toPx() }
         val ns = style(19.2f * sk.tk, if (play) p.accent else p.faint, sk.display, sk.displayWeight, 1f, 0f, TextAlign.End)
