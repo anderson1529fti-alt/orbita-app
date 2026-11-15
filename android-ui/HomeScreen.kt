@@ -125,17 +125,17 @@ import kotlinx.coroutines.delay
  */
 
 // ---------------------------------------------------------------- lo que manda la app
-private fun JSONObject?.str(k: String): String = this?.optString(k, "") ?: ""
-private fun JSONObject?.on(k: String): Boolean = (this?.optInt(k, 0) ?: 0) == 1
-private fun JSONObject?.num(k: String, d: Float): Float = this?.optDouble(k, d.toDouble())?.toFloat() ?: d
-private fun JSONObject?.obj(k: String): JSONObject? = this?.optJSONObject(k)
-private fun JSONObject?.arr(k: String): List<JSONObject> {
+internal fun JSONObject?.str(k: String): String = this?.optString(k, "") ?: ""
+internal fun JSONObject?.on(k: String): Boolean = (this?.optInt(k, 0) ?: 0) == 1
+internal fun JSONObject?.num(k: String, d: Float): Float = this?.optDouble(k, d.toDouble())?.toFloat() ?: d
+internal fun JSONObject?.obj(k: String): JSONObject? = this?.optJSONObject(k)
+internal fun JSONObject?.arr(k: String): List<JSONObject> {
     val a = this?.optJSONArray(k) ?: return emptyList()
     val out = ArrayList<JSONObject>(a.length())
     for (i in 0 until a.length()) { val o = a.optJSONObject(i); if (o != null) out.add(o) }
     return out
 }
-private fun JSONObject?.strs(k: String): List<String> {
+internal fun JSONObject?.strs(k: String): List<String> {
     val a = this?.optJSONArray(k) ?: return emptyList()
     val out = ArrayList<String>(a.length())
     for (i in 0 until a.length()) out.add(a.optString(i))
@@ -143,8 +143,8 @@ private fun JSONObject?.strs(k: String): List<String> {
 }
 
 /** Tocar algo: la app pulsa su botón de siempre (por su nombre o por el número que le dio al leerlo). */
-private fun tap(sel: String) { UiState.send("hTap") { it.put("k", sel) } }
-private fun tap(o: JSONObject?) { val k = o?.optInt("k", 0) ?: 0; if (k > 0) UiState.send("hTap") { it.put("k", k) } }
+internal fun tap(sel: String) { UiState.send("hTap") { it.put("k", sel) } }
+internal fun tap(o: JSONObject?) { val k = o?.optInt("k", 0) ?: 0; if (k > 0) UiState.send("hTap") { it.put("k", k) } }
 
 // ---------------------------------------------------------------- iconos (los mismos trazados que la web)
 private const val H_GEAR = "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M14 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M8 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"
@@ -157,7 +157,7 @@ private const val H_RADIO = "M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M16.2 7.8a6 6 0 
 private const val H_ALL = "M4 6h11M4 12h11M4 18h7M17 15v6l4-3z"
 private const val H_DICE = "M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1 -4 4H7a4 4 0 0 1 -4 -4V7a4 4 0 0 1 4 -4z"
 private const val H_DOTS = "M7.2 8.5a1.3 1.3 0 1 0 2.6 0a1.3 1.3 0 1 0 -2.6 0M14.2 15.5a1.3 1.3 0 1 0 2.6 0a1.3 1.3 0 1 0 -2.6 0M14.2 8.5a1.3 1.3 0 1 0 2.6 0a1.3 1.3 0 1 0 -2.6 0M7.2 15.5a1.3 1.3 0 1 0 2.6 0a1.3 1.3 0 1 0 -2.6 0M10.7 12a1.3 1.3 0 1 0 2.6 0a1.3 1.3 0 1 0 -2.6 0"
-private const val H_PLAY = "M7 4.5v15l13-7.5z"
+internal const val H_PLAY = "M7 4.5v15l13-7.5z"
 private const val H_YT_BOX = "M6.5 5.5h11a4 4 0 0 1 4 4v5a4 4 0 0 1 -4 4h-11a4 4 0 0 1 -4 -4v-5a4 4 0 0 1 4 -4z"
 private const val H_YT_TRI = "M10 9.2l5 2.8-5 2.8z"
 private const val H_DOWN = "M6 9l6 6 6-6"
@@ -171,7 +171,7 @@ private val artFlush = Runnable {
         if (urls.isEmpty()) continue
         val a = JSArray()
         for (u in urls) a.put(u)
-        UiState.send("needArt") { it.put("urls", a); it.put("side", side) }
+        UiState.send("needArt") { it.put("urls", a); it.put("side", side); if (side > 100) it.put("tag", "|L") }
     }
     artQueue.clear()
 }
@@ -205,8 +205,9 @@ private fun putArt(key: String, bmp: ImageBitmap) {
 }
 
 /** Pide una portada: las de internet las baja Android; las que guarda la app, se las pide a ella (varias de una vez). */
-private fun needArt(url: String, sideDp: Int, density: Float) {
-    if (url.isEmpty() || !UiState.asked.add(url)) return
+internal fun needArt(url: String, sideDp: Int, density: Float) {
+    val key = if (sideDp > 100) "$url|L" else url
+    if (url.isEmpty() || !UiState.asked.add(key)) return
     if (url.startsWith("http://") || url.startsWith("https://")) {
         val px = maxOf(32, (sideDp * density).roundToInt())
         artPool.execute {
@@ -215,10 +216,10 @@ private fun needArt(url: String, sideDp: Int, density: Float) {
                 c.connectTimeout = 8000; c.readTimeout = 10000
                 val bytes = c.inputStream.use { it.readBytes() }
                 val bmp = decodeArt(bytes, px)
-                if (bmp != null) artMain.post { putArt(url, bmp.asImageBitmap()) }
-                else artMain.postDelayed({ UiState.asked.remove(url) }, 60000)
+                if (bmp != null) artMain.post { putArt(key, bmp.asImageBitmap()) }
+                else artMain.postDelayed({ UiState.asked.remove(key) }, 60000)
             } catch (t: Throwable) {
-                artMain.postDelayed({ UiState.asked.remove(url) }, 60000)   // (sin conexión: se vuelve a intentar más tarde)
+                artMain.postDelayed({ UiState.asked.remove(key) }, 60000)   // (sin conexión: se vuelve a intentar más tarde)
             }
         }
         return
@@ -230,11 +231,12 @@ private fun needArt(url: String, sideDp: Int, density: Float) {
 
 /** Una portada (o, si no tiene, su inicial sobre el degradado de la canción). */
 @Composable
-private fun HCover(c: JSONObject?, sk: Skin, modifier: Modifier, letter: Float, side: Int = 76) {
+internal fun HCover(c: JSONObject?, sk: Skin, modifier: Modifier, letter: Float, side: Int = 76) {
     val u = c.str("u")
-    val bmp = if (u.isNotEmpty()) UiState.covers[u] else null
+    val key = if (side > 100 && u.isNotEmpty()) "$u|L" else u
+    val bmp = if (u.isNotEmpty()) UiState.covers[key] else null
     val dens = LocalDensity.current.density
-    if (u.isNotEmpty() && bmp == null) LaunchedEffect(u) { needArt(u, side, dens) }
+    if (u.isNotEmpty() && bmp == null) LaunchedEffect(key) { needArt(u, side, dens) }
     Box(modifier.background(Color(0x802E2250)), contentAlignment = Alignment.Center) {
         if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else if (u.isEmpty()) {
@@ -253,10 +255,10 @@ private fun HCover(c: JSONObject?, sk: Skin, modifier: Modifier, letter: Float, 
 
 // ---------------------------------------------------------------- piezas
 /** El peso «negrita» de los títulos con la letra elegida. */
-private val Skin.displayBold: FontWeight get() = if (titles == "retro") FontWeight.SemiBold else FontWeight.Bold
+internal val Skin.displayBold: FontWeight get() = if (titles == "retro") FontWeight.SemiBold else FontWeight.Bold
 
 /** Un degradado de CSS (ángulo en grados, 0 = hacia arriba) para una caja de este tamaño. */
-private fun cssLinear(deg: Float, size: Size, vararg stops: Pair<Float, Color>): Brush {
+internal fun cssLinear(deg: Float, size: Size, vararg stops: Pair<Float, Color>): Brush {
     val a = deg * PI.toFloat() / 180f
     val dx = sin(a); val dy = -cos(a)
     val len = abs(size.width * dx) + abs(size.height * dy)
@@ -265,7 +267,7 @@ private fun cssLinear(deg: Float, size: Size, vararg stops: Pair<Float, Color>):
 }
 
 /** El recuadro «con luz» de la app: fondo liso, borde que va del color del momento a nada y vuelve, y brillo alrededor. */
-private fun Modifier.glowPanel(sk: Skin, radius: Float = 20f): Modifier {
+internal fun Modifier.glowPanel(sk: Skin, radius: Float = 20f): Modifier {
     val p = sk.pal
     val r = (radius * sk.round).dp
     return this.glow(Color.Black.copy(alpha = 0.8f), r, 60.dp, 24.dp, (-30).dp).glow(p.glow, r, 50.dp, 0.dp, (-18).dp)
@@ -278,7 +280,7 @@ private fun Modifier.glowPanel(sk: Skin, radius: Float = 20f): Modifier {
 }
 
 /** El recuadro normal. */
-private fun Modifier.panel(sk: Skin): Modifier {
+internal fun Modifier.panel(sk: Skin): Modifier {
     val r = (20f * sk.round).dp
     val black = sk.pal.bg == Color.Black
     return this.glow(Color.Black.copy(alpha = 0.8f), r, 60.dp, 24.dp, (-30).dp).clip(RoundedCornerShape(r))
@@ -290,7 +292,7 @@ private fun Modifier.panel(sk: Skin): Modifier {
  * «grow» es la que se estira para llenar su renglón (con «basis» como ancho mínimo para decidir si cabe).
  */
 @Composable
-private fun HFlow(hGap: Dp, vGap: Dp, modifier: Modifier = Modifier, grow: Int = -1, basis: Dp = 0.dp, content: @Composable () -> Unit) {
+internal fun HFlow(hGap: Dp, vGap: Dp, modifier: Modifier = Modifier, grow: Int = -1, basis: Dp = 0.dp, bottom: Boolean = false, content: @Composable () -> Unit) {
     Layout(content = content, modifier = modifier) { measurables, constraints ->
         val gx = hGap.roundToPx(); val gy = vGap.roundToPx()
         val maxW = constraints.maxWidth
@@ -327,7 +329,7 @@ private fun HFlow(hGap: Dp, vGap: Dp, modifier: Modifier = Modifier, grow: Int =
             for (i in measurables.indices) {
                 if (row[i] != cr) { cr = row[i]; cx = 0 }
                 val pl = ps[i]!!
-                pl.place(cx, ys[cr] + (hs[cr] - pl.height) / 2)
+                pl.place(cx, ys[cr] + (if (bottom) hs[cr] - pl.height else (hs[cr] - pl.height) / 2))
                 cx += ws[i] + gx
             }
         }
@@ -340,7 +342,7 @@ private fun HFlow(hGap: Dp, vGap: Dp, modifier: Modifier = Modifier, grow: Int =
  * donde le toca según la cuenta exacta.
  */
 @Composable
-private fun ExactColumn(gap: Float, heights: List<Float>, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+internal fun ExactColumn(gap: Float, heights: List<Float>, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Layout(content = content, modifier = modifier) { ms, c ->
         val n = minOf(ms.size, heights.size)
         val ys = IntArray(n + 1)
@@ -358,7 +360,7 @@ private fun ExactColumn(gap: Float, heights: List<Float>, modifier: Modifier = M
 
 /** Un botón de la app con las medidas de la web (normal, pequeño o grande), con su icono si lo lleva. */
 @Composable
-private fun HBtn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: Boolean = false, kind: Int = 0, enabled: Boolean = true, on: Boolean = false,
+internal fun HBtn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: Boolean = false, kind: Int = 0, enabled: Boolean = true, on: Boolean = false,
                  icon: String? = null, iconFill: Boolean = false, iconSize: Float = 18f, iconSw: Float = 2f, dots: String? = null, onClick: () -> Unit) {
     // kind: 0 normal, 1 pequeño, 2 grande
     val p = sk.pal
@@ -387,13 +389,13 @@ private fun HBtn(text: String, sk: Skin, modifier: Modifier = Modifier, primary:
 
 /** Un botón tal como lo manda la app (texto, si es el principal, si lleva el triángulo de «reproducir»…). */
 @Composable
-private fun JBtn(b: JSONObject, sk: Skin, kind: Int, iconSize: Float = 16f) {
+internal fun JBtn(b: JSONObject, sk: Skin, kind: Int, iconSize: Float = 16f) {
     HBtn(b.str("t"), sk, primary = b.on("p"), kind = kind, enabled = !b.on("d"), on = b.on("on"), icon = if (b.on("i")) H_PLAY else null, iconFill = true, iconSize = iconSize) { tap(b) }
 }
 
 /** Una sugerencia (borde de rayas): al tocarla, la app pulsa la suya. */
 @Composable
-private fun Idea(o: JSONObject, sk: Skin) {
+internal fun Idea(o: JSONObject, sk: Skin) {
     Box(Modifier.press { tap(o) }.dashed(sk.pal.line2, 999.dp, sk.b).padding(horizontal = 11.dp + sk.b, vertical = 6.dp + sk.b)) {
         T(o.str("t"), 12.8f * sk.tk, sk.pal.muted, weight = FontWeight.Bold, maxLines = 1)
     }
@@ -401,7 +403,7 @@ private fun Idea(o: JSONObject, sk: Skin) {
 
 /** Las letras pequeñas de encima de los títulos. */
 @Composable
-private fun Eyebrow(text: String, sk: Skin, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
+internal fun Eyebrow(text: String, sk: Skin, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
     T(text.uppercase(), 11.2f * sk.tk, sk.pal.muted, modifier, family = Mono, weight = FontWeight.SemiBold, ls = 0.16f, maxLines = maxLines)
 }
 
@@ -424,7 +426,7 @@ private fun HeadRow(title: String, right: String, sk: Skin) {
 
 /** Un interruptor de los de arriba («Voz», «Presenta cada canción») o un botón con icono del mismo aspecto. */
 @Composable
-private fun Toggle(text: String, on: Boolean, sk: Skin, icon: String? = null, onClick: () -> Unit) {
+internal fun Toggle(text: String, on: Boolean, sk: Skin, icon: String? = null, onClick: () -> Unit) {
     val p = sk.pal
     val shape = RoundedCornerShape(999.dp)
     val kx by animateFloatAsState(if (on) 12f else 0f, tween(280), label = "sw")
@@ -493,7 +495,7 @@ private fun Select(sel: String, o: JSONObject?, sk: Skin) {
 
 /** Varias opciones pegadas, una marcada (las duraciones de la mezcla). */
 @Composable
-private fun SegRow(items: List<JSONObject>, sk: Skin) {
+internal fun SegRow(items: List<JSONObject>, sk: Skin) {
     val p = sk.pal
     val shape = sk.r(12f)
     val dens = LocalDensity.current.density

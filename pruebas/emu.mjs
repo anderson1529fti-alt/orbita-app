@@ -567,6 +567,87 @@ try {
   }
   // ================= fin de la fase 2 · paso 2 =================
 
+  // ================= FASE 2 · paso 3 (4.6): «Mis listas», nativa =================
+  // (cada texto de una pantalla, donde en la de siempre: sirve para todas las pantallas nuevas)
+  const paridad = async (view, file, ys) => {
+    const dp = await js(`return devicePixelRatio;`);
+    const Q = `const m = document.querySelector('#main'), mr = m.getBoundingClientRect(), out = [];
+      const w = document.createTreeWalker(document.querySelector('${view}'), NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const p = n.parentElement; if (!p || !n.textContent.trim() || p.closest('select, [hidden], canvas, svg')) continue;
+        const cs = getComputedStyle(p); if (cs.display === 'none') continue;
+        const g = document.createRange(); g.selectNodeContents(n); const r = g.getBoundingClientRect(); if (!r.width || r.top < mr.top + 6 || r.bottom > mr.bottom - 6) continue;
+        let t = n.textContent.replace(/\\s+/g, ' ').trim(); if (cs.textTransform === 'uppercase') t = t.toUpperCase();
+        out.push({ t: t.slice(0, 60), x: +(r.left).toFixed(1), y: +((r.top + r.bottom) / 2 - mr.top).toFixed(1) });
+      }
+      return { scroll: m.scrollTop, total: m.scrollHeight, list: out };`;
+    const par = [], bad = []; let last = -1;
+    for (const y of ys) {
+      await js(`window.__orbita.NUI.classic = true; await new Promise(r => setTimeout(r, 500)); document.querySelector('#main').scrollTop = ${y}; return 1;`); await sleep(500);
+      const w = await js(Q); if (!w || w.scroll === last) continue; last = w.scroll;
+      await js(`window.__orbita.NUI.classic = false; await new Promise(r => setTimeout(r, 700)); await Capacitor.Plugins.OrbitaUi.scroll({ y: ${w.scroll} }); return 1;`); await sleep(900);
+      const ns = ui(), wv = ns.find(n => n.cls === 'android.webkit.WebView'), top = wv ? wv.b[1] : 0;
+      const cnt = {}; for (const e of w.list) cnt[e.t] = (cnt[e.t] || 0) + 1;
+      for (const e of w.list) {
+        if (cnt[e.t] > 1 || e.t.length < 3 || /^\d\d:\d\d$/.test(e.t)) continue;
+        const c = ns.filter(n => n.text && n.text.slice(0, 60) === e.t); if (c.length !== 1) { par.push({ at: w.scroll, t: e.t, falta: c.length }); if (!c.length) bad.push(`«${e.t.slice(0, 26)}» no está`); continue; }
+        const nx = c[0].b[0] / dp, ny = ((c[0].b[1] + c[0].b[3]) / 2 - top) / dp, dx = +(nx - e.x).toFixed(1), dy = +(ny - e.y).toFixed(1);
+        par.push({ at: w.scroll, t: e.t, web: [e.x, e.y], nat: [+nx.toFixed(1), +ny.toFixed(1)], dx, dy });
+        if (Math.abs(dy) > 3 || Math.abs(dx) > 3) bad.push(`«${e.t.slice(0, 26)}» ${dx}/${dy}`);
+      }
+    }
+    fs.writeFileSync(`${OUT}/${file}`, JSON.stringify({ par }));
+    return { n: par.filter(e => e.nat).length, bad: [...new Set(bad)] };
+  };
+  {
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    const O = `const o = window.__orbita, N = o.NUI;`;
+    await goView('listas'); await sleep(1500);
+    const l0 = await js(`${O} return { shown: N.shown, screen: N.screen, pgOk: N.pgOk, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    let ln = ui(); shot('listas-nativa-vacia');
+    check('«Mis listas» sale nativa al entrar', !!l0 && l0.shown && l0.screen === 'listas' && l0.st.screen === 'listas' && l0.st.shown === true && !!find(ln, 'MIS LISTAS'), JSON.stringify(l0) + ' · ' + ln.filter(n => n.text).map(n => n.text.slice(0, 24)).join(' | ').slice(0, 300));
+    // se guardan dos listas desde una mezcla
+    await goView('inicio'); await sleep(1200);
+    for (let k = 0; k < 2; k++) {
+      await js(`document.querySelector('#btnMix').click(); return 1;`); await sleep(6000);
+      await js(`const b = [...document.querySelectorAll('#mixOut .mix-actions button')].find(x => /Guardar/.test(x.textContent)); if (b) b.click(); return 1;`); await sleep(1200);
+    }
+    await js(`document.querySelector('#toast').hidden = true; return 1;`);
+    await goView('listas'); await sleep(2000);
+    const l1 = await js(`${O} return { n: o.state.playlists.length, name: (document.querySelector('#listsOut .pl-card h3') || {}).textContent, screen: N.screen };`);
+    ln = ui(); shot('listas-nativa');
+    check('las listas guardadas salen en la nativa', l1 && l1.n >= 1 && l1.screen === 'listas' && !!find(ln, l1.name) && !!find(ln, 'Escuchar'), JSON.stringify(l1));
+    await js(`document.documentElement.classList.add('lite'); return 1;`);
+    const pl = await paridad('#view-listas', 'paridad-listas.json', [0, 300, 600, 900, 99999]);
+    await js(`document.documentElement.classList.remove('lite'); ${O} N.classic = true; await new Promise(r => setTimeout(r, 600)); document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(600); ui(); shot('listas-web');
+    await js(`${O} N.classic = false; return 1;`); await sleep(900);
+    check('«Mis listas»: cada texto, donde en la pantalla de siempre (± 3)', pl.n >= 6 && pl.bad.length === 0, `${pl.n} comparados · ${pl.bad.length} fuera: ${pl.bad.slice(0, 12).join(' · ')}`);
+    await js(`await Capacitor.Plugins.OrbitaUi.scroll({ y: 300 }); return 1;`); await sleep(900);
+    await tapText('Escuchar', 4000);
+    const lp = await js(`${O} return { q: o.state.queue.length, paused: o.decks[o.A].paused };`);
+    check('«Escuchar» pone la lista', lp && lp.q >= 2 && lp.paused === false && playing(), JSON.stringify(lp) + ' · ' + sessState());
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
+    ln = ui();
+    const del = ln.find(n => n.desc === 'Borrar lista');
+    if (del) {
+      const before = await js(`return window.__orbita.state.playlists.length;`);
+      tap(...center(del)); await sleep(1200); shot('listas-borrar');
+      const armed = !!find(ui(), '¿Borrar?');
+      await tapText('¿Borrar?', 1500);
+      const after = await js(`return window.__orbita.state.playlists.length;`);
+      check('la papelera pide confirmar y, al confirmar, borra la lista', armed && after === before - 1, `armada ${armed} · ${before} → ${after}`);
+    } else check('encuentro la papelera de una lista', false, ln.filter(n => n.desc).map(n => n.desc).join(' | ').slice(0, 300));
+    await goView('tu'); await sleep(900);
+    const lt = await js(`${O} return N.shown;`);
+    await goView('listas'); await sleep(1500);
+    const lb = await js(`${O} return { shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    check('al cambiar de pestaña se quita, y al volver «Mis listas» es nativa y está arriba', lt === false && lb && lb.shown && lb.screen === 'listas' && lb.st.y === 0, JSON.stringify([lt, lb]));
+    shot('listas-final');
+    check('sin cierres por error con «Mis listas» nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
+    await goView('inicio'); await sleep(1200);
+  }
+  // ================= fin de la fase 2 · paso 3 =================
+
   // ================= FASE 3 · paso 1 (4.4): la conversación con Nova, nativa =================
   {
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);

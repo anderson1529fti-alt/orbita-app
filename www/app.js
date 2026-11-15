@@ -2764,7 +2764,7 @@ function renderEngine() {
 }
 $('#tNui').onclick = () => {
   NUI.on = !NUI.on; LS.set('nativeUi', NUI.on); LS.set('nativeUiBroken', false); NUI.err = '';
-  if (NUI.on) { NUI.trKey = ''; NUI.boxKey = ''; NUI.lookKey = ''; NUI.chatKey = ''; NUI.hKeys = {}; NUI.nowId = null; } else nuiHide();
+  if (NUI.on) { NUI.trKey = ''; NUI.boxKey = ''; NUI.lookKey = ''; NUI.chatKey = ''; NUI.hKeys = {}; for (const k in NUI.pg) NUI.pg[k].keys = {}; NUI.nowId = null; } else nuiHide();
   renderNui();
 };
 $('#tEngine').onclick = () => {
@@ -4125,7 +4125,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.chatOk ? ' y la conversación con Nova' : '') + ' (Kotlin y Compose)' + (NUI.homeOk && state.heroMode === 'viz' ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas»' : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + ' (Kotlin y Compose)' + (NUI.homeOk && state.heroMode === 'viz' ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -5934,7 +5934,8 @@ function setView(v, push = true) {
   if (v === 'listas') renderNovaLists();
   if (changed && v === 'biblioteca') NUI.top = true;   // (like the screen of always: entering from another tab starts at the top)
   if (changed && v === 'inicio') NUI.htop = true;
-  if (v === 'biblioteca' || v === 'inicio') nuiLoop(); else nuiHide();
+  if (changed && PAGES[v]) NUI.ptop[v] = true;
+  if (v === 'biblioteca' || v === 'inicio' || PAGES[v]) nuiLoop(); else nuiHide();
   if (v === 'ajustes') { renderNui(); renderAlarm(); if (AL_PLUGIN) alarmCheckPerms(false); renderSound(); renderThemes(); renderLook(); renderDjPersona(); renderVoices(); renderVoiceStyle(); updateStorage(); renderPerms(); renderBackup(); }
 }
 $$('.tab').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
@@ -6048,12 +6049,13 @@ function renderLists() {
    web one, which stays underneath, invisible; what Nova understands and answers is still decided here).
    4.5 · Phase 2, step 2: «Ahora» (the home screen) is native too. Everything it shows is read from the screen of always
    (which stays underneath, invisible, and keeps doing all the work), and what the user touches there is «clicked» here.
+   4.6 · Phase 2, step 3: «Mis listas» is native too, with the same mechanism, now shared by every new screen (PAGES).
    The first one is «Mi música». Android draws it on top of the content area of the app as it was (which keeps drawing
    the background, the player at the bottom and the tabs), and tells the app what the user touched. The screen of always
    stays underneath, rendered as before but invisible: if anything covers the content area (a dialog, the full player…)
    or the native screen fails, the one of always is there at once. Phones only (the wide layout stays as it was). */
 const NUI_PLUGIN = capPlugin('OrbitaUi');
-const NUI = { on: !!NUI_PLUGIN && LS.get('nativeUi', true) && !LS.get('nativeUiBroken', false), shown: false, screen: '', chatOk: false, homeOk: false, chatKey: '', hKeys: {}, hDirty: new Set(), hT: 0, hIds: new WeakMap(), hEls: new Map(), hSeq: 0, hVin: '', hVinAt: 0, hPoll: 0, classic: false, raf: 0, top: false, toast: null, rect: '', trKey: '', boxKey: '', lookKey: '', nowId: null, cov: new Map(), syncT: 0, err: '' };
+const NUI = { on: !!NUI_PLUGIN && LS.get('nativeUi', true) && !LS.get('nativeUiBroken', false), shown: false, screen: '', chatOk: false, homeOk: false, pgOk: false, pg: {}, ptop: {}, chatKey: '', hKeys: {}, hDirty: new Set(), hT: 0, hIds: new WeakMap(), hEls: new Map(), hSeq: 0, hVin: '', hVinAt: 0, hPoll: 0, classic: false, raf: 0, top: false, toast: null, rect: '', trKey: '', boxKey: '', lookKey: '', nowId: null, cov: new Map(), syncT: 0, err: '' };
 function nuiBroken(e) {
   NUI.err = String(e && (e.message || e.code) || e || 'fallo'); NUI.on = false; LS.set('nativeUiBroken', true); nuiHide();
   diag('pantalla nativa: ' + NUI.err + ' → vuelvo a la de siempre');
@@ -6068,7 +6070,7 @@ function nuiFree() {
   return true;
 }
 function nuiHide() {
-  if (!NUI.shown) return; NUI.shown = false; NUI.screen = ''; root.classList.remove('nui-lib', 'nui-chat', 'nui-home'); try { NUI_PLUGIN.hide().catch(() => {}); } catch {}
+  if (!NUI.shown) return; NUI.shown = false; NUI.screen = ''; root.classList.remove('nui-lib', 'nui-chat', 'nui-home'); for (const k in PAGES) root.classList.remove('nui-pg-' + k); try { NUI_PLUGIN.hide().catch(() => {}); } catch {}
   // a notice that was up on the native screen goes on in the app for the time it had left
   const tt = NUI.toast; NUI.toast = null; if (tt && tt.until - Date.now() > 500) toast(tt.msg, tt.until - Date.now());
 }
@@ -6077,11 +6079,12 @@ function nuiWant() {
   if (!NUI.on || !state.ready || NUI.classic || innerWidth > 760 || root.classList.contains('booting')) return '';
   if (!$('#chat').hidden) return NUI.chatOk && ncFree() ? 'chat' : '';
   if (state.view === 'inicio') return homeCan() && nuiFree() ? 'inicio' : '';
+  if (PAGES[state.view]) return NUI.pgOk && nuiFree() ? state.view : '';
   return state.view === 'biblioteca' && nuiFree() ? 'biblioteca' : '';
 }
 /* «Ahora» goes native with the vinyl or the cover at the top; with a visualizer there (phase 3), the screen of always */
 const homeCan = () => NUI.homeOk && state.heroMode !== 'viz';
-const nuiActive = () => NUI.on && (state.view === 'biblioteca' || (state.view === 'inicio' && NUI.homeOk) || !$('#chat').hidden);
+const nuiActive = () => NUI.on && (state.view === 'biblioteca' || (state.view === 'inicio' && NUI.homeOk) || (NUI.pgOk && !!PAGES[state.view]) || !$('#chat').hidden);
 function nuiLoop() {
   if (NUI.raf || !NUI.on) return;
   const step = () => {
@@ -6096,12 +6099,13 @@ function nuiLoop() {
         // (a text box of the screen that gets covered doesn't keep the keyboard)
         const ae = document.activeElement; if (ae && ae !== document.body && el.contains(ae)) { try { ae.blur(); } catch {} }
         root.classList.toggle('nui-lib', scr === 'biblioteca'); root.classList.toggle('nui-chat', scr === 'chat'); root.classList.toggle('nui-home', scr === 'inicio');
-        if (scr === 'chat') ncSync(true); else if (scr === 'inicio') homeSync(true); else nuiSync();
-        const top = scr === 'biblioteca' ? NUI.top : scr === 'inicio' ? NUI.htop : false;
-        NUI_PLUGIN.show({ screen: scr, top: !!top, ...o }).catch(nuiBroken); if (scr === 'biblioteca') NUI.top = false; if (scr === 'inicio') NUI.htop = false;
+        for (const k in PAGES) root.classList.toggle('nui-pg-' + k, scr === k);
+        if (scr === 'chat') ncSync(true); else if (scr === 'inicio') homeSync(true); else if (PAGES[scr]) pgSync(scr, true); else nuiSync();
+        const top = scr === 'biblioteca' ? NUI.top : scr === 'inicio' ? NUI.htop : PAGES[scr] ? NUI.ptop[scr] : false;
+        NUI_PLUGIN.show({ screen: scr, top: !!top, ...o }).catch(nuiBroken); if (scr === 'biblioteca') NUI.top = false; if (scr === 'inicio') NUI.htop = false; if (PAGES[scr]) NUI.ptop[scr] = false;
       }
       else if (k !== NUI.rect) { NUI.rect = k; NUI_PLUGIN.rect(o).catch(() => {}); }
-      if (scr === 'inicio') homeTick();
+      if (scr === 'inicio') homeTick(); else if (PAGES[scr]) pgTick(scr);
     } else if (NUI.shown) nuiHide();
     if (nuiActive()) NUI.raf = requestAnimationFrame(step);
   };
@@ -6203,13 +6207,13 @@ function nuiEvent(e) {
   else if (e.type === 'chatClear') { LS.set('chat', []); renderChat(); }
   else if (e.type === 'chatClose') closeChat();
   else if (e.type === 'chatFocus') brainWarm();
-  else if (e.type === 'hTap') { const el = typeof e.k === 'string' ? $(e.k) : NUI.hEls.get(e.k); if (el && el.isConnected && !el.disabled) el.click(); homeAfter(); }
+  else if (e.type === 'hTap') { const el = typeof e.k === 'string' ? $(e.k) : NUI.hEls.get(e.k); if (el && el.isConnected && !el.disabled) el.click(); homeAfter(); if (PAGES[NUI.screen]) pgAfter(NUI.screen); }
   else if (e.type === 'hSel') { const el = $(e.sel); if (el && el.tagName === 'SELECT' && [...el.options].some(x => x.value === e.v)) { el.value = e.v; el.dispatchEvent(new Event('change', { bubbles: true })); } homeAfter(); }
   else if (e.type === 'hAsk') { const v = String(e.text || '').trim().slice(0, 200); $('#djInput').value = v; if (v) novaCommand(v); homeAfter(); }
   else if (e.type === 'hFocus') brainWarm();
   else if (e.type === 'needArt') {
     const side = Math.min(400, Math.max(32, +e.side || 76));
-    Promise.all((e.urls || []).slice(0, 40).map(async u => { let data = null; try { data = await homeArt(String(u), side); } catch {} return data ? { id: u, data } : null; }))
+    Promise.all((e.urls || []).slice(0, 40).map(async u => { let data = null; try { data = await homeArt(String(u), side); } catch {} return data ? { id: u + (e.tag || ''), data } : null; }))
       .then(list => { list = list.filter(Boolean); if (list.length) NUI_PLUGIN.covers({ list, side }).catch(() => {}); });
   }
   else if (e.type === 'needCovers') {
@@ -6220,7 +6224,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; if (NUI.pgOk) for (const k in PAGES) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6228,9 +6232,9 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activadas: «Ahora», «Mi música» y la conversación con Nova las dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activadas: «Ahora», «Mi música», «Mis listas» y la conversación con Nova las dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagaron solas porque algo falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarlas.'
-    : 'Apagadas: «Ahora», «Mi música» y la conversación se ven con las pantallas de siempre.';
+    : 'Apagadas: «Ahora», «Mi música», «Mis listas» y la conversación se ven con las pantallas de siempre.';
 }
 
 /* ---------- 4.5 · «Ahora», native ----------
@@ -6361,6 +6365,60 @@ async function homeArt(u, side) {
     c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height); try { bmp.close(); } catch {}
     return c.toDataURL('image/jpeg', 0.88);
   } catch { return await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => r(null); fr.readAsDataURL(blob); }); }
+}
+
+/* ---------- 4.6 · the screens that follow, with one mechanism for all ----------
+   Each screen says which element of the app it is, how to read each of its parts and in which part an element is.
+   The app sends a part only when what it shows changes; the native screen draws it and says what was touched. */
+const plCard = c => ({ covers: [...c.querySelectorAll('.pl-covers > *')].map(hCover), name: hTxt(c.querySelector('h3')), desc: hTxt(c.querySelector('p')), meta: hTxt(c.querySelector('.pl-meta')),
+  wrap: c.querySelector(':scope > div > h3') ? 1 : 0,
+  btns: [...c.querySelectorAll('.pl-btns > button')].map(b => { const sv = b.querySelector('svg'); return b.classList.contains('icon-btn')
+    ? { ic: b.dataset.act || '', armed: b.classList.contains('armed') ? 1 : 0, t: hTxt(b), l: b.getAttribute('aria-label') || '', k: hKey(b) }
+    : Object.assign(hBtn(b), { s: sv ? Math.round(sv.getBoundingClientRect().width) || 16 : 0 }); }) });
+const PAGES = {
+  listas: {
+    view: '#view-listas',
+    where: el => el.closest('#novaLists') ? 'nova' : el.closest('#listsOut') ? 'lists' : 'head',
+    parts: {
+      head() { return { title: hTxt($('#view-listas .head h1')), meta: hTxt($('#listsMeta')) }; },
+      nova() { const b = $('#novaLists'); if (!b || b.hidden || !b.children.length) return { off: 1 }; return { eye: hTxt(b.querySelector('.eyebrow')), cards: [...b.querySelectorAll('.pl-card')].map(plCard) }; },
+      lists() {
+        const o = $('#listsOut'), em = o.querySelector('.empty');
+        if (em) { const b = em.querySelector('button'); return { empty: { h: hTxt(em.querySelector('h3')), t: hTxt(em.querySelector('p')), btn: b ? hBtn(b) : null } }; }
+        return { cards: [...o.querySelectorAll('.pl-card')].map(plCard) };
+      }
+    }
+  }
+};
+const pgOf = name => NUI.pg[name] || (NUI.pg[name] = { keys: {}, dirty: new Set(), t: 0, poll: 0, obs: null });
+function pgSync(name, force) {
+  const P = PAGES[name], S = pgOf(name); S.t = 0;
+  if (!P || !NUI.on || !NUI.pgOk || !state.ready) return;
+  const parts = force ? Object.keys(P.parts) : [...S.dirty]; S.dirty.clear();
+  if (force) S.keys = {};
+  const o = {}; let n = 0;
+  for (const p of parts) {
+    if (!P.parts[p]) continue;
+    let v; try { v = P.parts[p](); } catch (e) { diag('pantalla nativa «' + name + '» (' + p + '): ' + (e && e.message || e)); continue; }
+    const k = JSON.stringify(v); if (k === S.keys[p]) continue; S.keys[p] = k; o[p] = v; n++;
+  }
+  if (NUI.hEls.size > 900) for (const [k, el] of NUI.hEls) if (!el.isConnected) NUI.hEls.delete(k);
+  if (n) NUI_PLUGIN.page({ name, parts: o }).catch(nuiBroken);
+}
+function pgMark(name, part) { const S = pgOf(name); if (!NUI.on || !NUI.pgOk) return; S.dirty.add(part); if (!S.t && NUI.shown && NUI.screen === name) S.t = requestAnimationFrame(() => pgSync(name, false)); }
+function pgAfter(name) { for (const ms of [30, 400, 1500]) setTimeout(() => { for (const p in PAGES[name].parts) pgMark(name, p); }, ms); }
+function pgWatch(name) {
+  const P = PAGES[name], S = pgOf(name); if (S.obs) return;
+  try {
+    S.obs = new MutationObserver(list => { for (const m of list) { const el = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (el) pgMark(name, P.where(el)); } });
+    S.obs.observe($(P.view), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'class', 'aria-pressed', 'disabled', 'src', 'placeholder', 'open'] });
+  } catch (e) { diag('pantalla nativa «' + name + '»: no puedo seguir los cambios (' + (e && e.message || e) + ')'); delete PAGES[name]; }
+}
+/* once per frame while the screen is the native one: what changes in silence, every few seconds */
+function pgTick(name) {
+  const S = pgOf(name), now = performance.now();
+  if (now - S.poll > 3000) { S.poll = now; for (const p in PAGES[name].parts) S.dirty.add(p); }
+  if (S.dirty.size && !S.t) S.t = requestAnimationFrame(() => pgSync(name, false));
 }
 
 /* ---------- Delegated actions ---------- */
@@ -7358,6 +7416,10 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '4.6': [
+    '<b>«Mis listas» ya es nativa</b>: la dibuja Android, como «Ahora» y «Mi música». Se ve y funciona igual que siempre.',
+    'Como siempre, en Ajustes › Sonido y mezclas puedes apagar «Pantallas nativas» y vuelven las de antes.'
+  ],
   '4.5': [
     '<b>«Ahora» ya es nativa</b>: la pantalla principal (el día, el disco, la cinta, DJ Nova, «Para ti hoy» y las mezclas) la dibuja Android. Se ve igual que siempre y todo funciona igual; solo cambia quién la pinta.',
     'Si tienes puesto un <b>visualizador</b> en lugar del disco, «Ahora» sigue siendo la pantalla de siempre por ahora (los visualizadores nativos llegan en la fase 3).',
@@ -9322,7 +9384,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { PAGES, pgSync, renderLists, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }
