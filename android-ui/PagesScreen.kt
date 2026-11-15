@@ -217,9 +217,8 @@ private fun TuBlock(b: JSONObject, sk: Skin) {
         "empty" -> EmptyBox(b, sk)
         "panel" -> TuPanel(b, sk)
         "recap" -> {
-            val r = (20f * sk.round).dp
-            Column(Modifier.fillMaxWidth().glow(Color.Black.copy(alpha = 0.8f), r, 60.dp, 24.dp, (-30).dp).glow(p.glow, r, 50.dp, 0.dp, (-18).dp).clip(RoundedCornerShape(r))
-                .drawBehind { drawRect(cssLinear(120f, size, 0f to p.wash, 1f to Color.Black.copy(alpha = 0.2f))) }.padding(18.dp + sk.b), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            // (en la web es un panel con resplandor como el de debajo: su borde de dos colores y el mismo fondo)
+            Column(Modifier.fillMaxWidth().glowPanel(sk).padding(18.dp + sk.b), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Eyebrow(b.str("eye"), sk)
                     T(b.str("h"), 20f * sk.tk, p.fg, family = sk.display, weight = sk.displayWeight, ls = -0.02f)

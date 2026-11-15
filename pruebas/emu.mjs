@@ -17,7 +17,7 @@ function finish(why) {
   } catch {}
   process.exit(0);
 }
-setTimeout(() => finish('pasó de 34 minutos'), 34 * 60000).unref();
+setTimeout(() => finish('pasó de 37 minutos'), 37 * 60000).unref();
 let adbFails = 0;
 const adb = (c, o = {}) => { if (adbFails > 12) finish('el emulador dejó de contestar'); try { const r = execSync('adb ' + c, { encoding: 'utf8', timeout: 45000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64e6, ...o }); adbFails = 0; return r; } catch (e) { if (e.killed || /ETIMEDOUT|offline|no devices/.test(String(e.message) + e.stderr)) adbFails++; return 'ERR ' + (e.stdout || '') + (e.stderr || e.message); } };
 const sh = c => adb(`shell "${c.replace(/"/g, '\\"')}"`);
@@ -558,7 +558,7 @@ try {
 
   // ================= FASE 2 · paso 3 (4.6): «Mis listas», nativa =================
   // (cada texto de una pantalla, donde en la de siempre: sirve para todas las pantallas nuevas)
-  const paridad = async (view, file, ys) => {
+  const paridad = async (view, file, ys, fotos = '') => {
     const dp = await js(`return devicePixelRatio;`);
     const Q = `const m = document.querySelector('#main'), mr = m.getBoundingClientRect(), out = [];
       const w = document.createTreeWalker(document.querySelector('${view}'), NodeFilter.SHOW_TEXT);
@@ -575,8 +575,11 @@ try {
     for (const y of ys) {
       await js(`window.__orbita.NUI.classic = true; await new Promise(r => setTimeout(r, 500)); document.querySelector('#main').scrollTop = ${y}; return 1;`); await sleep(500);
       const w = await js(Q); if (!w || w.scroll === last) continue; last = w.scroll;
+      // (y una captura de cada una a la misma altura, para mirarlas una al lado de la otra)
+      if (fotos) shot(`igual-${fotos}-${Math.round(w.scroll)}-web`);
       await js(`window.__orbita.NUI.classic = false; await new Promise(r => setTimeout(r, 700)); await Capacitor.Plugins.OrbitaUi.scroll({ y: ${w.scroll} }); return 1;`); await sleep(900);
       const ns = ui(), wv = ns.find(n => n.cls === 'android.webkit.WebView'), top = wv ? wv.b[1] : 0;
+      if (fotos) shot(`igual-${fotos}-${Math.round(w.scroll)}-nativa`);
       const cnt = {}; for (const e of w.list) cnt[e.t] = (cnt[e.t] || 0) + 1;
       for (const e of w.list) {
         if (cnt[e.t] > 1 || e.t.length < 3 || /^\d\d:\d\d$/.test(e.t)) continue;
@@ -620,7 +623,7 @@ try {
     await toList(); ln = ui(); shot('listas-nativa-guardadas');
     check('las listas guardadas salen en la nativa', l1 && l1.n >= 1 && l1.screen === 'listas' && !!find(ln, l1.name) && !!find(ln, 'Escuchar') && !!ln.find(n => n.desc === 'Borrar lista'), JSON.stringify(l1) + ' · ' + ln.filter(n => n.text || n.desc).map(n => (n.text || n.desc).slice(0, 22)).join(' | ').slice(0, 300));
     await js(`document.documentElement.classList.add('lite'); return 1;`);
-    const pl = await paridad('#view-listas', 'paridad-listas.json', [0, 300, 600, 900, 99999]);
+    const pl = await paridad('#view-listas', 'paridad-listas.json', [0, 300, 600, 900, 99999], 'listas');
     await js(`document.documentElement.classList.remove('lite'); ${O} N.classic = true; await new Promise(r => setTimeout(r, 600)); document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(600); ui(); shot('listas-web');
     await js(`${O} N.classic = false; return 1;`); await sleep(900);
     check('«Mis listas»: cada texto, donde en la pantalla de siempre (± 3)', pl.n >= 6 && pl.bad.length === 0, `${pl.n} comparados · ${pl.bad.length} fuera: ${pl.bad.slice(0, 12).join(' · ')}`);
@@ -663,7 +666,7 @@ try {
     let tn = ui(); shot('tu-nativa');
     check('«Tú» sale nativa al entrar', !!t0 && t0.shown && t0.screen === 'tu' && t0.st.screen === 'tu' && t0.st.shown === true && !!find(tn, 'Semana') && !!find(tn, 'Siempre'), JSON.stringify(t0) + ' · ' + tn.filter(n => n.text).map(n => n.text.slice(0, 22)).join(' | ').slice(0, 300));
     await js(`document.documentElement.classList.add('lite'); return 1;`);
-    const pt = await paridad('#view-tu', 'paridad-tu.json', [0, 350, 700, 1050, 1400, 1750, 2100, 2450, 99999]);
+    const pt = await paridad('#view-tu', 'paridad-tu.json', [0, 350, 700, 1050, 1400, 1750, 2100, 2450, 99999], 'tu');
     await js(`document.documentElement.classList.remove('lite'); ${O} N.classic = true; await new Promise(r => setTimeout(r, 600)); document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(600); ui(); shot('tu-web');
     await js(`${O} N.classic = false; return 1;`); await sleep(900);
     check('«Tú»: cada texto, donde en la pantalla de siempre (± 3), de arriba abajo', pt.n >= 30 && pt.bad.length === 0, `${pt.n} comparados · ${pt.bad.length} fuera: ${pt.bad.slice(0, 14).join(' · ')}`);
