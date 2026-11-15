@@ -561,10 +561,11 @@ try {
       const w = document.createTreeWalker(document.querySelector('${view}'), NodeFilter.SHOW_TEXT);
       for (let n = w.nextNode(); n; n = w.nextNode()) {
         const p = n.parentElement; if (!p || !n.textContent.trim() || p.closest('select, [hidden], canvas, svg')) continue;
+        const det = p.closest('details:not([open])'); if (det && !p.closest('summary')) continue;
         const cs = getComputedStyle(p); if (cs.display === 'none') continue;
         const g = document.createRange(); g.selectNodeContents(n); const r = g.getBoundingClientRect(); if (!r.width || r.top < mr.top + 6 || r.bottom > mr.bottom - 6) continue;
         let t = n.textContent.replace(/\\s+/g, ' ').trim(); if (cs.textTransform === 'uppercase') t = t.toUpperCase();
-        out.push({ t: t.slice(0, 60), x: +(r.left).toFixed(1), y: +((r.top + r.bottom) / 2 - mr.top).toFixed(1) });
+        out.push({ t: t.slice(0, 60), x: +(r.left).toFixed(1), y: +((r.top + r.bottom) / 2 - mr.top).toFixed(1), top: +(r.top - mr.top).toFixed(1), rows: Math.round(r.height / (parseFloat(cs.lineHeight) || r.height)) });
       }
       return { scroll: m.scrollTop, total: m.scrollHeight, list: out };`;
     const par = [], bad = []; let last = -1;
@@ -576,8 +577,14 @@ try {
       const cnt = {}; for (const e of w.list) cnt[e.t] = (cnt[e.t] || 0) + 1;
       for (const e of w.list) {
         if (cnt[e.t] > 1 || e.t.length < 3 || /^\d\d:\d\d$/.test(e.t)) continue;
-        const c = ns.filter(n => n.text && n.text.slice(0, 60) === e.t); if (c.length !== 1) { par.push({ at: w.scroll, t: e.t, falta: c.length }); if (!c.length) bad.push(`«${e.t.slice(0, 26)}» no está`); continue; }
-        const nx = c[0].b[0] / dp, ny = ((c[0].b[1] + c[0].b[3]) / 2 - top) / dp, dx = +(nx - e.x).toFixed(1), dy = +(ny - e.y).toFixed(1);
+        let c = ns.filter(n => n.text && n.text.slice(0, 60) === e.t), part = false;
+        // (un título hecho de trozos en la web es un solo texto en la nativa: se mira que esté a su altura)
+        if (!c.length) { c = ns.filter(n => n.text && n.text.length > e.t.length && n.text.includes(e.t)); part = c.length === 1; }
+        if (c.length !== 1) { par.push({ at: w.scroll, t: e.t, falta: c.length }); if (!c.length) bad.push(`«${e.t.slice(0, 26)}» no está`); continue; }
+        const nx = part ? e.x : c[0].b[0] / dp, ny = ((c[0].b[1] + c[0].b[3]) / 2 - top) / dp, dx = +(nx - e.x).toFixed(1);
+        let dy = +(ny - e.y).toFixed(1);
+        // (un párrafo de varios renglones puede ir partido en dos textos en la nativa: entonces se mira dónde empieza)
+        if (e.rows > 1 && Math.abs(dy) > 3) { const dt = +((c[0].b[1] - top) / dp - e.top).toFixed(1); if (Math.abs(dt) < Math.abs(dy)) dy = dt; }
         par.push({ at: w.scroll, t: e.t, web: [e.x, e.y], nat: [+nx.toFixed(1), +ny.toFixed(1)], dx, dy });
         if (Math.abs(dy) > 3 || Math.abs(dx) > 3) bad.push(`«${e.t.slice(0, 26)}» ${dx}/${dy}`);
       }
@@ -620,11 +627,12 @@ try {
     const del = ln.find(n => n.desc === 'Borrar lista');
     if (del) {
       const before = await js(`return window.__orbita.state.playlists.length;`);
-      tap(...center(del)); await sleep(1200); shot('listas-borrar');
-      const armed = !!find(ui(), '¿Borrar?');
-      await tapText('¿Borrar?', 1500);
+      // (mirar la pantalla desde fuera tarda más de lo que dura el «¿Borrar?»: se pregunta a la app y se toca en el mismo sitio)
+      tap(...center(del)); await sleep(700); shot('listas-borrar');
+      const mid = await js(`return { n: window.__orbita.state.playlists.length, armed: !!document.querySelector('#view-listas .armed') };`);
+      tap(...center(del)); await sleep(1500);
       const after = await js(`return window.__orbita.state.playlists.length;`);
-      check('la papelera pide confirmar y, al confirmar, borra la lista', armed && after === before - 1, `armada ${armed} · ${before} → ${after}`);
+      check('la papelera pide confirmar y, al confirmar, borra la lista', mid && mid.armed && mid.n === before && after === before - 1, `armada ${mid && mid.armed} · ${before} → ${mid && mid.n} → ${after}`);
     } else check('encuentro la papelera de una lista', false, ln.filter(n => n.desc).map(n => n.desc).join(' | ').slice(0, 300));
     await goView('buscar'); await sleep(900);
     const lt = await js(`${O} return N.shown;`);

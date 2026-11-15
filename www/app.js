@@ -6377,12 +6377,15 @@ const plCard = c => ({ covers: [...c.querySelectorAll('.pl-covers > *')].map(hCo
     ? { ic: b.dataset.act || '', armed: b.classList.contains('armed') ? 1 : 0, t: hTxt(b), l: b.getAttribute('aria-label') || '', k: hKey(b) }
     : Object.assign(hBtn(b), { s: sv ? Math.round(sv.getBoundingClientRect().width) || 16 : 0 }); }) });
 /* «Tú»: a row of a list (a song, an artist with its bar, something asked to Nova), a chart and a panel */
+const hH = el => +(el.getBoundingClientRect().height || 0).toFixed(2), hW = el => el ? +(el.getBoundingClientRect().width || 0).toFixed(2) : 0;
 const tuRow = li => {
-  if (li.classList.contains('tu-art')) { const i = li.querySelector('.tu-bar i'); return { e: 'art', n: hTxt(li.querySelector('.tu-n')), t: hTxt(li.querySelector('.tu-an')), w: i ? parseFloat(i.style.width) || 0 : 0, v: hTxt(li.querySelector('.tu-v')) }; }
+  if (li.classList.contains('tu-art')) { const i = li.querySelector('.tu-bar i'); return { e: 'art', h: hH(li), aw: hW(li.querySelector('.tu-an')), n: hTxt(li.querySelector('.tu-n')), t: hTxt(li.querySelector('.tu-an')), w: i ? parseFloat(i.style.width) || 0 : 0, v: hTxt(li.querySelector('.tu-v')) }; }
   const b = li.querySelector('button'), cv = li.querySelector('.cover'), n = li.querySelector('.tu-n');
-  return { e: 'row', pad: li.classList.contains('tu-row') ? 1 : 0, n: n ? hTxt(n) : '', hasN: n ? 1 : 0, c: cv ? hCover(cv) : null, hasC: cv ? 1 : 0, t: hTxt(li.querySelector('.t-title')), s: hTxt(li.querySelector('.t-sub')), v: hTxt(li.querySelector('.tu-v')),
+  return { e: 'row', h: hH(li), pad: li.classList.contains('tu-row') ? 1 : 0, n: n ? hTxt(n) : '', hasN: n ? 1 : 0, c: cv ? hCover(cv) : null, hasC: cv ? 1 : 0, t: hTxt(li.querySelector('.t-title')), s: hTxt(li.querySelector('.t-sub')), v: hTxt(li.querySelector('.tu-v')),
     play: li.classList.contains('is-playing') ? 1 : 0, btn: b ? { k: hKey(b), l: b.getAttribute('aria-label') || '', t: hTxt(b), small: b.classList.contains('btn') ? 1 : 0, x: b.dataset.prefDel || b.dataset.routineDel ? 1 : 0 } : null };
 };
+/* how far the text of a «summary» is from its left edge (its little triangle is a letter, and each phone draws it with its own font) */
+const hMark = s => { try { const g = document.createRange(); g.selectNodeContents([...s.childNodes].find(n => n.nodeType === 3 && n.textContent.trim()) || s); const d = g.getBoundingClientRect().left - s.getBoundingClientRect().left; return d > 0 && d < 40 ? +d.toFixed(2) : 0; } catch { return 0; } };
 const tuChart = w => {
   const svg = w.querySelector('svg.bars'), vb = svg.viewBox.baseVal, pk = w.querySelector('.bars-peak'), det = w.querySelector('details'), sum = det && det.querySelector('summary');
   const rects = [...svg.querySelectorAll('.hits rect')];
@@ -6392,7 +6395,7 @@ const tuChart = w => {
     hits: rects.map(r => ({ x: +r.getAttribute('x'), w: +r.getAttribute('width'), l: r.dataset.l || '', v: r.dataset.v || '' })),
     peak: pk ? { t: hTxt(pk), x: parseFloat(pk.style.left) || 0 } : null,
     xs: [...w.querySelectorAll('.bars-x span')].map(x => ({ t: hTxt(x), x: parseFloat(x.style.left) || 0 })).filter(x => x.t),
-    sum: sum ? { t: hTxt(sum), k: hKey(sum), open: det.open ? 1 : 0 } : null,
+    sum: sum ? { t: hTxt(sum), k: hKey(sum), open: det.open ? 1 : 0, m: hMark(sum) } : null,
     th: det ? [...det.querySelectorAll('th')].map(hTxt) : [], rows: det && det.open ? [...det.querySelectorAll('tbody tr')].map(tr => [...tr.children].map(hTxt)) : [] };
 };
 const tuItems = box => [...box.children].map(el => {

@@ -268,7 +268,12 @@ private fun TuItems(items: List<JSONObject>, sk: Skin) {
                 } else PanelHead(it0.str("t"), it0.str("r"), sk)
             }
             "eye" -> Eyebrow(it0.str("t"), sk)
-            "list" -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) { for (r in it0.arr("rows")) TuRow(r, sk) }
+            "list" -> {
+                // (cada fila, del alto exacto que tiene en la web: si se redondea fila a fila, la lista se va alargando)
+                val rows = it0.arr("rows")
+                if (rows.isNotEmpty() && rows.all { it.num("h", 0f) > 8f }) ExactColumn(6f, rows.map { it.num("h", 0f) }, Modifier.fillMaxWidth()) { for (r in rows) TuRow(r, sk) }
+                else Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) { for (r in rows) TuRow(r, sk) }
+            }
             "facts" -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (f in it0.arr("items")) {
                     if (f.on("note")) T(f.str("t"), 13.44f * sk.tk, p.muted)
@@ -312,8 +317,9 @@ private fun TuRow(r: JSONObject, sk: Skin) {
     val nw = (20.48f * sk.tk).dp
     if (r.str("e") == "art") {
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            T(r.str("n"), 12.8f * sk.tk, p.faint, Modifier.width(nw), family = Mono, maxLines = 1, align = androidx.compose.ui.text.style.TextAlign.End)
-            T(r.str("t"), 15f * sk.tk, p.fg, Modifier.width((105f * sk.tk).dp), weight = FontWeight.Bold, maxLines = 1)
+            // (la columna del número mide 1,6 veces la letra de la fila; el número, 1,6 veces la suya, pegado a la izquierda)
+            Box(Modifier.width((24f * sk.tk).dp)) { T(r.str("n"), 12.8f * sk.tk, p.faint, Modifier.width(nw), family = Mono, maxLines = 1, align = androidx.compose.ui.text.style.TextAlign.End) }
+            T(r.str("t"), 15f * sk.tk, p.fg, Modifier.width((r.num("aw", 0f).takeIf { it > 8f } ?: (105f * sk.tk)).dp), weight = FontWeight.Bold, maxLines = 1)
             Box(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.07f))) {
                 Box(Modifier.fillMaxWidth(r.num("w", 0f).coerceIn(0f, 100f) / 100f).height(8.dp).background(p.accent, RoundedCornerShape(0.dp, 4.dp, 4.dp, 0.dp)))
             }
@@ -424,7 +430,7 @@ private fun Chart(o: JSONObject, sk: Skin) {
         if (sum != null) {
             val open = sum.on("open")
             Row(Modifier.press(0.98f) { tap(sum) }, verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.width(13.5.dp), contentAlignment = Alignment.CenterStart) { Ico(P_TRI, 10f, p.muted, Modifier.graphicsLayer { rotationZ = if (open) 90f else 0f }, fill = true) }
+                Box(Modifier.width((sum.num("m", 0f).takeIf { it > 2f } ?: 13.2f).dp), contentAlignment = Alignment.CenterStart) { Ico(P_TRI, 10f, p.muted, Modifier.graphicsLayer { rotationZ = if (open) 90f else 0f }, fill = true) }
                 T(sum.str("t"), 12.48f * sk.tk, p.muted, maxLines = 1)
             }
             val rows = o.arr2("rows")
