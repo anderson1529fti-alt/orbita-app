@@ -94,6 +94,8 @@ object UiState {
     var hVin by mutableStateOf<JSONObject?>(null)
     @Volatile var hVinAt = 0L
     var homeDraft by mutableStateOf("")
+    /** Cada vez que la pantalla nativa se aparta (para que no se quede a la vista nada suyo: una lista desplegada). */
+    var hideN by mutableStateOf(0)
     val homeList = LazyListState()
 
     /** Por dónde va la lista (fuera de la pantalla, para que la app pueda subirla al entrar en «Mi música»). */
@@ -248,6 +250,7 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun hide(call: PluginCall) {
         activity.runOnUiThread {
+            UiState.hideN = UiState.hideN + 1
             val v = host
             if (v != null && v.visibility != View.GONE) {
                 v.visibility = View.GONE

@@ -444,6 +444,17 @@ private fun Select(sel: String, o: JSONObject?, sk: Skin) {
     val p = sk.pal
     val shape = sk.r(10f)
     var open by remember { mutableStateOf(false) }
+    // la lista desplegada se cierra si la pantalla se aparta o se mueve
+    val hidden = UiState.hideN
+    LaunchedEffect(hidden) { open = false }
+    if (open) LaunchedEffect(Unit) {
+        val st = UiState.homeList
+        val y0 = st.firstVisibleItemIndex * 100000 + st.firstVisibleItemScrollOffset
+        while (true) {
+            delay(100)
+            if (st.firstVisibleItemIndex * 100000 + st.firstVisibleItemScrollOffset != y0) { open = false; break }
+        }
+    }
     val opts = remember(o) { val a = o?.optJSONArray("o"); val l = ArrayList<Pair<String, String>>(); if (a != null) for (i in 0 until a.length()) { val x = a.optJSONArray(i); if (x != null) l.add(x.optString(0) to x.optString(1)) }; l }
     val cur = o.str("v")
     val label = opts.firstOrNull { it.first == cur }?.second ?: (opts.firstOrNull()?.second ?: "")
