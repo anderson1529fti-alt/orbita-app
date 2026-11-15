@@ -408,7 +408,7 @@ try {
       if (y === 0 || y === 99999) shot('ahora-nativa-' + (y ? 'abajo' : 'arriba'));
       const cnt = {}; for (const e of w.list) cnt[e.t] = (cnt[e.t] || 0) + 1;
       for (const e of w.list) {
-        if (cnt[e.t] > 1 || e.t.length < 3) continue;
+        if (cnt[e.t] > 1 || e.t.length < 3 || /^\d\d:\d\d$/.test(e.t)) continue;   // (la hora puede cambiar de minuto entre una medida y la otra)
         const c = ns.filter(n => n.text && n.text.slice(0, 60) === e.t); if (c.length !== 1) { par.push({ at: w.scroll, t: e.t, falta: c.length }); if (!c.length) bad.push(`«${e.t.slice(0, 26)}» no está`); continue; }
         const nx = c[0].b[0] / dprH, ny = ((c[0].b[1] + c[0].b[3]) / 2 - top) / dprH, dx = +(nx - e.x).toFixed(1), dy = +(ny - e.y).toFixed(1);
         par.push({ at: w.scroll, t: e.t, web: [e.x, e.y], nat: [+nx.toFixed(1), +ny.toFixed(1)], dx, dy });
@@ -509,9 +509,9 @@ try {
     // --- el aviso de versión nueva: se ve en la nativa y su «Descargar» abre el enlace fuera de la app
     {
       const act = () => sh('dumpsys activity activities | grep -m1 topResumedActivity').trim();
-      await js(`state.update = { version: '9.9', url: 'https://example.com/orbita-prueba', notes: 'Aviso de prueba de versión nueva.' }; localStorage.removeItem('orbita:skipUpdate'); renderUpdate(); return 1;`); await sleep(1200);
+      const inj = await js(`${O} o.state.update = { version: '9.9', url: 'https://example.com/orbita-prueba', notes: 'Aviso de prueba de versión nueva.' }; localStorage.removeItem('orbita:skipUpdate'); o.renderUpdate(); return !document.querySelector('#updBanner').hidden;`); await sleep(1500);
       await top0(); hn = ui(); shot('ahora-version-nueva');
-      const seenU = !!find(hn, 'Nueva versión de Órbita: 9.9') && !!find(hn, 'Descargar') && !!find(hn, 'Luego');
+      const seenU = inj === true && !!find(hn, 'Nueva versión de Órbita: 9.9') && !!find(hn, 'Descargar') && !!find(hn, 'Luego');
       const a0 = act();
       await tapText('Descargar', 5000);
       const a1 = act(); shot('ahora-descargar');
@@ -520,8 +520,8 @@ try {
       if (!act().includes(PKG + '/')) { sh(`am start -n ${PKG}/.MainActivity`); await sleep(3000); }
       await tapText('Luego', 1500);
       const gone = await js(`return document.querySelector('#updBanner').hidden;`);
-      check('«Luego» quita el aviso de versión nueva', gone === true && !find(ui(), 'Nueva versión de Órbita: 9.9'), String(gone));
-      await js(`state.update = null; renderUpdate(); localStorage.removeItem('orbita:skipUpdate'); return 1;`); await sleep(600);
+      check('«Luego» quita el aviso de versión nueva', seenU && gone === true && !find(ui(), 'Nueva versión de Órbita: 9.9'), String(gone));
+      await js(`${O} o.state.update = null; o.renderUpdate(); localStorage.removeItem('orbita:skipUpdate'); return 1;`); await sleep(600);
     }
     // --- el botón de ajustes, y volver (arriba del todo)
     await top0(); hn = ui();
