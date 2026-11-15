@@ -81,6 +81,20 @@ object UiState {
     /** Los márgenes de la pantalla de la web (arriba, derecha, abajo, izquierda): cuentan la barra de estado y los bordes. */
     var chatPad by mutableStateOf(listOf(14f, 16f, 14f, 16f))
     val chatList = LazyListState()
+    // ---- 4.5 · «Ahora»: cada parte, tal como la lee la app de su pantalla de siempre
+    var hTop by mutableStateOf<JSONObject?>(null)
+    var hTick by mutableStateOf<JSONObject?>(null)
+    var hDj by mutableStateOf<JSONObject?>(null)
+    var hBub by mutableStateOf<JSONObject?>(null)
+    var hSlot by mutableStateOf<JSONObject?>(null)
+    var hFy by mutableStateOf<JSONObject?>(null)
+    var hMixer by mutableStateOf<JSONObject?>(null)
+    var hOut by mutableStateOf<JSONObject?>(null)
+    /** El disco: qué suena y por dónde va (y cuándo llegó el dato, para seguir contando desde ahí). */
+    var hVin by mutableStateOf<JSONObject?>(null)
+    @Volatile var hVinAt = 0L
+    var homeDraft by mutableStateOf("")
+    val homeList = LazyListState()
 
     /** Por dónde va la lista (fuera de la pantalla, para que la app pueda subirla al entrar en «Mi música»). */
     val list = LazyListState()
@@ -188,10 +202,11 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 3)
+        r.put("available", true); r.put("v", 4)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
+            r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
         } catch (ignored: Throwable) { }
         call.resolve(r)
     }
@@ -201,7 +216,7 @@ class OrbitaUiPlugin : Plugin() {
     fun show(call: PluginCall) {
         readRect(call)
         val top = call.getBoolean("top", false) == true
-        val screen = if (call.getString("screen", "biblioteca") == "chat") "chat" else "biblioteca"
+        val screen = when (call.getString("screen", "biblioteca")) { "chat" -> "chat"; "inicio" -> "inicio"; else -> "biblioteca" }
         val pad = readPad(call)
         activity.runOnUiThread {
             try {
@@ -213,7 +228,7 @@ class OrbitaUiPlugin : Plugin() {
                     UiState.screen = screen
                 }
                 // al entrar desde otra pestaña, la lista empieza arriba (como la pantalla de siempre)
-                if (top) UiState.list.requestScrollToItem(0)
+                if (top) { if (screen == "inicio") UiState.homeList.requestScrollToItem(0) else if (screen == "biblioteca") UiState.list.requestScrollToItem(0) }
                 host?.visibility = View.VISIBLE
                 call.resolve()
             } catch (t: Throwable) {
@@ -268,14 +283,54 @@ class OrbitaUiPlugin : Plugin() {
         call.resolve()
     }
 
+    /** 4.5 · «Ahora»: las partes que han cambiado (cada una entera). */
+    @PluginMethod
+    fun home(call: PluginCall) {
+        val d = call.data
+        activity.runOnUiThread {
+            try {
+                if (d.has("top")) UiState.hTop = d.optJSONObject("top")
+                if (d.has("tick")) UiState.hTick = d.optJSONObject("tick")
+                if (d.has("dj")) {
+                    val o = d.optJSONObject("dj")
+                    // lo que hay escrito en la caja de la app (si ella lo cambia: una idea que se tocó, o se vació al mandarlo)
+                    val was = UiState.hDj?.optString("inp", "") ?: ""
+                    val now = o?.optString("inp", "") ?: ""
+                    if (now != was) UiState.homeDraft = now
+                    UiState.hDj = o
+                }
+                if (d.has("bub")) UiState.hBub = d.optJSONObject("bub")
+                if (d.has("slot")) UiState.hSlot = d.optJSONObject("slot")
+                if (d.has("fy")) UiState.hFy = d.optJSONObject("fy")
+                if (d.has("mixer")) UiState.hMixer = d.optJSONObject("mixer")
+                if (d.has("out")) UiState.hOut = d.optJSONObject("out")
+            } catch (ignored: Throwable) { }
+        }
+        call.resolve()
+    }
+
+    /** 4.5 · El disco de «Ahora»: qué suena, si suena y por dónde va. */
+    @PluginMethod
+    fun vinyl(call: PluginCall) {
+        val d = call.data
+        val at = android.os.SystemClock.uptimeMillis()
+        activity.runOnUiThread { UiState.hVinAt = at; UiState.hVin = d }
+        call.resolve()
+    }
+
     /** Mover la lista: arriba del todo o al final. */
     @PluginMethod
     fun scroll(call: PluginCall) {
         val end = call.getString("to", "top") == "end"
+        val y = num(call, "y", -1f)
         activity.runOnUiThread {
             try {
-                val st = UiState.list
-                st.requestScrollToItem(if (end) maxOf(0, st.layoutInfo.totalItemsCount - 1) else 0)
+                val st = if (UiState.screen == "inicio") UiState.homeList else UiState.list
+                if (y >= 0f) {
+                    // (pruebas) a una altura exacta, medida como en la web: desde arriba del todo
+                    st.dispatchRawDelta(-1.0e7f)
+                    st.dispatchRawDelta(y * dpr)
+                } else st.requestScrollToItem(if (end) maxOf(0, st.layoutInfo.totalItemsCount - 1) else 0)
             } catch (ignored: Throwable) { }
         }
         call.resolve()
@@ -349,14 +404,14 @@ class OrbitaUiPlugin : Plugin() {
         val arr = call.getArray("list")
         val got = ArrayList<Pair<String, ImageBitmap>>()
         // del tamaño al que se ven en la lista (46 de lado): así ocupan poca memoria aunque haya miles de canciones
-        val side = maxOf(32, Math.ceil(46.0 * context.resources.displayMetrics.density).toInt())
+        val side = maxOf(32, Math.ceil(num(call, "side", 46f).coerceIn(32f, 400f).toDouble() * context.resources.displayMetrics.density).toInt())
         if (arr != null) for (i in 0 until arr.length()) {
             try {
                 val o = arr.optJSONObject(i) ?: continue
                 val u = o.optString("data")
                 val k = u.indexOf(";base64,")
                 if (k < 0) continue
-                val bmp = decodeCover(Base64.decode(u.substring(k + 8), Base64.DEFAULT), side) ?: continue
+                val bmp = decodeArt(Base64.decode(u.substring(k + 8), Base64.DEFAULT), side) ?: continue
                 got.add(o.optString("id") to bmp.asImageBitmap())
             } catch (ignored: Throwable) { }
         }
@@ -371,25 +426,6 @@ class OrbitaUiPlugin : Plugin() {
             }
         }
         call.resolve()
-    }
-
-    /** Una portada, reducida al tamaño de la lista. */
-    private fun decodeCover(b: ByteArray, side: Int): Bitmap? {
-        val size = BitmapFactory.Options()
-        size.inJustDecodeBounds = true
-        BitmapFactory.decodeByteArray(b, 0, b.size, size)
-        if (size.outWidth <= 0 || size.outHeight <= 0) return null
-        var sample = 1
-        while (minOf(size.outWidth, size.outHeight) / (sample * 2) >= side) sample *= 2
-        val opt = BitmapFactory.Options()
-        opt.inSampleSize = sample
-        val bmp = BitmapFactory.decodeByteArray(b, 0, b.size, opt) ?: return null
-        val m = minOf(bmp.width, bmp.height)
-        if (m <= side * 1.15f) return bmp
-        val k = side.toFloat() / m
-        val out = Bitmap.createScaledBitmap(bmp, maxOf(1, (bmp.width * k).roundToInt()), maxOf(1, (bmp.height * k).roundToInt()), true)
-        if (out !== bmp) bmp.recycle()
-        return out
     }
 
     /** Un aviso corto (los de la app quedarían tapados por la pantalla nativa). */
