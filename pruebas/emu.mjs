@@ -1,6 +1,6 @@
 // Pruebas en el emulador: instala la app, le pone música, la maneja (por dentro, con las herramientas de depuración
 // del WebView, y por fuera, con los botones de Android) y guarda capturas y registros en salida/.
-import { execSync, spawnSync } from 'node:child_process';
+import { execSync, spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 
 const OUT = 'salida'; fs.mkdirSync(OUT, { recursive: true });
@@ -17,13 +17,16 @@ function finish(why) {
   } catch {}
   process.exit(0);
 }
-setTimeout(() => finish('pasó de 22 minutos'), 22 * 60000).unref();
+setTimeout(() => finish('pasó de 34 minutos'), 34 * 60000).unref();
 let adbFails = 0;
 const adb = (c, o = {}) => { if (adbFails > 12) finish('el emulador dejó de contestar'); try { const r = execSync('adb ' + c, { encoding: 'utf8', timeout: 45000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64e6, ...o }); adbFails = 0; return r; } catch (e) { if (e.killed || /ETIMEDOUT|offline|no devices/.test(String(e.message) + e.stderr)) adbFails++; return 'ERR ' + (e.stdout || '') + (e.stderr || e.message); } };
 const sh = c => adb(`shell "${c.replace(/"/g, '\\"')}"`);
 let shotN = 0;
 const shot = name => { const f = `${OUT}/${String(++shotN).padStart(2, '0')}-${name}.png`; const r = spawnSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64e6 }); if (r.stdout && r.stdout.length > 1000) fs.writeFileSync(f, r.stdout); return f; };
 const check = (name, ok, info = '') => { res.push({ name, ok: !!ok, info: String(info).slice(0, 600) }); log((ok ? 'ok    ' : 'FALLA ') + '· ' + name + (info !== '' ? ' · ' + String(info).slice(0, 600) : '')); };
+
+// lo que va diciendo Android, guardado sobre la marcha (si el emulador se cae a mitad, al final ya no se le puede preguntar)
+try { const fd = fs.openSync(`${OUT}/logcat-vivo.txt`, 'w'); const lc = spawn('adb', ['logcat', '-v', 'time', '*:W'], { stdio: ['ignore', fd, 'ignore'] }); lc.unref(); } catch {}
 
 // ---- el WebView por dentro (Chrome DevTools Protocol)
 let ws = null, msgId = 0; const pending = new Map();
@@ -545,15 +548,6 @@ try {
     await goView('ajustes'); await sleep(700);
     await js(`const c = (k, v) => { const b = document.querySelector('[data-look="' + k + '"][data-v="' + v + '"]'); if (b) b.click(); }; c('round', 'redondo'); c('text', 'm'); c('titles', 'orbita'); return 1;`);
     await goView('inicio'); await sleep(1800);
-    // --- fluidez al deslizar
-    sh(`dumpsys gfxinfo ${PKG} reset`);
-    for (let k = 0; k < 4; k++) { sh('input swipe 540 1450 540 400 250'); await sleep(700); sh('input swipe 540 400 540 1450 250'); await sleep(700); }
-    log('fluidez de «Ahora» nativa:', gfx());
-    await js(`${O} N.classic = true; return 1;`); await sleep(1200);
-    sh(`dumpsys gfxinfo ${PKG} reset`);
-    for (let k = 0; k < 4; k++) { sh('input swipe 540 1450 540 400 250'); await sleep(700); sh('input swipe 540 400 540 1450 250'); await sleep(700); }
-    log('fluidez de «Ahora» de siempre (mismo gesto):', gfx());
-    await js(`${O} N.classic = false; document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(1500);
     await top0(); ui(); shot('ahora-final');
     check('sin cierres por error con «Ahora» nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
   }
@@ -895,6 +889,20 @@ try {
     sh(`am start -n ${PKG}/.MainActivity`); await sleep(9000);
     await webStart(true); await sleep(3000);
     await goView('inicio'); await sleep(2500);
+    // (y la fluidez de «Ahora» al deslizar, también al final: en el emulador, que dibuja sin gráfica, es lo más pesado de toda la prueba)
+    {
+      const O = `const o = window.__orbita, N = o.NUI;`;
+      log('justo antes de deslizar «Ahora»: proceso vivo =', alive());
+      sh(`dumpsys gfxinfo ${PKG} reset`);
+      for (let k = 0; k < 3; k++) { sh('input swipe 540 1450 540 400 250'); await sleep(900); sh('input swipe 540 400 540 1450 250'); await sleep(900); }
+      log('fluidez de «Ahora» nativa:', gfx());
+      await js(`${O} N.classic = true; return 1;`); await sleep(1200);
+      sh(`dumpsys gfxinfo ${PKG} reset`);
+      for (let k = 0; k < 3; k++) { sh('input swipe 540 1450 540 400 250'); await sleep(900); sh('input swipe 540 400 540 1450 250'); await sleep(900); }
+      log('fluidez de «Ahora» de siempre (mismo gesto):', gfx());
+      await js(`${O} N.classic = false; document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(1500);
+      check('«Ahora» nativa aguanta que se deslice deprisa (sin cierres)', alive() && crashes() === 0, crashText().slice(0, 2500));
+    }
     const inj = await js(`const o = window.__orbita; o.state.update = { version: '9.9', url: 'https://example.com/orbita-prueba', notes: 'Aviso de prueba de versión nueva.' }; localStorage.removeItem('orbita:skipUpdate'); o.renderUpdate(); return !document.querySelector('#updBanner').hidden;`); await sleep(1500);
     await js(`await Capacitor.Plugins.OrbitaUi.scroll({ y: 0 }); return 1;`); await sleep(900);
     const a0 = act();
