@@ -513,9 +513,12 @@ try {
       await top0(); hn = ui(); shot('ahora-version-nueva');
       const seenU = inj === true && !!find(hn, 'Nueva versión de Órbita: 9.9') && !!find(hn, 'Descargar') && !!find(hn, 'Luego');
       const a0 = act();
-      await tapText('Descargar', 5000);
+      await tapText('Descargar', 3500);
       const a1 = act(); shot('ahora-descargar');
       check('el aviso de versión nueva sale en la nativa y «Descargar» abre el enlace fuera de la app', seenU && !a1.includes(PKG + '/'), `visto ${seenU} · antes: ${a0.slice(-70)} · después: ${a1.slice(-90)}`);
+      // (el navegador del emulador pesa mucho: se cierra del todo en cuanto se ha visto que se abre)
+      const other = (a1.match(/u0 ([\w.]+)\//) || [])[1];
+      if (other && other !== PKG) { sh(`am force-stop ${other}`); await sleep(2500); }
       for (let k = 0; k < 3 && !act().includes(PKG + '/'); k++) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); }
       if (!act().includes(PKG + '/')) { sh(`am start -n ${PKG}/.MainActivity`); await sleep(3000); }
       await tapText('Luego', 1500);
