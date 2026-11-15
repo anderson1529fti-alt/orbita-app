@@ -506,6 +506,23 @@ try {
     const seenH = !!find(ui(), 'Aviso de prueba en Ahora'); shot('ahora-aviso');
     check('los avisos de la app se ven encima de «Ahora» nativa', seenH);
     await js(`window.__orbita.toast('Listo', 900); return 1;`); await sleep(1800);
+    // --- el aviso de versión nueva: se ve en la nativa y su «Descargar» abre el enlace fuera de la app
+    {
+      const act = () => sh('dumpsys activity activities | grep -m1 topResumedActivity').trim();
+      await js(`state.update = { version: '9.9', url: 'https://example.com/orbita-prueba', notes: 'Aviso de prueba de versión nueva.' }; localStorage.removeItem('orbita:skipUpdate'); renderUpdate(); return 1;`); await sleep(1200);
+      await top0(); hn = ui(); shot('ahora-version-nueva');
+      const seenU = !!find(hn, 'Nueva versión de Órbita: 9.9') && !!find(hn, 'Descargar') && !!find(hn, 'Luego');
+      const a0 = act();
+      await tapText('Descargar', 5000);
+      const a1 = act(); shot('ahora-descargar');
+      check('el aviso de versión nueva sale en la nativa y «Descargar» abre el enlace fuera de la app', seenU && !a1.includes(PKG + '/'), `visto ${seenU} · antes: ${a0.slice(-70)} · después: ${a1.slice(-90)}`);
+      for (let k = 0; k < 3 && !act().includes(PKG + '/'); k++) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); }
+      if (!act().includes(PKG + '/')) { sh(`am start -n ${PKG}/.MainActivity`); await sleep(3000); }
+      await tapText('Luego', 1500);
+      const gone = await js(`return document.querySelector('#updBanner').hidden;`);
+      check('«Luego» quita el aviso de versión nueva', gone === true && !find(ui(), 'Nueva versión de Órbita: 9.9'), String(gone));
+      await js(`state.update = null; renderUpdate(); localStorage.removeItem('orbita:skipUpdate'); return 1;`); await sleep(600);
+    }
     // --- el botón de ajustes, y volver (arriba del todo)
     await top0(); hn = ui();
     const gear = hn.find(n => /^Ajustes/.test(n.desc));
