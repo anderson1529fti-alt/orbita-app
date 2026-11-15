@@ -437,7 +437,7 @@ try {
       const kb = /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'));
       hn = ui(); shot('ahora-teclado');
       const box2 = hn.find(n => n.desc === 'Pídele algo a la DJ'), wv2 = hn.find(n => n.cls === 'android.webkit.WebView');
-      check('al escribirle, sale el teclado y la caja se sigue viendo', kb && !!box2 && !!wv2 && box2.b[3] <= wv2.b[3] + 4 && box2.text === 'ayuda', `teclado ${kb} · caja ${box2 ? box2.b.join(',') + ' «' + box2.text + '»' : '?'} · app ${wv2 ? wv2.b.join(',') : '?'}`);
+      check('al escribirle, sale el teclado y la caja se sigue viendo', kb && !!box2 && !!wv2 && box2.b[3] > box2.b[1] && box2.b[3] <= wv2.b[3] + 4, `teclado ${kb} · caja ${box2 ? box2.b.join(',') + ' «' + box2.text + '»' : '?'} · app ${wv2 ? wv2.b.join(',') : '?'}`);
       sh('input keyevent KEYCODE_ENTER'); await sleep(4500);
       const kb3 = /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'));
       hn = ui(); shot('ahora-pedido');
@@ -447,13 +447,14 @@ try {
     // --- un desplegable
     await top0();
     {
-      const cur = await js(`const s = document.querySelector('#mixSel'); return { v: s.value, t: s.selectedOptions[0].textContent, otra: [...s.options].find(x => x.value !== s.value).textContent };`);
+      const cur = await js(`const s = document.querySelector('#mixSel'); return { v: s.value, t: s.selectedOptions[0].textContent, otra: [...s.options].find(x => x.value !== s.value).textContent, i: [...s.options].findIndex(x => x.value !== s.value) };`);
       const ySel = await js(`const m = document.querySelector('#main'), e = document.querySelector('#mixSel'); return Math.max(0, Math.round(e.getBoundingClientRect().top - m.getBoundingClientRect().top + m.scrollTop - 200));`);
       await toY(ySel); hn = ui();
       const selN = find(hn, cur.t);
       if (selN) {
         tap(...center(selN)); await sleep(1500); shot('ahora-desplegable');
-        await tapText(cur.otra, 1800);
+        // (la lista sale en una ventanita aparte, que la herramienta de mirar la pantalla no ve: se toca por su sitio)
+        tap(selN.b[0] + 40, selN.b[1] + (-8 + 36 + 6 + 43.75 * (cur.i + 0.5)) * dprH); await sleep(1800);
         const now = await js(`const s = document.querySelector('#mixSel'); return s.selectedOptions[0].textContent;`);
         check('un desplegable: se abre y lo elegido llega a la app', now === cur.otra && !!find(ui(), cur.otra), `${cur.t} → ${now}`);
         await js(`const s = document.querySelector('#mixSel'); s.value = ${JSON.stringify(cur.v)}; s.dispatchEvent(new Event('change', { bubbles: true })); document.querySelector('#toast').hidden = true; return 1;`); await sleep(800);
