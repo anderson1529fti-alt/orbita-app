@@ -512,15 +512,7 @@ try {
       const inj = await js(`${O} o.state.update = { version: '9.9', url: 'https://example.com/orbita-prueba', notes: 'Aviso de prueba de versión nueva.' }; localStorage.removeItem('orbita:skipUpdate'); o.renderUpdate(); return !document.querySelector('#updBanner').hidden;`); await sleep(1500);
       await top0(); hn = ui(); shot('ahora-version-nueva');
       const seenU = inj === true && !!find(hn, 'Nueva versión de Órbita: 9.9') && !!find(hn, 'Descargar') && !!find(hn, 'Luego');
-      const a0 = act();
-      await tapText('Descargar', 3500);
-      const a1 = act(); shot('ahora-descargar');
-      check('el aviso de versión nueva sale en la nativa y «Descargar» abre el enlace fuera de la app', seenU && !a1.includes(PKG + '/'), `visto ${seenU} · antes: ${a0.slice(-70)} · después: ${a1.slice(-90)}`);
-      // (el navegador del emulador pesa mucho: se cierra del todo en cuanto se ha visto que se abre)
-      const other = (a1.match(/u0 ([\w.]+)\//) || [])[1];
-      if (other && other !== PKG) { sh(`am force-stop ${other}`); await sleep(2500); }
-      for (let k = 0; k < 3 && !act().includes(PKG + '/'); k++) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); }
-      if (!act().includes(PKG + '/')) { sh(`am start -n ${PKG}/.MainActivity`); await sleep(3000); }
+      check('el aviso de versión nueva sale en la nativa, con sus dos botones', seenU, String(inj));
       await tapText('Luego', 1500);
       const gone = await js(`return document.querySelector('#updBanner').hidden;`);
       check('«Luego» quita el aviso de versión nueva', seenU && gone === true && !find(ui(), 'Nueva versión de Órbita: 9.9'), String(gone));
@@ -894,6 +886,24 @@ try {
   check('«play» con Órbita cerrada: vuelve la música', playing(), `proceso ${alive()} · ${sessState()} · ${fgService()}`);
   sh('cmd statusbar expand-notifications'); await sleep(2500); shot('reanudada'); sh('cmd statusbar collapse');
   check('ningún cierre por error en toda la prueba', crashes() === 0, crashText().slice(0, 2500));
+  // ================= lo último: un enlace de la nativa se abre fuera de la app =================
+  // (va al final a propósito: el navegador del emulador pesa tanto que a veces lo tumba todo)
+  {
+    const act = () => sh('dumpsys activity activities | grep -m1 topResumedActivity').trim();
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    // (la app se había cerrado en el paso anterior: se abre de nuevo, con su modo de pruebas)
+    sh(`am start -n ${PKG}/.MainActivity`); await sleep(9000);
+    await webStart(true); await sleep(3000);
+    await goView('inicio'); await sleep(2500);
+    const inj = await js(`const o = window.__orbita; o.state.update = { version: '9.9', url: 'https://example.com/orbita-prueba', notes: 'Aviso de prueba de versión nueva.' }; localStorage.removeItem('orbita:skipUpdate'); o.renderUpdate(); return !document.querySelector('#updBanner').hidden;`); await sleep(1500);
+    await js(`await Capacitor.Plugins.OrbitaUi.scroll({ y: 0 }); return 1;`); await sleep(900);
+    const a0 = act();
+    await tapText('Descargar', 3500);
+    const a1 = act(); shot('ahora-descargar');
+    check('«Descargar» (aviso de versión nueva, en la nativa) abre el enlace fuera de la app', inj === true && !a1.includes(PKG + '/'), `antes: ${a0.slice(-70)} · después: ${a1.slice(-90)}`);
+    const other = (a1.match(/u0 ([\w.]+)\//) || [])[1];
+    if (other && other !== PKG) sh(`am force-stop ${other}`);
+  }
 } catch (e) {
   check('la prueba terminó sin errores propios', false, e && e.stack || e);
 }
