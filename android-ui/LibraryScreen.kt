@@ -377,7 +377,7 @@ internal fun rememberSkin(): Skin {
 /** La pantalla nativa que toca. */
 @Composable
 fun OrbitaScreens() {
-    if (UiState.screen == "chat") ChatScreen() else LibraryScreen()
+    when (UiState.screen) { "chat" -> ChatScreen(); "inicio" -> HomeScreen(); else -> LibraryScreen() }
 }
 
 private val SORTS = listOf("recent" to "Recientes", "title" to "Título", "artist" to "Artista", "plays" to "Más escuchadas")
@@ -588,6 +588,8 @@ private fun SortSelect(sk: Skin) {
     val p = sk.pal
     val shape = sk.r(10f)
     var open by remember { mutableStateOf(false) }
+    val hidden = UiState.hideN
+    LaunchedEffect(hidden) { open = false }   // (si la pantalla se aparta con la lista desplegada, se cierra)
     val label = SORTS.firstOrNull { it.first == UiState.sort }?.second ?: SORTS[0].second
     Box {
         Row(Modifier.width(138.1.dp).clip(shape).background(p.panelSolid).border(sk.b, p.line2, shape).clickable(remember { MutableInteractionSource() }, null) { open = true }.padding(start = 14.7.dp, end = 1.3.dp, top = 7.dp + sk.b, bottom = 7.dp + sk.b),

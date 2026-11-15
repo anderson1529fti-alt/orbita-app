@@ -633,7 +633,17 @@ object NovaCore : NovaAudioEngine.Listener {
         }
     }
 
+    /** 4.5 · Lo último que «oyó» el motor (para el disco de la pantalla «Ahora» nativa): el espectro y, al final, los instrumentos. */
+    @Volatile @JvmField var lastSpec: ByteArray? = null
+    @Volatile @JvmField var lastSpecAt = 0L
+    /** Los golpes (bombo, caja) que ha habido desde la última vez que se miró. */
+    @Volatile @JvmField var specHits = 0
+
     override fun onSpectrum(bins: ByteArray) {
+        try {
+            lastSpec = bins; lastSpecAt = android.os.SystemClock.uptimeMillis()
+            if (bins.size > 774) specHits = specHits or (bins[774].toInt() and 0xff)
+        } catch (ignored: Throwable) { }
         val s = sink ?: return
         try { s.spectrum(Base64.encodeToString(bins, Base64.NO_WRAP)) } catch (ignored: Throwable) { }
     }

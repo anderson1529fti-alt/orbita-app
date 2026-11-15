@@ -1,3 +1,11 @@
+Órbita 4.5: «Ahora» ya es una pantalla nativa.
+
+Fase 2, segundo paso
+- La pantalla principal, «Ahora» (el día, el disco, la cinta, DJ Nova, «Para ti hoy», «Mezcla a medida» y la mezcla), la dibuja ahora Android (Kotlin y Compose). Se ve igual que siempre y todo funciona igual: lo que eliges, lo que le pides a Nova, la ruleta, la radio y las mezclas siguen siendo los mismos.
+- El disco se dibuja más nítido.
+- Si tienes un visualizador en lugar del disco, «Ahora» sigue siendo la pantalla de siempre por ahora (los visualizadores nativos llegan más adelante).
+- En Ajustes › Sonido y mezclas, «Pantallas nativas» sirve ahora para «Ahora», «Mi música» y la conversación. Si algo no se viera bien, apágalo y vuelven las de siempre.
+
 Órbita 4.4: arreglos y la conversación con Nova, nativa.
 
 Arreglos
