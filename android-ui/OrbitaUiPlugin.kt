@@ -96,7 +96,7 @@ object UiState {
     @Volatile var hVinAt = 0L
     var homeDraft by mutableStateOf("")
     // ---- 4.6 · las pantallas que siguen («Mis listas»…): cada parte de cada una, con la clave «pantalla.parte»
-    val PAGES = setOf("listas")
+    val PAGES = setOf("listas", "tu")
     val pages = mutableStateMapOf<String, JSONObject>()
     private val pageScrolls = HashMap<String, ScrollState>()
     fun pageScroll(name: String): ScrollState = pageScrolls.getOrPut(name) { ScrollState(0) }

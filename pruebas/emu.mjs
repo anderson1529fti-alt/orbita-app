@@ -287,7 +287,7 @@ try {
   check('los avisos de la app se ven encima de la pantalla nativa', seenToast, 'mirar la pantalla tardó ' + (Date.now() - t0) + ' ms');
   await js(`window.__orbita.toast('Listo', 900); return 1;`); await sleep(1800);
   // --- otra pestaña y volver
-  await goView('tu'); await sleep(1000);
+  await goView('buscar'); await sleep(1000);
   const off = await js(`return window.__orbita.NUI.shown;`); shot('nativa-otra-pestana');
   await goView('biblioteca'); await sleep(1500);
   const on2 = await js(`return window.__orbita.NUI.shown;`);
@@ -615,19 +615,22 @@ try {
     await js(`document.querySelector('#toast').hidden = true; return 1;`);
     await goView('listas'); await sleep(2000);
     const l1 = await js(`${O} return { n: o.state.playlists.length, name: (document.querySelector('#listsOut .pl-card h3') || {}).textContent, screen: N.screen };`);
-    ln = ui(); shot('listas-nativa');
-    check('las listas guardadas salen en la nativa', l1 && l1.n >= 1 && l1.screen === 'listas' && !!find(ln, l1.name) && !!find(ln, 'Escuchar'), JSON.stringify(l1));
+    shot('listas-nativa');
+    // (a la altura de las listas guardadas: las de Nova van antes y ocupan la pantalla)
+    const toList = async () => { const y = await js(`const m = document.querySelector('#main'), e = document.querySelector('#listsOut .pl-card h3'); return e ? Math.max(0, Math.round(e.getBoundingClientRect().top - m.getBoundingClientRect().top + m.scrollTop - 150)) : 0;`); await js(`await Capacitor.Plugins.OrbitaUi.scroll({ y: ${y} }); return 1;`); await sleep(900); };
+    await toList(); ln = ui(); shot('listas-nativa-guardadas');
+    check('las listas guardadas salen en la nativa', l1 && l1.n >= 1 && l1.screen === 'listas' && !!find(ln, l1.name) && !!find(ln, 'Escuchar') && !!ln.find(n => n.desc === 'Borrar lista'), JSON.stringify(l1) + ' · ' + ln.filter(n => n.text || n.desc).map(n => (n.text || n.desc).slice(0, 22)).join(' | ').slice(0, 300));
     await js(`document.documentElement.classList.add('lite'); return 1;`);
     const pl = await paridad('#view-listas', 'paridad-listas.json', [0, 300, 600, 900, 99999]);
     await js(`document.documentElement.classList.remove('lite'); ${O} N.classic = true; await new Promise(r => setTimeout(r, 600)); document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(600); ui(); shot('listas-web');
     await js(`${O} N.classic = false; return 1;`); await sleep(900);
     check('«Mis listas»: cada texto, donde en la pantalla de siempre (± 3)', pl.n >= 6 && pl.bad.length === 0, `${pl.n} comparados · ${pl.bad.length} fuera: ${pl.bad.slice(0, 12).join(' · ')}`);
-    await js(`await Capacitor.Plugins.OrbitaUi.scroll({ y: 300 }); return 1;`); await sleep(900);
+    await toList();
     await tapText('Escuchar', 4000);
     const lp = await js(`${O} return { q: o.state.queue.length, paused: o.decks[o.A].paused };`);
     check('«Escuchar» pone la lista', lp && lp.q >= 2 && lp.paused === false && playing(), JSON.stringify(lp) + ' · ' + sessState());
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
-    ln = ui();
+    await toList(); ln = ui();
     const del = ln.find(n => n.desc === 'Borrar lista');
     if (del) {
       const before = await js(`return window.__orbita.state.playlists.length;`);
@@ -637,13 +640,71 @@ try {
       const after = await js(`return window.__orbita.state.playlists.length;`);
       check('la papelera pide confirmar y, al confirmar, borra la lista', armed && after === before - 1, `armada ${armed} · ${before} → ${after}`);
     } else check('encuentro la papelera de una lista', false, ln.filter(n => n.desc).map(n => n.desc).join(' | ').slice(0, 300));
-    await goView('tu'); await sleep(900);
+    await goView('buscar'); await sleep(900);
     const lt = await js(`${O} return N.shown;`);
     await goView('listas'); await sleep(1500);
     const lb = await js(`${O} return { shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
     check('al cambiar de pestaña se quita, y al volver «Mis listas» es nativa y está arriba', lt === false && lb && lb.shown && lb.screen === 'listas' && lb.st.y === 0, JSON.stringify([lt, lb]));
     shot('listas-final');
     check('sin cierres por error con «Mis listas» nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
+    await goView('inicio'); await sleep(1200);
+  }
+  // ----------------- «Tú», nativa -----------------
+  {
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    const O = `const o = window.__orbita, N = o.NUI;`;
+    // unas cuantas escuchas apuntadas (lo que normalmente se junta con los días)
+    await js(`${O} const now = Date.now(), D = 864e5, ts = o.state.tracks;
+      for (let k = 0; k < 60; k++) { const t = ts[(k * 7) % Math.min(ts.length, 9)]; o.memEvents.push({ ts: now - (k % 12) * D - k * 600000, id: t.id, sec: 30 + (k % 5) * 40, pct: 1, skip: k % 9 === 0, hour: (8 + k) % 24, dow: k % 7, src: 'mix', title: t.title, artist: t.artist, net: false }); }
+      o.renderTu(); return 1;`);
+    await goView('tu'); await sleep(1800);
+    const t0 = await js(`${O} return { shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    let tn = ui(); shot('tu-nativa');
+    check('«Tú» sale nativa al entrar', !!t0 && t0.shown && t0.screen === 'tu' && t0.st.screen === 'tu' && t0.st.shown === true && !!find(tn, 'Semana') && !!find(tn, 'Siempre'), JSON.stringify(t0) + ' · ' + tn.filter(n => n.text).map(n => n.text.slice(0, 22)).join(' | ').slice(0, 300));
+    await js(`document.documentElement.classList.add('lite'); return 1;`);
+    const pt = await paridad('#view-tu', 'paridad-tu.json', [0, 350, 700, 1050, 1400, 1750, 2100, 2450, 99999]);
+    await js(`document.documentElement.classList.remove('lite'); ${O} N.classic = true; await new Promise(r => setTimeout(r, 600)); document.querySelector('#main').scrollTop = 0; return 1;`); await sleep(600); ui(); shot('tu-web');
+    await js(`${O} N.classic = false; return 1;`); await sleep(900);
+    check('«Tú»: cada texto, donde en la pantalla de siempre (± 3), de arriba abajo', pt.n >= 30 && pt.bad.length === 0, `${pt.n} comparados · ${pt.bad.length} fuera: ${pt.bad.slice(0, 14).join(' · ')}`);
+    const at = async sel => { const y = await js(`const m = document.querySelector('#main'), e = ${sel}; return e ? Math.max(0, Math.round(e.getBoundingClientRect().top - m.getBoundingClientRect().top + m.scrollTop - 160)) : 0;`); await js(`await Capacitor.Plugins.OrbitaUi.scroll({ y: ${y} }); return 1;`); await sleep(900); };
+    // una canción de «Tus canciones»
+    await at(`document.querySelector('#tuOut .tu-row')`); tn = ui(); shot('tu-canciones');
+    const pb = tn.find(n => /^Escuchar /.test(n.desc));
+    if (pb) {
+      tap(...center(pb)); await sleep(4000);
+      const c = await js(`${O} const t = o.trackById(o.state.queue[o.state.qi]); return { title: t && t.title, paused: o.decks[o.A].paused };`);
+      check('el botón de una canción de «Tus canciones» la pone', c && pb.desc === 'Escuchar ' + c.title && c.paused === false && playing(), JSON.stringify(c) + ' · ' + pb.desc);
+      sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
+    } else check('encuentro el botón de escuchar de una canción', false, tn.filter(n => n.desc).map(n => n.desc).join(' | ').slice(0, 300));
+    // los datos de una gráfica
+    await at(`document.querySelector('#tuOut details summary')`);
+    await tapText('Ver los datos', 1500);
+    const dt = await js(`return document.querySelector('#tuOut details').open;`);
+    tn = ui(); shot('tu-datos');
+    check('«Ver los datos» despliega la tabla de la gráfica', dt === true && !!find(tn, 'Hora') && !!find(tn, 'Tiempo'), String(dt) + ' · ' + tn.filter(n => n.text).map(n => n.text.slice(0, 12)).join(' | ').slice(0, 260));
+    await tapText('Ver los datos', 1200);
+    // el periodo
+    await js(`await Capacitor.Plugins.OrbitaUi.scroll({ y: 0 }); return 1;`); await sleep(900);
+    await tapText('Siempre', 1500);
+    const rg = await js(`return [...document.querySelectorAll('#tuRange button')].filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent.trim()).join(',');`);
+    check('cambiar el periodo («Siempre») llega a la app', rg === 'Siempre', rg);
+    await tapText('Mes', 1200);
+    // el interruptor de recordar
+    await at(`document.querySelector('#tMem')`);
+    await tapText('Recordar lo que escucho', 1500);
+    const m1 = await js(`return JSON.parse(localStorage.getItem('orbita:memOn'));`);
+    await tapText('Recordar lo que escucho', 2500);
+    const m2 = await js(`return JSON.parse(localStorage.getItem('orbita:memOn'));`);
+    check('«Recordar lo que escucho» se apaga y se enciende', m1 === false && m2 === true, `${m1} → ${m2}`);
+    // abajo del todo: los botones
+    await js(`await Capacitor.Plugins.OrbitaUi.scroll({ to: 'end' }); return 1;`); await sleep(1000); tn = ui(); shot('tu-abajo');
+    await tapText('Ajustes', 1800);
+    const va = await js(`${O} return { view: o.state.view, shown: N.shown };`);
+    check('el botón «Ajustes» de abajo lleva a Ajustes', va && va.view === 'ajustes' && !va.shown && !!find(tn, 'Borrar mi historial'), JSON.stringify(va));
+    await goView('tu'); await sleep(1500);
+    const tb = await js(`${O} return { shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    check('y al volver, «Tú» es nativa y está arriba', tb && tb.shown && tb.screen === 'tu' && tb.st.y === 0, JSON.stringify(tb));
+    check('sin cierres por error con «Tú» nativa', alive() && crashes() === 0, crashText().slice(0, 2500));
     await goView('inicio'); await sleep(1200);
   }
   // ================= fin de la fase 2 · paso 3 =================
