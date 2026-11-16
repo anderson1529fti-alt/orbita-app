@@ -1,3 +1,11 @@
+Órbita 4.8: termina la fase 2. Todas las pantallas, el reproductor a pantalla completa y las ventanas los dibuja Android.
+
+Fase 2, últimos pasos
+- «Buscar» y «Ajustes» ya son pantallas nativas: las dibuja Android (Kotlin y Compose), idénticas a las de siempre, y todo funciona igual: escribir, buscar, las pestañas, las listas desplegables, los interruptores, las barras para deslizar, el ecualizador, la hora del despertador (con el reloj de Android) y los temas.
+- El reproductor a pantalla completa y las ventanas (temporizador para dormir, novedades, editar canción y escribir la letra) también son nativos. En el reproductor, la portada se desliza a los lados para cambiar de canción y se baja con el dedo para cerrarlo, como siempre.
+- Siguen como siempre: lo que se mueve con la música (el visualizador, la letra sincronizada y los vídeos de YouTube), que es la fase 3; y la barra de abajo (la canción que suena y las pestañas), el fondo, la bienvenida, el resumen del año y la pantalla del despertador, que pasarán con la fase 4.
+- En Ajustes › Sonido y mezclas, «Pantallas nativas» sirve para todo. Si algo no se viera bien, apágalo y vuelve lo de siempre.
+
 Órbita 4.6: «Mis listas» y «Tú» ya son pantallas nativas.
 
 Fase 2, tercer paso
