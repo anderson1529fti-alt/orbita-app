@@ -728,7 +728,7 @@ try {
     const b0 = await js(`${O} return { shown: N.shown, screen: N.screen, mirOk: N.mirOk, err: N.err, st: await Capacitor.Plugins.OrbitaUi.status() };`);
     let bn = ui(); shot('buscar-nativa');
     { const wv = bn.find(n => n.cls === 'android.webkit.WebView'); T4 = wv ? wv.b[1] : 0; }
-    check('«Buscar» sale nativa', !!b0 && b0.shown && b0.screen === 'buscar' && b0.mirOk && b0.st.v === 6 && b0.st.screen === 'buscar' && !!find(bn, 'BUSCAR') && !!find(bn, 'Por conseguir'), JSON.stringify(b0) + ' · ' + bn.filter(n => n.text).map(n => n.text.slice(0, 20)).join(' | ').slice(0, 300));
+    check('«Buscar» sale nativa', !!b0 && b0.shown && b0.screen === 'buscar' && b0.mirOk && b0.st.v === 6 && b0.st.screen === 'buscar' && !!find(bn, 'BUSCAR') && !!find(bn, 'Busca cualquier canción'), JSON.stringify(b0) + ' · ' + bn.filter(n => n.text).map(n => n.text.slice(0, 20)).join(' | ').slice(0, 300));
     const pb = await paridad('#view-buscar', 'paridad-buscar.json', [0, 99999], 'buscar', true);
     await js(`${O} N.classic = false; await new Promise(r => setTimeout(r, 600)); await Capacitor.Plugins.OrbitaUi.scroll({ to: 'top' }); return 1;`); await sleep(1200);
     check('«Buscar»: cada renglón, donde en la pantalla de siempre (± 3)', pb.n >= 12 && pb.bad.length === 0, `${pb.n} comparados · ${pb.bad.length} fuera: ${pb.bad.slice(0, 12).join(' · ')}`);

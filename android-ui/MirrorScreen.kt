@@ -464,10 +464,17 @@ private fun MBoxNode(c: MNode, sk: Skin) {
                 else {
                     last[0] = now
                     mSend("mDr", c.k) { it.put("f", (down.position.y / hh).toDouble()) }
-                    drag(down.id) { ch ->
+                    var y = down.position.y
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
                         ch.consume()
-                        val t = SystemClock.uptimeMillis()
-                        if (t - last[1] > 40) { last[1] = t; mSend("mDr", c.k) { it.put("f", (ch.position.y / hh).toDouble()) } }
+                        if (ch.position.y != y) {
+                            y = ch.position.y
+                            val t = SystemClock.uptimeMillis()
+                            if (!ch.pressed || t - last[1] > 40) { last[1] = t; mSend("mDr", c.k) { it.put("f", (y / hh).toDouble()) } }
+                        }
+                        if (!ch.pressed) break
                     }
                 }
             }
@@ -588,13 +595,30 @@ private fun MRange(c: MNode, sk: Skin) {
     if (c.label.isNotEmpty()) m = m.semantics { contentDescription = c.label }
     if (!c.dis && c.k > 0) {
         m = m.pointerInput(c.k, c.mn, c.mx, c.sp) {
-            detectTapGestures(onTap = { o -> val x = at(o.x, size.width.toFloat(), density); hold = x; send(x, true) })
-        }.pointerInput(c.k, c.mn, c.mx, c.sp) {
-            detectHorizontalDragGestures(
-                onDragStart = { o -> val x = at(o.x, size.width.toFloat(), density); drag = x; send(x, false) },
-                onDragEnd = { val x = drag; if (x != null) { hold = x; send(x, true) }; drag = null },
-                onDragCancel = { drag = null }
-            ) { ch, _ -> ch.consume(); val x = at(ch.position.x, size.width.toFloat(), density); drag = x; send(x, false) }
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val w = size.width.toFloat()
+                val slop = viewConfiguration.touchSlop
+                var dragging = false
+                while (true) {
+                    val ev = awaitPointerEvent()
+                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!ch.pressed) {
+                        // se suelta: donde esté el dedo (arrastrando o con un toque)
+                        if (dragging || !ch.isConsumed) { ch.consume(); val x = at(ch.position.x, w, density); drag = null; hold = x; send(x, true) }
+                        break
+                    }
+                    if (!dragging && ch.isConsumed) break          // (la lista se ha puesto a moverse)
+                    val dx = ch.position.x - down.position.x
+                    val dy = ch.position.y - down.position.y
+                    if (!dragging) {
+                        if (abs(dx) > slop && abs(dx) > abs(dy)) dragging = true
+                        else if (abs(dy) > slop) break              // (hacia arriba o abajo: la lista)
+                    }
+                    if (dragging) { ch.consume(); val x = at(ch.position.x, w, density); drag = x; send(x, false) }
+                }
+                if (drag != null) { val x = drag; drag = null; if (x != null) { hold = x; send(x, true) } }
+            }
         }
     }
     Canvas(m) {

@@ -6562,8 +6562,6 @@ function mText(node, el, cs, ctx, kids) {
   let a = 0, b = raw.length;
   if (!pre) {
     while (a < b && /\s/.test(raw[a])) a++; while (b > a && /\s/.test(raw[b - 1])) b--;
-    // (a space that is drawn: the one between «<b>título</b>» and « · artista»)
-    if (a > 0) { g.setStart(node, a - 1); g.setEnd(node, a); if (g.getBoundingClientRect().width > 0.5) a--; }
   }
   g.setStart(node, a); g.setEnd(node, b);
   const rs = g.getClientRects(); if (!rs.length) return;
@@ -6622,8 +6620,10 @@ function mWalk(el, ctx, out) {
     const ty = (el.type || 'text').toLowerCase();
     if (ty === 'range') { n.e = 'rg'; n.k = hKey(el); n.v = +el.value || 0; n.mn = +el.min || 0; n.mx = el.max === '' ? 100 : +el.max; n.sp = +el.step || 1; if (el.classList.contains('hue')) n.hue = 1; if (el.disabled) n.d = 1; if (lab) n.l = lab; out.push(n); }
     else if (M_TEXT_IN[ty]) {
-      n.e = 'in'; n.k = hKey(el); n.v = el.value || ''; n.ph = el.placeholder || ''; n.pc = mCol(getComputedStyle(el, '::placeholder').color); n.f = mStyle(cs, ctx);
+      const phc = getComputedStyle(el, '::placeholder').color;
+      n.e = 'in'; n.k = hKey(el); n.v = el.value || ''; n.ph = el.placeholder || ''; n.pc = mCol(phc && phc !== cs.color ? phc : 'rgb(117, 117, 117)'); n.f = mStyle(cs, ctx);
       n.p = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map((v, i) => mF((parseFloat(v) || 0) + (parseFloat(cs[['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth'][i]]) || 0)));
+      if (ty === 'search' && cs.appearance !== 'none') n.p[1] = mF(n.p[1] + (parseFloat(cs.fontSize) || 15) + 1);   // (Chrome keeps that much on the right for its little «x»)
       if (ty === 'password') n.pw = 1; n.go = 1;
       if (ty === 'search' || el.enterKeyHint === 'search' || /busca|search/i.test((el.placeholder || '') + ' ' + el.id + ' ' + (el.form ? el.form.id + ' ' + (el.form.getAttribute('role') || '') : ''))) n.sr = 1; if (el.maxLength > 0) n.ml = el.maxLength; if (el.disabled) n.d = 1; if (lab) n.l = lab;
       out.push(n);
