@@ -911,14 +911,17 @@ try {
     const sc1 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, st: await Capacitor.Plugins.OrbitaUi.status() };`);
     pn = ui(); shot('reproductor-abajo');
     check('dentro del reproductor nativo se baja con el dedo (y el de siempre se pone a la misma altura)', !!sc1 && sc1.web > 100 && Math.abs(sc1.web - sc1.st.winY) < 3 && sc1.st.wins === 'np', JSON.stringify(sc1));
-    sh('input swipe 540 700 540 1800 300'); await sleep(900);
-    sh('input swipe 540 700 540 1800 300'); await sleep(1500);
+    // (a mitad de gesto, al llegar arriba, no se cierra: solo si el dedo empieza arriba del todo, como en el de siempre)
+    sh('input swipe 540 700 540 1900 400'); await sleep(1600);
     const sc2 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, np: !document.querySelector('#np').hidden, on: W.on.join() };`);
+    if (sc2 && sc2.np && sc2.web >= 3) { await js(`await Capacitor.Plugins.OrbitaUi.winScroll({ id: 'np', y: 0 }); return 1;`); await sleep(1500); }
+    const sc3 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, np: !document.querySelector('#np').hidden, on: W.on.join() };`);
+    check('subir dentro del reproductor no lo cierra aunque se llegue arriba', !!sc2 && sc2.np && sc2.on === 'np', JSON.stringify(sc2));
     // bajarlo con el dedo desde arriba: se cierra (lo mueve el de siempre, como siempre)
-    if (sc2 && sc2.np && sc2.web < 3) { sh('input swipe 540 500 540 1900 250'); await sleep(2200); }
+    if (sc3 && sc3.np && sc3.web < 3) { sh('input swipe 540 500 540 1900 250'); await sleep(2200); }
     const cl = await js(`${O} return { np: !document.querySelector('#np').hidden, on: W.on.join(), shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
     shot('reproductor-bajado');
-    check('arriba del todo, bajarlo con el dedo lo cierra, y vuelve «Ahora» nativa', !!sc2 && sc2.web < 3 && !!cl && !cl.np && cl.on === '' && !cl.st.winShown && cl.shown && cl.screen === 'inicio', JSON.stringify([sc2, cl]));
+    check('arriba del todo, bajarlo con el dedo lo cierra, y vuelve «Ahora» nativa', !!sc3 && sc3.web < 3 && !!cl && !cl.np && cl.on === '' && !cl.st.winShown && cl.shown && cl.screen === 'inicio', JSON.stringify([sc3, cl]));
     // otra vez, y «Cerrar»
     await js(`document.querySelector('[data-act="np-open"]').click(); return 1;`); await sleep(2800);
     const p2 = await wst();
@@ -935,10 +938,10 @@ try {
     if (ef) { tap(ef.b[2] - 20, (ef.b[1] + ef.b[3]) / 2); await sleep(1600); sh('input keyevent KEYCODE_MOVE_END'); sh('input text %s2'); await sleep(1500); }
     const ev = await js(`return document.querySelector('#editTitle').value;`);
     shot('ventana-editar-teclado');
-    sh('input keyevent KEYCODE_BACK'); await sleep(1200);
-    wn = ui();
-    if (!find(wn, 'Guardar')) { await sleep(1500); wn = ui(); }
-    await tapText('Guardar', 2000);
+    await sleep(800); wn = ui();
+    let gb = find(wn, 'Guardar');
+    if (!gb && /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'))) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); gb = find(ui(), 'Guardar'); }
+    if (gb) { tap(...center(gb)); await sleep(2000); }
     const tit1 = await js(`${O} return { t: o.trackById('${tid}').title, open: !document.querySelector('#editOverlay').hidden, on: W.on.join() };`);
     check('editar una canción en la ventana nativa: lo escrito llega y «Guardar» lo guarda', !!ef && ev === tit0 + ' 2' && !!tit1 && tit1.t === tit0 + ' 2' && !tit1.open && tit1.on === '', JSON.stringify({ ef: !!ef, ev, tit1 }));
     await js(`const t = window.__orbita.trackById('${tid}'); t.title = ${JSON.stringify(tit0)}; return 1;`);
@@ -948,9 +951,10 @@ try {
     const lw = await js(`${O} return { on: W.on.join(), r: (() => { const r = document.querySelector('#lyText').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; })() };`);
     if (lw && lw.r) { tap((lw.r[0] + 30) * D5, T5 + (lw.r[1] + 30) * D5); await sleep(1500); sh('input text hola'); await sleep(1200); }
     const lv = await js(`return document.querySelector('#lyText').value;`);
-    sh('input keyevent KEYCODE_BACK'); await sleep(1000);
-    if (!find(ui(), 'Cancelar')) await sleep(1200);
-    await tapText('Cancelar', 1500);
+    await sleep(800);
+    let cb = find(ui(), 'Cancelar');
+    if (!cb && /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'))) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); cb = find(ui(), 'Cancelar'); }
+    if (cb) { tap(...center(cb)); await sleep(1500); }
     const lc = await js(`${O} return { open: !document.querySelector('#lyOverlay').hidden, on: W.on.join() };`);
     check('la ventana de la letra es nativa: se escribe en su caja y «Cancelar» la cierra', !!lw && lw.on === 'ly' && /hola/.test(lv) && !!lc && !lc.open && lc.on === '', JSON.stringify({ lw: lw && lw.on, lv, lc }));
     // --- las novedades: un toque en lo oscuro las cierra

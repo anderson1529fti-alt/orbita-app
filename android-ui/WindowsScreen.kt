@@ -138,10 +138,15 @@ private fun rememberNpDrag(ls: LazyListState, dens: Float): NestedScrollConnecti
     object : NestedScrollConnection {
         var on = false
         var dy = 0f
+        // (como en la de siempre: solo si el dedo empezó con todo arriba del todo; si se llega arriba a mitad de gesto, no)
+        var started = false
+        var topAtStart = false
         fun move() { UiState.send("npDrag") { it.put("ph", "m"); it.put("dy", (Math.round(dy * 10.0) / 10.0)) } }
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
             if (on) { dy = max(0f, dy + available.y / dens); move(); return available }
-            if (available.y > 0f && !ls.canScrollBackward && source == NestedScrollSource.UserInput) {
+            if (source != NestedScrollSource.UserInput) return Offset.Zero
+            if (!started) { started = true; topAtStart = !ls.canScrollBackward }
+            if (available.y > 0f && topAtStart && !ls.canScrollBackward) {
                 on = true; dy = available.y / dens
                 UiState.winAlpha = 0f
                 UiState.send("npDrag") { it.put("ph", "s") }
@@ -151,6 +156,7 @@ private fun rememberNpDrag(ls: LazyListState, dens: Float): NestedScrollConnecti
             return Offset.Zero
         }
         override suspend fun onPreFling(available: Velocity): Velocity {
+            started = false
             if (!on) return Velocity.Zero
             on = false
             UiState.send("npDrag") { it.put("ph", "e"); it.put("v", (available.y / dens / 1000f).toDouble()) }
