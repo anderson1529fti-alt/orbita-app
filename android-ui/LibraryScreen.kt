@@ -378,7 +378,7 @@ internal fun rememberSkin(): Skin {
 @Composable
 fun OrbitaScreens() {
     val scr = UiState.screen
-    when { scr == "chat" -> ChatScreen(); scr == "inicio" -> HomeScreen(); scr in UiState.PAGES -> PageScreen(scr); else -> LibraryScreen() }
+    when { scr == "chat" -> ChatScreen(); scr == "inicio" -> HomeScreen(); scr in UiState.PAGES -> PageScreen(scr); scr in UiState.MIRROR -> MirrorScreen(scr); else -> LibraryScreen() }
 }
 
 private val SORTS = listOf("recent" to "Recientes", "title" to "Título", "artist" to "Artista", "plays" to "Más escuchadas")
