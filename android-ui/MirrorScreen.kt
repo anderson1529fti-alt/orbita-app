@@ -2,6 +2,7 @@ package __PACKAGE__
 
 import android.graphics.BlurMaskFilter
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -42,7 +43,9 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -58,6 +61,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -90,15 +100,18 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -116,9 +129,15 @@ import kotlin.math.sin
 @Immutable
 internal data class MStyle(val fs: Float, val fw: Int, val ff: String, val col: Int, val ls: Float, val fl: Int, val sw: Float)
 
-/** Un degradado de CSS: t = «l» (recto, con su ángulo) o «c» (en abanico, con el ángulo donde empieza). */
+/**
+ * Una capa del fondo de una caja: t = «l» (degradado recto, con su ángulo), «c» (en abanico, con el ángulo donde
+ * empieza), «r» (redondo: el tamaño de la elipse y su centro, en partes de la caja) o «u» (una imagen, con su tamaño).
+ */
 @Immutable
-internal data class MGrad(val t: String, val a: Float, val cols: List<Int>, val pos: List<Float>)
+internal data class MGrad(
+    val t: String, val a: Float, val cols: List<Int>, val pos: List<Float>,
+    val u: String = "", val sz: String = "", val rx: Float = -1f, val ry: Float = -1f, val cx: Float = 0.5f, val cy: Float = 0.5f
+)
 
 @Immutable
 internal data class MShadow(val c: Int, val x: Float, val y: Float, val blur: Float, val spread: Float)
@@ -142,6 +161,8 @@ internal data class MNode(
     val nv: Float, val mn: Float, val mx: Float, val sp: Float, val hue: Boolean,
     val opts: List<Pair<String, String>>, val vb: List<Float>, val paths: List<MPath>,
     val mk: Float, val mc: Int, val mo: Boolean,
+    // 4.8 · el filtro (desenfoque, color, luz), la portada que se desliza (su clave) y la luz que va con la música
+    val fx: List<Float>, val sw: Int, val lt: Boolean,
     val kids: List<MNode>
 )
 
@@ -163,6 +184,7 @@ private fun four(o: JSONObject, k: String): List<Float> {
 private fun mGrad(o: JSONObject?): MGrad? {
     if (o == null) return null
     val t = o.optString("t", "x")
+    if (t == "u") { val u = o.optString("u", ""); return if (u.isEmpty()) null else MGrad("u", 0f, emptyList(), emptyList(), u = u, sz = o.optString("sz", "auto")) }
     val sa = o.optJSONArray("s") ?: return null
     if (t == "x" || sa.length() == 0) return null
     val cols = ArrayList<Int>()
@@ -185,6 +207,7 @@ private fun mGrad(o: JSONObject?): MGrad? {
         if (pos[i] < pos[i - 1]) pos[i] = pos[i - 1]
         i++
     }
+    if (t == "r") return MGrad("r", 0f, cols, pos, rx = o.f("rx", -1f), ry = o.f("ry", -1f), cx = o.f("cx", 0.5f), cy = o.f("cy", 0.5f))
     return MGrad(t, o.f("a", 180f), cols, pos)
 }
 
@@ -236,6 +259,7 @@ private fun mNode(o: JSONObject, st: List<MStyle>, depth: Int): MNode {
         if (e == "ph") o.f("hu", 280f) else if (e == "rg") o.f("v") else 0f, if (e == "ph") o.f("fs", 16.8f) else o.f("mn"), o.f("mx", 100f), o.f("sp", 1f), o.optInt("hue") == 1,
         opts, vb, paths,
         o.f("mk"), o.c("mc"), o.optInt("mo") == 1,
+        o.optJSONArray("fx").let { a -> if (a != null && a.length() == 3) List(3) { a.optDouble(it, if (it == 0) 0.0 else 1.0).toFloat() } else NO_F }, o.optInt("sw", 0), o.optInt("lt") == 1,
         mKids(o.optJSONArray("c"), st, depth + 1)
     )
 }
@@ -280,7 +304,7 @@ fun MirrorScreen(name: String) {
 }
 
 @Composable
-private fun MPart(p: MPos, nodes: List<MNode>, top: Float, bottom: Float, sk: Skin) {
+internal fun MPart(p: MPos, nodes: List<MNode>, top: Float, bottom: Float, sk: Skin) {
     // (un toque fuera de los botones también le llega a la web, en su sitio: allí puede haber algo que lo espere)
     val tapAt = Modifier.pointerInput(p.k, p.x, p.y, top) {
         detectTapGestures(onTap = { o -> UiState.send("mAt") { it.put("k", p.k); it.put("x", (o.x / density - p.x).toDouble()); it.put("y", (o.y / density + top - p.y).toDouble()) } })
@@ -295,7 +319,7 @@ private fun MPart(p: MPos, nodes: List<MNode>, top: Float, bottom: Float, sk: Sk
 
 /** Varias piezas, cada una en su sitio exacto (las medidas son las de la web; los textos se centran en su renglón). */
 @Composable
-private fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float, modifier: Modifier, sk: Skin) {
+internal fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float, modifier: Modifier, sk: Skin) {
     Layout(content = { for (i in kids.indices) { val c = kids[i]; key(if (c.k > 0) c.k else -1 - i) { MAny(c, sk) } } }, modifier = modifier) { ms, _ ->
         val d = density
         val x0 = (ox * d).roundToInt()
@@ -325,7 +349,8 @@ private fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float, 
 private fun MAny(c: MNode, sk: Skin) {
     when (c.e) {
         "t" -> MText(c)
-        "in" -> MInput(c, sk)
+        "in", "ta" -> MInput(c, sk)
+        "halo" -> MHalo(c)
         "rg" -> MRange(c, sk)
         "sel" -> MSelect(c, sk)
         "svg" -> MSvg(c)
@@ -361,6 +386,26 @@ private fun mBrush(g: MGrad, box: Rect): Brush? {
         val ctr = box.center
         return Brush.linearGradient(*stops, start = Offset(ctr.x - dx * len / 2, ctr.y - dy * len / 2), end = Offset(ctr.x + dx * len / 2, ctr.y + dy * len / 2))
     }
+    if (g.t == "r") {
+        // (CSS dibuja una elipse: Android, un círculo que aquí se estira hasta la forma de la elipse)
+        val cols = IntArray(g.cols.size) { g.cols[it] }
+        val pos = FloatArray(g.pos.size) { g.pos[it] }
+        val ctr = Offset(box.left + box.width * g.cx, box.top + box.height * g.cy)
+        var rx = g.rx * box.width; var ry = g.ry * box.height
+        if (g.rx < 0f || g.ry < 0f) {
+            val dx = max(abs(ctr.x - box.left), abs(box.right - ctr.x)); val dy = max(abs(ctr.y - box.top), abs(box.bottom - ctr.y))
+            // (hasta la esquina más lejana: como una elipse de las mismas proporciones que la caja)
+            rx = dx * 1.41421356f; ry = dy * 1.41421356f
+        }
+        if (rx <= 0.5f || ry <= 0.5f) return null
+        return object : ShaderBrush() {
+            override fun createShader(size: Size): Shader {
+                val sh = android.graphics.RadialGradient(ctr.x, ctr.y, rx, cols, pos, android.graphics.Shader.TileMode.CLAMP)
+                val m = android.graphics.Matrix(); m.setScale(1f, ry / rx, ctr.x, ctr.y); sh.setLocalMatrix(m)
+                return sh
+            }
+        }
+    }
     if (g.t == "c") {
         val cols = IntArray(g.cols.size) { g.cols[it] }
         val pos = FloatArray(g.pos.size) { g.pos[it] }
@@ -380,6 +425,62 @@ private fun mBrush(g: MGrad, box: Rect): Brush? {
 }
 
 /** El aspecto de una caja de la web: sombras, fondo, degradados (cada uno hasta donde le toca), borde y, si es un desplegable, su triángulo. */
+/** La clave con la que se guarda una imagen de fondo (la misma que usa needArt). */
+private fun bgSide(c: MNode): Int = max(c.w, c.h).roundToInt().coerceIn(32, 400)
+private fun bgKey(u: String, side: Int): String = if (side > 100) "$u|L" else u
+
+/** El filtro de color y luz de CSS (saturate, brightness), como filtro de Android. */
+private fun fxColor(fx: List<Float>): ColorFilter? {
+    if (fx.size != 3 || (abs(fx[1] - 1f) < 0.01f && abs(fx[2] - 1f) < 0.01f)) return null
+    val m = ColorMatrix(); m.setToSaturation(fx[1])
+    val b = fx[2]
+    m.timesAssign(ColorMatrix(floatArrayOf(b, 0f, 0f, 0f, 0f, 0f, b, 0f, 0f, 0f, 0f, 0f, b, 0f, 0f, 0f, 0f, 0f, 1f, 0f)))
+    return ColorFilter.colorMatrix(m)
+}
+
+/**
+ * Una imagen desenfocada como la de CSS (blur): se hace muy pequeña, se suaviza un poco más y se estira. Para un
+ * desenfoque así de grande (el fondo del reproductor) se ve igual y cuesta casi nada.
+ */
+private val blurCache = object : java.util.LinkedHashMap<String, ImageBitmap>(8, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean = size > 6
+}
+private fun blurredCover(key: String, src: ImageBitmap, wPx: Float, hPx: Float, blurPx: Float): ImageBitmap? {
+    if (wPx < 2f || hPx < 2f || src.width < 2 || src.height < 2) return null
+    val f = max(2f, blurPx * 0.75f)
+    val tw = (wPx / f).roundToInt().coerceIn(4, 256); val th = (hPx / f).roundToInt().coerceIn(4, 256)
+    val ck = "$key|$tw|$th"
+    blurCache[ck]?.let { return it }
+    return try {
+        // la parte de la imagen que cubre la caja (como «background-size: cover», centrada)
+        val sb = src.asAndroidBitmap()
+        val k = max(wPx / sb.width, hPx / sb.height)
+        val cw = (wPx / k).coerceAtMost(sb.width.toFloat()); val ch = (hPx / k).coerceAtMost(sb.height.toFloat())
+        val sx = ((sb.width - cw) / 2f).roundToInt().coerceAtLeast(0); val sy = ((sb.height - ch) / 2f).roundToInt().coerceAtLeast(0)
+        val crop = android.graphics.Bitmap.createBitmap(sb, sx, sy, cw.roundToInt().coerceIn(1, sb.width - sx), ch.roundToInt().coerceIn(1, sb.height - sy))
+        val small = android.graphics.Bitmap.createScaledBitmap(crop, tw, th, true)
+        // un par de pasadas de media de 3 × 3, para que al estirarla no se vean los cuadros
+        val px = IntArray(tw * th); small.getPixels(px, 0, tw, 0, 0, tw, th)
+        val tmp = IntArray(px.size)
+        repeat(2) {
+            for (y in 0 until th) for (x in 0 until tw) {
+                var a = 0; var r = 0; var g = 0; var b = 0; var n = 0
+                for (dy in -1..1) for (dx in -1..1) {
+                    val xx = (x + dx).coerceIn(0, tw - 1); val yy = (y + dy).coerceIn(0, th - 1); val v = px[yy * tw + xx]
+                    a += (v ushr 24) and 255; r += (v shr 16) and 255; g += (v shr 8) and 255; b += v and 255; n++
+                }
+                tmp[y * tw + x] = ((a / n) shl 24) or ((r / n) shl 16) or ((g / n) shl 8) or (b / n)
+            }
+            System.arraycopy(tmp, 0, px, 0, px.size)
+        }
+        val out = android.graphics.Bitmap.createBitmap(tw, th, android.graphics.Bitmap.Config.ARGB_8888)
+        out.setPixels(px, 0, tw, 0, 0, tw, th)
+        val ib = out.asImageBitmap()
+        blurCache[ck] = ib
+        ib
+    } catch (t: Throwable) { null }
+}
+
 private fun Modifier.mDecor(c: MNode): Modifier {
     if (c.bg == 0 && c.g.isEmpty() && (c.bc == 0 || c.bw.size != 4) && c.sh.isEmpty() && c.mk <= 0f) return this
     return this.drawWithCache {
@@ -391,11 +492,39 @@ private fun Modifier.mDecor(c: MNode): Modifier {
         val inner = if (bi.any { it > 0f }) rr(bi[3], bi[0], w - bi[1], h - bi[2], q, max(bi[0], bi[3])) else outer
         val innerBox = Rect(bi[3], bi[0], w - bi[1], h - bi[2])
         val full = Rect(0f, 0f, w, h)
-        val layers = ArrayList<Pair<Brush, Path>>()
+        // las capas del fondo, de la de abajo a la de arriba: degradados e imágenes
+        val layers = ArrayList<androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit>()
+        val cf = fxColor(c.fx)
         for (i in c.g.indices.reversed()) {
+            val L = c.g[i]
             val pad = i < c.gc.length && c.gc[i] != 'b'
-            val b = mBrush(c.g[i], if (pad) innerBox else full) ?: continue
-            layers.add(b to (if (pad) inner else outer))
+            if (L.t == "u") {
+                val key = bgKey(L.u, bgSide(c))
+                val bmp = UiState.covers[key] ?: continue
+                val clipP = if (pad) inner else outer
+                val blur = if (c.fx.size == 3) c.fx[0] else 0f
+                val small = if (blur > 1f) blurredCover(key, bmp, w, h, blur * d * 0.5f) else null
+                if (small != null) {
+                    layers.add { clipPath(clipP) { drawImage(small, IntOffset.Zero, IntSize(small.width, small.height), IntOffset.Zero, IntSize(w.roundToInt(), h.roundToInt()), colorFilter = cf, filterQuality = FilterQuality.High) } }
+                } else {
+                    // «100% 100%»: estirada; «contain»: entera dentro; lo demás, como «cover»: la caja llena, centrada
+                    val iw = bmp.width.toFloat(); val ih = bmp.height.toFloat()
+                    val sz = L.sz.replace(" ", "")
+                    var src = IntSize(bmp.width, bmp.height); var so = IntOffset.Zero
+                    var dst = IntSize(w.roundToInt(), h.roundToInt()); var dof = IntOffset.Zero
+                    if (sz == "contain") {
+                        val k = min(w / iw, h / ih); dst = IntSize((iw * k).roundToInt(), (ih * k).roundToInt()); dof = IntOffset(((w - dst.width) / 2f).roundToInt(), ((h - dst.height) / 2f).roundToInt())
+                    } else if (sz != "100%100%") {
+                        val k = max(w / iw, h / ih); val cw = (w / k).roundToInt().coerceIn(1, bmp.width); val ch = (h / k).roundToInt().coerceIn(1, bmp.height)
+                        so = IntOffset((bmp.width - cw) / 2, (bmp.height - ch) / 2); src = IntSize(cw, ch)
+                    }
+                    layers.add { clipPath(clipP) { drawImage(bmp, so, src, dof, dst, colorFilter = cf, filterQuality = FilterQuality.Medium) } }
+                }
+                continue
+            }
+            val b = mBrush(L, if (pad) innerBox else full) ?: continue
+            val p = if (pad) inner else outer
+            layers.add { drawPath(p, b) }
         }
         val shadows = c.sh.map { s ->
             val p = Paint()
@@ -426,7 +555,7 @@ private fun Modifier.mDecor(c: MNode): Modifier {
                 }
             }
             if (c.bg != 0) drawPath(outer, Color(c.bg))
-            for ((b, p) in layers) drawPath(p, b)
+            for (l in layers) l()
             if (c.bc != 0 && c.bw.size == 4) {
                 if (uniform && bw[0] > 0f) {
                     val t = bw[0]
@@ -451,6 +580,33 @@ private fun mSend(type: String, k: Int, fill: (com.getcapacitor.JSObject) -> Uni
 private fun MBoxNode(c: MNode, sk: Skin) {
     var m: Modifier = Modifier
     if (c.label.isNotEmpty()) m = m.semantics { contentDescription = c.label }
+    // (las imágenes de fondo: el fondo del reproductor)
+    for (L in c.g) if (L.t == "u") { val dens = LocalDensity.current.density; LaunchedEffect(L.u) { needArt(L.u, bgSide(c), dens) } }
+    if (c.sw > 0) {
+        // la portada del reproductor: hacia los lados se va con el dedo (como en la de siempre) y, al soltarla, pasa de canción
+        val off = remember { Animatable(0f) }
+        val scope = rememberCoroutineScope()
+        m = m.pointerInput(c.sw) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val slop = viewConfiguration.touchSlop
+                var dragging = false
+                while (true) {
+                    val ev = awaitPointerEvent()
+                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                    val dx = ch.position.x - down.position.x
+                    val dy = ch.position.y - down.position.y
+                    if (!ch.pressed) {
+                        if (dragging) { ch.consume(); val dxCss = dx / density; mSend("mSwipe", c.sw) { it.put("dx", dxCss.toDouble()) }; scope.launch { off.animateTo(0f, tween(250)) } }
+                        break
+                    }
+                    if (!dragging) { if (abs(dx) > slop && abs(dx) > abs(dy)) dragging = true else if (abs(dy) > slop) break }
+                    if (dragging) { ch.consume(); scope.launch { off.snapTo(dx) } }
+                }
+                if (dragging && off.value != 0f) scope.launch { off.animateTo(0f, tween(250)) }
+            }
+        }.graphicsLayer { translationX = off.value * 0.35f; rotationZ = off.value / density * 0.02f }
+    }
     if (c.e == "dr" && c.k > 0) {
         // una banda del ecualizador: se arrastra arriba y abajo; dos toques seguidos la dejan a 0
         val last = remember { LongArray(2) }
@@ -515,6 +671,7 @@ private fun MText(c: MNode) {
 /** Una caja para escribir: lo que se teclea va a la de la web (que es la que manda), y lo que ella cambie, vuelve. */
 @Composable
 private fun MInput(c: MNode, sk: Skin) {
+    val multi = c.e == "ta"
     val st = c.st ?: MStyle(15f, 400, "b", -1, 0f, 0, 0f)
     var text by remember { mutableStateOf(c.v) }
     val pend = remember { ArrayDeque<String>() }
@@ -529,8 +686,9 @@ private fun MInput(c: MNode, sk: Skin) {
     val ts = mStyleOf(st)
     var box = Modifier.mDecor(c)
     if (c.clip) box = box.clip(mShape(c))
-    Box(box, contentAlignment = Alignment.CenterStart) {
-        var fm = Modifier.fillMaxWidth().padding(start = c.pad[3].coerceIn(0f, 200f).dp, end = c.pad[1].coerceIn(0f, 200f).dp)
+    Box(box, contentAlignment = if (multi) Alignment.TopStart else Alignment.CenterStart) {
+        var fm = if (multi) Modifier.fillMaxSize().padding(start = c.pad[3].coerceIn(0f, 200f).dp, end = c.pad[1].coerceIn(0f, 200f).dp, top = c.pad[0].coerceIn(0f, 200f).dp, bottom = c.pad[2].coerceIn(0f, 200f).dp)
+            else Modifier.fillMaxWidth().padding(start = c.pad[3].coerceIn(0f, 200f).dp, end = c.pad[1].coerceIn(0f, 200f).dp)
         if (c.label.isNotEmpty()) fm = fm.semantics { contentDescription = c.label }
         BasicTextField(
             value = text,
@@ -548,15 +706,15 @@ private fun MInput(c: MNode, sk: Skin) {
                 if (focused && !f.isFocused) mSend("mIn", c.k) { it.put("v", text); it.put("fin", 1) }
                 focused = f.isFocused
             },
-            enabled = !c.dis, singleLine = true, textStyle = ts, cursorBrush = SolidColor(sk.pal.accent),
+            enabled = !c.dis, singleLine = !multi, textStyle = ts, cursorBrush = SolidColor(sk.pal.accent),
             visualTransformation = if (c.pw) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(imeAction = if (c.sr) ImeAction.Search else ImeAction.Done),
-            keyboardActions = KeyboardActions(
+            keyboardOptions = if (multi) KeyboardOptions.Default else KeyboardOptions(imeAction = if (c.sr) ImeAction.Search else ImeAction.Done),
+            keyboardActions = if (multi) KeyboardActions.Default else KeyboardActions(
                 onSearch = { focus.clearFocus(); mSend("mGo", c.k) },
                 onDone = { focus.clearFocus(); if (c.go) mSend("mGo", c.k) }
             ),
             decorationBox = { inner ->
-                Box(contentAlignment = Alignment.CenterStart) {
+                Box(contentAlignment = if (multi) Alignment.TopStart else Alignment.CenterStart) {
                     if (text.isEmpty() && c.ph.isNotEmpty()) BasicText(c.ph, style = mStyleOf(st, null, Color(c.pc)), maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
                     inner()
                 }
@@ -732,6 +890,53 @@ private fun MImg(c: MNode) {
     var m = Modifier.mDecor(c)
     if (c.r.size == 4) m = m.clip(mShape(c))
     Box(m) { if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+}
+
+/**
+ * La luz de detrás de la portada del reproductor: el degradado de la web, desenfocado, que se enciende y crece con la
+ * música (lo fuerte que suena y los golpes), como hace la de siempre.
+ */
+@Composable
+private fun MHalo(c: MNode) {
+    val g = c.g.firstOrNull { it.t == "l" || it.t == "r" || it.t == "c" }
+    var tick by remember { mutableStateOf(0L) }
+    val mem = remember { FloatArray(3) }
+    if (c.lt) LaunchedEffect(Unit) { while (true) withFrameNanos { tick = it } }
+    Canvas(Modifier) {
+        if (g == null) return@Canvas
+        val now = tick
+        var op = c.o; var sc = 1f
+        if (c.lt) {
+            val dt = if (mem[2] > 0f) ((now / 1e6f) - mem[2]).coerceIn(0f, 100f) / 1000f else 0.016f
+            mem[2] = now / 1e6f
+            val spec = NovaCore.lastSpec
+            val own = spec != null && spec.size > 774 && SystemClock.uptimeMillis() - NovaCore.lastSpecAt < 500
+            val lv = if (own) (spec!![773].toInt() and 0xff) / 255f else 0f
+            val hit = if (own) NovaCore.specHits else 0
+            if (own) NovaCore.specHits = 0
+            val L = ((lv - 0.45f) / 0.45f).coerceIn(0f, 1f)
+            if (hit and 1 != 0) mem[1] = 1f else mem[1] *= exp(-dt * 6.5f)
+            mem[0] += (L - mem[0]) * min(1f, dt * (if (L > mem[0]) 12f else 4f))
+            op = min(0.95f, 0.22f + 0.45f * mem[0] + 0.35f * mem[1])
+            sc = 1f + 0.03f * mem[0] + 0.07f * mem[1]
+        }
+        if (op <= 0.005f) return@Canvas
+        val d = density
+        val w = size.width; val h = size.height
+        val br = mBrush(g, Rect(0f, 0f, w, h)) ?: return@Canvas
+        val q = radii(c, w, h, d)
+        val blur = if (c.fx.size == 3) c.fx[0] else 0f
+        withTransform({ scale(sc, sc, pivot = Offset(w / 2f, h / 2f)) }) {
+            drawIntoCanvas { cv ->
+                val p = Paint()
+                br.applyTo(Size(w, h), p, op)
+                val fp = p.asFrameworkPaint()
+                fp.isAntiAlias = true
+                if (blur > 0.2f) fp.maskFilter = BlurMaskFilter(max(0.5f, (blur * d * 0.5f - 0.5f) / 0.57735f), BlurMaskFilter.Blur.NORMAL)
+                cv.drawRoundRect(0f, 0f, w, h, q[0], q[0], p)
+            }
+        }
+    }
 }
 
 /** Las cinco barritas que suben y bajan mientras se busca. */

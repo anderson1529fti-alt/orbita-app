@@ -121,6 +121,26 @@ object UiState {
         while (i + 1 < o.size && o[i + 1].y <= y) i++
         mirList(name).requestScrollToItem(i, ((y - mirTop(name, i)) * dpr).roundToInt().coerceAtLeast(0))
     }
+    // ---- 4.8 · las ventanas y el reproductor a pantalla completa (WindowsScreen.kt), en su propia capa
+    internal var wins by mutableStateOf<List<WDef>>(emptyList())
+    /** Las piezas de cada parte de cada ventana, con la clave «ventana.parte». */
+    internal val winParts = mutableStateMapOf<String, List<MNode>>()
+    private val winLists = HashMap<String, LazyListState>()
+    fun winList(id: String): LazyListState = winLists.getOrPut(id) { LazyListState() }
+    /** Transparente mientras se baja el reproductor con el dedo (la web lo mueve, debajo). */
+    var winAlpha by mutableStateOf(1f)
+    /** Quitar la capa de las ventanas (la pone el plugin). */
+    var winGone: () -> Unit = {}
+    private fun winOrder(id: String): List<MPos>? = wins.firstOrNull { it.id == id }?.sc?.order
+    fun winTop(id: String, i: Int): Float { val o = winOrder(id) ?: return 0f; return if (i <= 0 || i >= o.size) 0f else o[i].y }
+    fun winY(id: String, dpr: Float): Float { val ls = winList(id); return winTop(id, ls.firstVisibleItemIndex) + ls.firstVisibleItemScrollOffset / maxOf(0.5f, dpr) }
+    fun winGo(id: String, y: Float, dpr: Float) {
+        val o = winOrder(id) ?: return
+        if (o.isEmpty()) return
+        var i = 0
+        while (i + 1 < o.size && o[i + 1].y <= y) i++
+        winList(id).requestScrollToItem(i, ((y - winTop(id, i)) * dpr).roundToInt().coerceAtLeast(0))
+    }
     /** Cada vez que la pantalla nativa se aparta (para que no se quede a la vista nada suyo: una lista desplegada). */
     var hideN by mutableStateOf(0)
     val homeList = LazyListState()
@@ -219,6 +239,42 @@ class OrbitaUiPlugin : Plugin() {
         v.y = wv.y + y * dpr
     }
 
+    // ---- 4.8 · la capa de las ventanas: encima de todo, del tamaño de la web entera
+    private var winHost: ComposeView? = null
+    private fun ensureWinHost() {
+        if (winHost != null) return
+        val v = ComposeView(activity)
+        v.setContent { OrbitaWindows() }
+        v.visibility = View.GONE
+        v.translationZ = 40f   // (siempre por encima de la pantalla nativa, aunque se cree antes que ella)
+        val wv = bridge.webView
+        (wv.parent as ViewGroup).addView(v, ViewGroup.LayoutParams(maxOf(1, wv.width), maxOf(1, wv.height)))
+        winHost = v
+        placeWin()
+        // (cuando la web cambia de tamaño, por ejemplo al salir el teclado, la capa también)
+        wv.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> try { placeWin() } catch (ignored: Throwable) { } }
+        UiState.winGone = { activity.runOnUiThread { hideWin(false) } }
+    }
+    private fun placeWin() {
+        val v = winHost ?: return
+        val wv = bridge.webView
+        val lp = v.layoutParams
+        if (lp.width != wv.width || lp.height != wv.height) { lp.width = maxOf(1, wv.width); lp.height = maxOf(1, wv.height); v.layoutParams = lp }
+        v.x = wv.x; v.y = wv.y
+    }
+    private fun hideWin(clear: Boolean) {
+        val v = winHost ?: return
+        if (v.visibility != View.GONE) {
+            v.visibility = View.GONE
+            try {
+                v.clearFocus()
+                (activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+            } catch (ignored: Throwable) { }
+        }
+        UiState.winAlpha = 1f
+        if (clear) { UiState.wins = emptyList(); UiState.winParts.clear() }
+    }
+
     private fun ensureHost() {
         if (host != null) return
         val v = ComposeView(activity)
@@ -231,12 +287,14 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 6)
+        r.put("available", true); r.put("v", 7)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
             r.put("pages", UiState.pages.size); r.put("y", (if (UiState.screen in UiState.PAGES) UiState.pageScroll(UiState.screen).value.toFloat() else if (UiState.screen in UiState.MIRROR) UiState.mirY(UiState.screen, dpr) else 0f).toDouble())
             r.put("mirror", UiState.mirParts.size)
+            r.put("wins", UiState.wins.joinToString(",") { it.id }); r.put("winShown", winHost?.visibility == View.VISIBLE)
+            UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }
             r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
         } catch (ignored: Throwable) { }
         call.resolve(r)
@@ -420,6 +478,66 @@ class OrbitaUiPlugin : Plugin() {
                 call.reject("No he podido abrir el reloj: " + t.message, "TIME")
             }
         }
+    }
+
+    /**
+     * 4.8 · Las ventanas que hay a la vista (de abajo arriba) y lo que ha cambiado de cada una: dónde va cada parte y las
+     * piezas de las partes nuevas o cambiadas. Se lee aquí, fuera de la pantalla, y se enseña de una vez.
+     */
+    @PluginMethod
+    fun win(call: PluginCall) {
+        try {
+            val ids = call.getArray("list")
+            val list = ArrayList<String>()
+            if (ids != null) for (i in 0 until ids.length()) list.add(ids.optString(i))
+            val wins = call.getObject("wins")
+            val defs = HashMap<String, WDef>()
+            val parts = HashMap<String, List<MNode>>()
+            if (wins != null) {
+                val it = wins.keys()
+                while (it.hasNext()) {
+                    val id = it.next(); val o = wins.optJSONObject(id) ?: continue
+                    defs[id] = wDef(id, o)
+                    val ps = o.optJSONObject("parts")
+                    if (ps != null) { val pk = ps.keys(); while (pk.hasNext()) { val k = pk.next(); val po = ps.optJSONObject(k) ?: continue; parts["$id.$k"] = mParsePart(po) } }
+                }
+            }
+            val force = call.getBoolean("force", false) == true
+            activity.runOnUiThread {
+                try {
+                    ensureWinHost(); placeWin()
+                    for ((k, v) in parts) UiState.winParts[k] = v
+                    val cur = UiState.wins.associateBy { it.id }
+                    val next = list.mapNotNull { defs[it] ?: cur[it] }
+                    if (next != UiState.wins) UiState.wins = next
+                    val keep = HashSet<String>()
+                    for (w in next) { for (f in w.fixed) keep.add("${w.id}.${f.k}"); w.sc?.order?.forEach { keep.add("${w.id}.${it.k}") } }
+                    for (k in UiState.winParts.keys.filter { it !in keep }) UiState.winParts.remove(k)
+                    // una ventana que sale: por donde la tiene la web
+                    for (w in next) { val sc = w.sc; if (sc != null && (force || cur[w.id] == null)) UiState.winGo(w.id, sc.y0, dpr) }
+                    UiState.winAlpha = 1f
+                    if (next.isEmpty()) hideWin(true) else winHost?.visibility = View.VISIBLE
+                } catch (ignored: Throwable) { }
+            }
+            call.resolve()
+        } catch (t: Throwable) {
+            call.reject("No he podido leer la ventana: " + t.message, "UI")
+        }
+    }
+
+    @PluginMethod
+    fun winHide(call: PluginCall) {
+        activity.runOnUiThread { try { hideWin(true) } catch (ignored: Throwable) { } }
+        call.resolve()
+    }
+
+    /** La web ha movido lo que se desliza en una ventana (o lo pide una prueba): la nativa va a la misma altura. */
+    @PluginMethod
+    fun winScroll(call: PluginCall) {
+        val id = call.getString("id", "") ?: ""
+        val y = num(call, "y", 0f)
+        activity.runOnUiThread { try { UiState.winGo(id, y, dpr) } catch (ignored: Throwable) { } }
+        call.resolve()
     }
 
     /** 4.5 · El disco de «Ahora»: qué suena, si suena y por dónde va. */
