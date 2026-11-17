@@ -377,7 +377,8 @@ internal fun rememberSkin(): Skin {
 /** La pantalla nativa que toca. */
 @Composable
 fun OrbitaScreens() {
-    when (UiState.screen) { "chat" -> ChatScreen(); "inicio" -> HomeScreen(); else -> LibraryScreen() }
+    val scr = UiState.screen
+    when { scr == "chat" -> ChatScreen(); scr == "inicio" -> HomeScreen(); scr in UiState.PAGES -> PageScreen(scr); else -> LibraryScreen() }
 }
 
 private val SORTS = listOf("recent" to "Recientes", "title" to "Título", "artist" to "Artista", "plays" to "Más escuchadas")

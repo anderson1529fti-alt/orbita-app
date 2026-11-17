@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.result.ActivityResult
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -94,6 +95,11 @@ object UiState {
     var hVin by mutableStateOf<JSONObject?>(null)
     @Volatile var hVinAt = 0L
     var homeDraft by mutableStateOf("")
+    // ---- 4.6 · las pantallas que siguen («Mis listas»…): cada parte de cada una, con la clave «pantalla.parte»
+    val PAGES = setOf("listas", "tu")
+    val pages = mutableStateMapOf<String, JSONObject>()
+    private val pageScrolls = HashMap<String, ScrollState>()
+    fun pageScroll(name: String): ScrollState = pageScrolls.getOrPut(name) { ScrollState(0) }
     /** Cada vez que la pantalla nativa se aparta (para que no se quede a la vista nada suyo: una lista desplegada). */
     var hideN by mutableStateOf(0)
     val homeList = LazyListState()
@@ -204,10 +210,11 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 4)
+        r.put("available", true); r.put("v", 5)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
+            r.put("pages", UiState.pages.size); r.put("y", if (UiState.screen in UiState.PAGES) UiState.pageScroll(UiState.screen).value else 0)
             r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
         } catch (ignored: Throwable) { }
         call.resolve(r)
@@ -218,7 +225,8 @@ class OrbitaUiPlugin : Plugin() {
     fun show(call: PluginCall) {
         readRect(call)
         val top = call.getBoolean("top", false) == true
-        val screen = when (call.getString("screen", "biblioteca")) { "chat" -> "chat"; "inicio" -> "inicio"; else -> "biblioteca" }
+        val asked = call.getString("screen", "biblioteca") ?: "biblioteca"
+        val screen = if (asked == "chat" || asked == "inicio" || asked in UiState.PAGES) asked else "biblioteca"
         val pad = readPad(call)
         activity.runOnUiThread {
             try {
@@ -230,7 +238,11 @@ class OrbitaUiPlugin : Plugin() {
                     UiState.screen = screen
                 }
                 // al entrar desde otra pestaña, la lista empieza arriba (como la pantalla de siempre)
-                if (top) { if (screen == "inicio") UiState.homeList.requestScrollToItem(0) else if (screen == "biblioteca") UiState.list.requestScrollToItem(0) }
+                if (top) {
+                    if (screen == "inicio") UiState.homeList.requestScrollToItem(0)
+                    else if (screen == "biblioteca") UiState.list.requestScrollToItem(0)
+                    else if (screen in UiState.PAGES) UiState.pageScroll(screen).dispatchRawDelta(-1.0e7f)
+                }
                 host?.visibility = View.VISIBLE
                 call.resolve()
             } catch (t: Throwable) {
@@ -312,6 +324,21 @@ class OrbitaUiPlugin : Plugin() {
         call.resolve()
     }
 
+    /** 4.6 · Las partes que han cambiado de una de las pantallas nuevas. */
+    @PluginMethod
+    fun page(call: PluginCall) {
+        val name = call.getString("name", "") ?: ""
+        val parts = call.getObject("parts")
+        if (name.isEmpty() || parts == null) { call.resolve(); return }
+        activity.runOnUiThread {
+            try {
+                val it = parts.keys()
+                while (it.hasNext()) { val k = it.next(); val o = parts.optJSONObject(k); if (o != null) UiState.pages["$name.$k"] = o }
+            } catch (ignored: Throwable) { }
+        }
+        call.resolve()
+    }
+
     /** 4.5 · El disco de «Ahora»: qué suena, si suena y por dónde va. */
     @PluginMethod
     fun vinyl(call: PluginCall) {
@@ -328,12 +355,17 @@ class OrbitaUiPlugin : Plugin() {
         val y = num(call, "y", -1f)
         activity.runOnUiThread {
             try {
-                val st = if (UiState.screen == "inicio") UiState.homeList else UiState.list
+                val pg = UiState.screen in UiState.PAGES
+                val st: androidx.compose.foundation.gestures.ScrollableState = if (pg) UiState.pageScroll(UiState.screen) else if (UiState.screen == "inicio") UiState.homeList else UiState.list
                 if (y >= 0f) {
                     // (pruebas) a una altura exacta, medida como en la web: desde arriba del todo
                     st.dispatchRawDelta(-1.0e7f)
                     st.dispatchRawDelta(y * dpr)
-                } else st.requestScrollToItem(if (end) maxOf(0, st.layoutInfo.totalItemsCount - 1) else 0)
+                } else if (pg) st.dispatchRawDelta(if (end) 1.0e7f else -1.0e7f)
+                else {
+                    val ls = if (UiState.screen == "inicio") UiState.homeList else UiState.list
+                    ls.requestScrollToItem(if (end) maxOf(0, ls.layoutInfo.totalItemsCount - 1) else 0)
+                }
             } catch (ignored: Throwable) { }
         }
         call.resolve()
