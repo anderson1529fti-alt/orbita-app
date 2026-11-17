@@ -300,7 +300,7 @@ class OrbitaUiPlugin : Plugin() {
             r.put("winSeq", UiState.winSeq); r.put("winTexts", JSArray(winTexts(40)))
             // 4.9 · los visualizadores: cuál se ve, cuántos fotogramas lleva y cómo (para las pruebas y el diagnóstico)
             r.put("vizActive", Viz.active); r.put("vizFrames", Viz.frames); r.put("vizDrawn", Viz.drawn); r.put("vizErr", Viz.err); r.put("vizTwo", Viz.two)
-            r.put("vizYaw", Viz.yaw.toDouble()); r.put("vizPitch", Viz.pitch.toDouble()); r.put("vizZoom", Viz.zoom.toDouble())
+            r.put("vizCover", Viz.coverOk); r.put("vizYaw", Viz.yaw.toDouble()); r.put("vizPitch", Viz.pitch.toDouble()); r.put("vizZoom", Viz.zoom.toDouble())
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }
             r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
         } catch (ignored: Throwable) { }

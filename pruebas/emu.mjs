@@ -404,7 +404,7 @@ try {
     if (!fs1 || !fs1.full) { check('(sin la pantalla completa no se puede seguir con los visualizadores)', false, ''); await js(`document.querySelector('[data-hero="vinyl"]').click(); return 1;`); return; }
     // arrastrar lo gira (y no cuenta como toque); un toque sin mover enseña o esconde el título
     const y0 = f1.st ? f1.st.vizYaw : 0;
-    sh('input swipe 250 1100 850 1150 500'); await sleep(900);
+    sh('input swipe 250 1100 850 1150 900'); await sleep(900);
     const g1 = await st(); const c1 = await js(`return document.querySelector('#vizFull').classList.contains('chrome');`);
     check('arrastrar el dedo gira el visualizador (y no esconde el título)', !!g1 && g1.vizYaw - y0 > 0.8 && c1 === fs1.chrome, JSON.stringify({ y0, y1: g1 && g1.vizYaw, chrome: [fs1.chrome, c1] }));
     tap(540, 1000); await sleep(1500);
@@ -414,18 +414,31 @@ try {
     // --- cada estilo, quieto: Android y la web, píxel a píxel (lo mismo para la tarjeta gráfica, los mismos números)
     const FZ = { t: 3.2, spec: Array.from({ length: 96 }, (_, i) => +(0.45 + 0.35 * Math.sin(i * 0.27) * Math.cos(i * 0.05)).toFixed(4)), bass: 0.55, mid: 0.4, high: 0.3, level: 0.5, beatK: 0.3, k: 0.4, s: 0,
       rot: 1.3, travel: 2.1, yaw: 0.9, pitch: 0.55, zoom: 1, dx: 0.1, dy: -0.05, histT: 0.4, wave: Array.from({ length: 256 }, (_, i) => Math.round(128 + 90 * Math.sin(i * 0.11) * Math.sin(i * 0.023))) };
-    const scenes = ['orbita', 'galaxia', 'ondas', 'montanas', 'aurora', 'tunel', 'particulas'], par = {};
+    const scenes = ['orbita', 'galaxia', 'ondas', 'montanas', 'aurora', 'tunel', 'particulas'], par = {}, nats = {};
+    // (en pausa: la canción, sus colores y su portada no cambian entre una foto y la otra)
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
     await js(`document.querySelector('#vizFull').classList.add('chrome'); return 1;`); await sleep(600);   // (sin el título encima)
     for (const sc of scenes) {
-      await js(`${O} o.vizSetScene('${sc}'); o.vizFreeze(${JSON.stringify(FZ)}); return 1;`); await sleep(1800);
-      const nat = grab(); shot(`viz-${sc}-nativa`);
-      const sn = await st();
-      await js(`${O} N.classic = true; return 1;`); await sleep(1800);
-      const web = grab(); shot(`viz-${sc}-web`);
-      await js(`${O} N.classic = false; return 1;`); await sleep(1500);
-      par[sc] = { ...vdiff(nat, web, [0.04, 0.1, 0.96, 0.72]), drawn: sn && sn.vizDrawn };
+      await js(`${O} o.vizSetScene('${sc}'); o.vizFreeze(${JSON.stringify(FZ)}); return 1;`);
+      // que Android ya lo esté dibujando (y, si la canción tiene portada, con ella)
+      const t0 = Date.now(); let sn = null, f0 = -1;
+      while (Date.now() - t0 < 9000) {
+        sn = await st();
+        const on = !!sn && sn.vizActive === 'vizFS' && String(sn.vizDrawn).includes(':' + sc + ':');
+        if (on && f0 < 0) f0 = sn.vizFrames;
+        if (on && sn.vizFrames - f0 >= 8 && (sc !== 'orbita' && sc !== 'particulas' || sn.vizCover || Date.now() - t0 > 7000)) break;
+        await sleep(300);
+      }
+      await sleep(700);
+      nats[sc] = { img: grab(), st: sn && { drawn: sn.vizDrawn, cover: sn.vizCover } }; shot(`viz-${sc}-nativa`);
     }
-    await js(`${O} o.vizFreeze(null); return 1;`);
+    await js(`${O} N.classic = true; return 1;`); await sleep(2000);
+    for (const sc of scenes) {
+      await js(`${O} o.vizSetScene('${sc}'); o.vizFreeze(${JSON.stringify(FZ)}); return 1;`); await sleep(2200);
+      const web = grab(); shot(`viz-${sc}-web`);
+      par[sc] = { ...vdiff(nats[sc].img, web, [0.04, 0.1, 0.96, 0.72]), ...nats[sc].st };
+    }
+    await js(`${O} N.classic = false; o.vizFreeze(null); return 1;`); await sleep(2500);
     // (lo distintas que son dos estilos entre sí: así se sabe que la comparación distingue)
     fs.writeFileSync(`${OUT}/paridad-visualizadores.json`, JSON.stringify(par, null, 1));
     const badV = Object.entries(par).filter(([, v]) => !v || v.blk == null || v.blk > 6 || v.luzA < 3);

@@ -132,6 +132,8 @@ internal object Viz {
     @Volatile var frames = 0L
     @Volatile var drawn = ""
     @Volatile var err = ""
+    /** El último fotograma tenía la portada (para el planeta y las partículas). */
+    @Volatile var coverOk = false
     /** Lo que va pasando se toca de uno en uno (un momento puede haber dos vistas del mismo lienzo). */
     val lock = Any()
 
@@ -994,12 +996,21 @@ internal class VizView(ctx: Context, private val cid: String, private val two: B
     override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) { th?.resize(w, h) }
     override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean { th?.halt(); th = null; return false }
     override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+
+    /** Con la app en segundo plano o la pantalla apagada, no se dibuja (como la web, que se para al no verse). */
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        th?.seen = visibility == android.view.View.VISIBLE
+    }
 }
 
 private class VizThread(private val st: SurfaceTexture, private val cid: String, private val two: Boolean, w: Int, h: Int, private val dens: Float) : HandlerThread("viz-$cid") {
     @Volatile private var vw = w
     @Volatile private var vh = h
     @Volatile private var stopping = false
+    /** La ventana de la app se ve (no está en segundo plano ni con la pantalla apagada). */
+    @Volatile var seen = true
+    private var h: Handler? = null
     private var dpy: EGLDisplay? = null
     private var ectx: EGLContext? = null
     private var esurf: EGLSurface? = null
@@ -1027,23 +1038,30 @@ private class VizThread(private val st: SurfaceTexture, private val cid: String,
     }
 
     override fun onLooperPrepared() {
+        h = Handler(looper)
         Choreographer.getInstance().postFrameCallback(cb)
     }
+
+    /** Sin nada que dibujar (no es su turno, o la app no se ve), se mira cada cuarto de segundo, no a cada fotograma. */
+    private val wake = Runnable { if (!stopping) Choreographer.getInstance().postFrameCallback(cb) }
 
     private val cb = object : Choreographer.FrameCallback {
         override fun doFrame(nanos: Long) {
             if (stopping) return
-            try { frame(nanos / 1.0e6) } catch (t: Throwable) {
+            var busy = false
+            try { busy = frame(nanos / 1.0e6) } catch (t: Throwable) {
                 Viz.err = (if (two) "2D: " else "3D: ") + t.toString().take(140)
                 if (!two) { release(); Viz.brokeGl(t.toString()); stopping = true; return }
             }
-            if (!stopping) Choreographer.getInstance().postFrameCallback(this)
+            if (stopping) return
+            if (busy) Choreographer.getInstance().postFrameCallback(this) else h?.postDelayed(wake, 250)
         }
     }
 
-    private fun frame(ts: Double) {
-        if (Viz.active != cid || vw < 2 || vh < 2) return
+    private fun frame(ts: Double): Boolean {
+        if (Viz.active != cid || !seen || vw < 2 || vh < 2) return false
         synchronized(Viz.lock) { draw(ts) }
+        return true
     }
 
     private fun draw(ts: Double) {
@@ -1053,6 +1071,7 @@ private class VizThread(private val st: SurfaceTexture, private val cid: String,
         val f = Viz.step(ts, useGl)
         val art = Viz.art
         val cover = if (art.isNotEmpty()) UiState.covers["$art|L"]?.asAndroidBitmap() else null
+        Viz.coverOk = cover != null
         // el tamaño del lienzo, en «píxeles de la web»: los dibujos dependen de él (puntos, líneas)
         val cssW = vw / dens; val cssH = vh / dens
         if (useGl) {
@@ -1174,8 +1193,16 @@ private fun Modifier.vizGestures(): Modifier = pointerInput(Unit) {
                     if (pts.size == 2) { val l = pts.values.toList(); d0 = (l[0] - l[1]).getDistance() / dens; z0 = Viz.zoom }
                     continue
                 }
-                if (c.changedToUp()) { pts.remove(c.id); continue }
                 val p = pts[c.id] ?: continue
+                if (c.changedToUp()) {
+                    val dx = (c.position.x - p.x) / dens; val dy = (c.position.y - p.y) / dens
+                    if (pts.size == 1 && (moved || hypot(dx, dy) >= 8f)) {
+                        Viz.yaw += dx * 0.006f; Viz.pitch = (Viz.pitch + dy * 0.004f).coerceIn(0.05f, 1.35f)
+                        Viz.dx = (Viz.dx + dx * 0.004f).coerceIn(-1f, 1f); Viz.dy = (Viz.dy + dy * 0.003f).coerceIn(-0.8f, 0.8f)
+                        c.consume()
+                    }
+                    pts.remove(c.id); continue
+                }
                 if (!c.pressed) continue
                 if (pts.size >= 2) {
                     pts[c.id] = c.position
