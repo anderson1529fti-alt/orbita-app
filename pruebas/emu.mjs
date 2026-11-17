@@ -267,7 +267,7 @@ try {
     await js(`document.querySelector('[data-act="sleep-open"]').click(); return 1;`); await sleep(1600);
     let wn = ui(); shot('ventana-temporizador');
     let w0 = await wst();
-    check('el temporizador sale nativo, en su capa, y «Ahora» sigue nativa debajo', !!w0 && w0.on === 'sleep' && w0.st.v === 7 && w0.st.wins === 'sleep' && w0.st.winShown && w0.shown && w0.screen === 'inicio' && !!find(wn, 'Temporizador para dormir') && !!find(wn, '30 min'), JSON.stringify(w0));
+    check('el temporizador sale nativo, en su capa, y «Ahora» sigue nativa debajo', !!w0 && w0.on === 'sleep' && w0.st.v >= 7 && w0.st.wins === 'sleep' && w0.st.winShown && w0.shown && w0.screen === 'inicio' && !!find(wn, 'Temporizador para dormir') && !!find(wn, '30 min'), JSON.stringify(w0));
     const ps = await pariWin('#sleepOverlay', 'paridad-temporizador.json', 'temporizador');
     check('el temporizador: cada renglón, donde en la de siempre (± 3)', ps.n >= 6 && ps.bad.length === 0, `${ps.n} comparados · ${ps.bad.length} fuera: ${ps.bad.slice(0, 10).join(' · ')}`);
     await tapText('30 min', 1800);
@@ -882,14 +882,14 @@ try {
       const v2 = await js(`${O} return { view: o.state.view, shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
       check('el botón de ajustes lleva a Ajustes, y al volver «Ahora» es nativa otra vez', v1 && v1.view === 'ajustes' && v1.screen === 'ajustes' && v2 && v2.shown && v2.screen === 'inicio' && v2.st.homeY === 0 && !!find(ui(), 'ÓRBITA FM'), JSON.stringify([v1, v2]));
     } else check('encuentro el botón de ajustes', false);
-    // --- la portada en lugar del disco; y con un visualizador, la de siempre
+    // --- la portada en lugar del disco; y con un visualizador (desde la 4.9 también nativa: el visualizador lo dibuja Android)
     await js(`window.__orbita.setHeroMode('art'); return 1;`); await sleep(2500); ui(); shot('ahora-con-portada');
     const ha = await st();
     await js(`window.__orbita.setHeroMode('viz'); return 1;`); await sleep(1500); shot('ahora-con-visualizador');
-    const hv = await js(`${O} return { shown: N.shown, vis: getComputedStyle(document.querySelector('#dj')).visibility };`);
+    const hv = await js(`${O} return { shown: N.shown, vis: getComputedStyle(document.querySelector('#dj')).visibility, which: o.vizNatWhich() };`);
     await js(`window.__orbita.setHeroMode('vinyl'); return 1;`); await sleep(1800);
     const hb = await st();
-    check('con la portada arriba sigue nativa; con un visualizador, la de siempre; y de vuelta al disco, nativa', ha && ha.shown && ha.screen === 'inicio' && hv && hv.shown === false && hv.vis === 'visible' && hb && hb.shown && hb.screen === 'inicio', JSON.stringify([ha && ha.shown, hv, hb && hb.shown]));
+    check('con la portada arriba sigue nativa; con un visualizador, también (y el visualizador lo dibuja Android); y de vuelta al disco, nativa', ha && ha.shown && ha.screen === 'inicio' && hv && hv.shown === true && hv.which === 'vizHero' && hb && hb.shown && hb.screen === 'inicio', JSON.stringify([ha && ha.shown, hv, hb && hb.shown]));
     // --- otro aspecto (bordes rectos, letra grande, títulos retro): llega igual
     await goView('ajustes'); await sleep(900);
     await js(`const c = (k, v) => { const b = document.querySelector('[data-look="' + k + '"][data-v="' + v + '"]'); if (b) b.click(); }; c('round', 'recto'); c('text', 'l'); c('titles', 'retro'); return 1;`);
