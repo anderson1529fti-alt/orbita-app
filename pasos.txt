@@ -1,0 +1,177 @@
+música en el emulador: 6 canciones
+ok    · la app se instala · Success
+ok    · la app sigue abierta tras arrancar
+ok    · se puede manejar por dentro (depuración del WebView)
+ok    · la app ve la música del emulador · 6 canciones
+ok    · la app lee las portadas de las canciones del móvil · 2 con portada
+ok    · Ajustes: el interruptor de «Mi música» nativa se enciende · true · Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.
+ok    · «Mi música» nativa a la vista · {"on":true,"shown":true,"err":"","rect":"{\"x\":0,\"y\":0,\"w\":412.19049072265625,\"h\":630.2261962890625,\"dpr\":2.625}"}
+ok    · sin cierres al abrir la pantalla nativa
+ok    · la pantalla nativa enseña el título, la música del móvil y los filtros · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | ♪ | Abrir Ahora suena | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador para dormir | 0:00 | Posición | 0:00 | BIBLIOTECA | 10 canciones · 6 min | Añadir canciones | 6 canciones tienen poca calida | Música del móvil | 6 canciones conectadas. Se rep | Actualizar | Filtrar por título, artista o  | Todas | Favoritas | Mi voz | Del móvil | Recientes | Reproducir todo
+ok    · al final de la lista, todo queda donde en la pantalla de siempre (± 3) · nativa 563.4 · web 563.4
+ok    · se ven las canciones · Luz de las siete | Faros | Pulso | Luz de las siete | Andén 3 | Lámpara de escritorio | Viernes 23:59
+ok    · las portadas llegan a la pantalla nativa · {"available":true,"v":9,"covers":2,"songs":10,"screen":"biblioteca","msgs":0,"shown":true,"pages":0,"y":0,"mirror":0,"wins":"","winShown":false,"winSeq":0,"winTexts":[],"vizActive":"","vizFrames":0,"vizDrawn":"","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6000000238418579,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":0,"lyDrawn":"","lyIdx":-2,"lyY":0,"lyFill":0,"lyTaps":0,"lyGen":-1,"lyAt":-2,"home":true,"homeY":0}
+ok    · tocar una canción en la pantalla nativa la pone · {"title":"Pulso","paused":false,"q":10} · estado PLAYING(3) · activa true · Pulso, Kora, Amanecer
+ok    · el corazón marca la canción como favorita · true
+ok    · el filtro «Favoritas» deja solo la favorita · Pulso
+ok    · ordenar por título · Andén 3 | Domingo | Faros | Lámpara de escritorio
+ok    · el orden elegido se guarda en la app · {"sort":"title","guardado":"title"}
+ok    · buscar «kora»: la caja sube arriba del todo y se ven resultados con el teclado abierto · Luz de las siete | Pulso · la caja queda a 6.9 del borde
+ok    · «buscar» en el teclado lo cierra y quedan las dos canciones de Kora · teclado false · Luz de las siete | Pulso
+ok    · la ✕ vacía la búsqueda · Andén 3 | Domingo | Faros | Lámpara de escritorio | Luz de las siete
+ok    · «editar» abre la ventana (nativa, con esa canción) y «Mi música» nativa sigue debajo · {"shown":true,"win":"edit","dialog":true,"titulo":"Domingo"}
+ok    · al cerrar el diálogo, la pantalla nativa vuelve · {"shown":true,"kb":0}
+  (no da tiempo a comprobar «¿Borrar?» mirando la pantalla: tardó 5941 ms; se ve en la captura nativa-borrar)
+ok    · un solo toque en la papelera no borra nada · 10 → 10
+ok    · si no se confirma, a los 3 s vuelve a su sitio
+ok    · papelera y luego «¿Borrar?»: la canción se quita de Órbita · 10 → 9
+ok    · los avisos de la app se ven encima de la pantalla nativa · mirar la pantalla tardó 10803 ms
+ok    · al cambiar de pestaña cambia la pantalla nativa, y al volver vuelve «Mi música» · buscar → biblioteca
+ok    · al volver de otra pestaña, la lista empieza arriba (como la de siempre)
+ok    · el reproductor a pantalla completa se abre por encima (la nativa se aparta) · {"shown":false,"np":true}
+ok    · al cerrarlo, la nativa vuelve · {"shown":true,"np":false,"view":"biblioteca"}
+ok    · el aspecto elegido en «Personaliza Órbita» llega a la pantalla nativa (letra más grande) · [true,true,true] · alto del título 126 px
+fluidez de la lista nativa: 128 fotogramas · lentos 127 (99.22 %) · p90 150 ms · p99 300 ms
+fluidez de la lista de siempre (mismo gesto): 123 fotogramas · lentos 123 (100.00 %) · p90 200 ms · p99 250 ms
+ok    · sin cierres por error en las pruebas de la pantalla nativa
+ok    · «Añadir canciones» abre el selector de archivos de Android · topResumedActivity=ActivityRecord{548e821 u0 com.google.android.documentsui/com.android.documentsui.picker.PickActivity t8}
+ok    · la canción elegida en el selector entra en la biblioteca · 9 → 10 · {"id":"tmwkv47mv75l56","title":"Luz de las siete","artist":"Kora","shown":true}
+ok    · borrar desde la pantalla nativa la quita de la biblioteca · 10 → 9
+ok    · tras el selector, la app sigue abierta, delante, y la pantalla nativa vuelve · topResumedActivity=ActivityRecord{fd90e55 u0 io.github.orbita.musica/.MainActivity t8}
+ok    · recién instalada, «Mi música» nativa viene encendida sin tocar nada · {"on":true,"shown":true,"err":"","guardado":null}
+ok    · sin cierres por error tras reiniciar la parte web con la pantalla nativa
+ok    · «Ahora» sale nativa al entrar · {"shown":true,"screen":"inicio","homeOk":true,"err":"","st":{"available":true,"v":9,"covers":2,"songs":9,"screen":"inicio","msgs":0,"shown":true,"pages":0,"y":0,"mirror":17,"wins":"","winShown":false,"winSeq":2,"winTexts":[],"vizActive":"","vizFrames":0,"vizDrawn":"","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6000000238418579,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":0,"lyDrawn":"","lyIdx":-2,"lyY":0,"lyFill":0,"lyTaps":0,"lyGen":-1,"lyAt":-2,"home":true,"homeY":0}} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | P | A
+ok    · sin cierres al abrir «Ahora» nativa
+ok    · «Ahora»: cada texto, donde en la pantalla de siempre (± 3), de arriba abajo · 138 comparados · 0 fuera: 
+ok    · «Presenta cada canción» se enciende y se apaga · true → false
+ok    · al escribirle, sale el teclado y la caja se sigue viendo · teclado true · caja 135,530,947,590 «» · app 0,128,1080,1517
+ok    · al mandarlo, Nova contesta en su recuadro y el teclado baja · teclado false · Puedes pedirme cosas como: más movida, más tranqui
+ok    · un desplegable: se abre y lo elegido llega a la app · Automática → DJ
+ok    · tocar un ánimo lo marca en la app · Energía
+ok    · «Crear mezcla»: la mezcla sale en la nativa, con sus botones y sus canciones · 8 canciones · a la vista: Marea lenta | Viernes 23:59 | Luz de las siete | Luz de las siete | Andén 3
+ok    · tocar una canción de la mezcla la pone · {"title":"Andén 3","paused":false} · estado PLAYING(3) · activa true · Andén 3, Órbita · demo, Pistas de prueba
+ok    · tocar el disco abre el reproductor (la nativa se aparta) y al cerrarlo vuelve · [{"np":true,"shown":false},{"np":false,"shown":true,"screen":"inicio"}]
+ok    · la ruleta: cae en una canción, se ve en la nativa y suena · {"title":"Faros","landed":true,"radio":"true","paused":false}
+ok    · los avisos de la app se ven encima de «Ahora» nativa
+ok    · el aviso de versión nueva sale en la nativa, con sus dos botones · true
+ok    · «Luego» quita el aviso de versión nueva · true
+ok    · el botón de ajustes lleva a Ajustes, y al volver «Ahora» es nativa otra vez · [{"view":"ajustes","shown":true,"screen":"ajustes"},{"view":"inicio","shown":true,"screen":"inicio","st":{"available":true,"v":9,"covers":9,"songs":9,"screen":"inicio","msgs":0,"shown":true,"pages":0,"y":0,"mirror":17,"wins":"","winShown":false,"winSeq":5,"winTexts":[],"vizActive":"","vizFrames":0,"vizDrawn":"","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6000000238418579,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":0,"lyDrawn":"","lyIdx":-2,"lyY":0,"lyFill":0,"lyTaps":0,"lyGen":-1,"lyAt":-2,"home":true,"homeY":0}}]
+ok    · con la portada arriba sigue nativa; con un visualizador, también (y el visualizador lo dibuja Android); y de vuelta al disco, nativa · [true,{"shown":true,"vis":"hidden","which":"vizHero"},true]
+ok    · el aspecto elegido llega a «Ahora» nativa (letra más grande) · alto del nombre 91 px
+ok    · sin cierres por error con «Ahora» nativa
+ok    · «Mis listas» sale nativa al entrar · {"shown":true,"screen":"listas","pgOk":true,"st":{"available":true,"v":9,"covers":11,"songs":9,"screen":"listas","msgs":0,"shown":true,"pages":3,"y":0,"mirror":17,"wins":"","winShown":false,"winSeq":5,"winTexts":[],"vizActive":"","vizFrames":26,"vizDrawn":"vizHero:gl:orbita:210x210","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6583333015441895,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":0,"lyDrawn":"","lyIdx":-2,"lyY":0,"lyFill":0,"lyTaps":0,"lyGen":-1,"lyAt":-2,"home":true,"homeY":0}} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Rep
+ok    · las listas guardadas salen en la nativa · {"n":2,"name":"Martes en órbita","screen":"listas"} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | F | Abrir Ahora suena | Favorita | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador para dorm | 0:16 | Posición | 0:40 | L | L | Martes en órbita | Elegida por Nova en tu | 8 canciones · 4:40 · m | E
+ok    · «Mis listas»: cada texto, donde en la pantalla de siempre (± 3) · 21 comparados · 0 fuera: 
+ok    · «Escuchar» pone la lista · {"q":8,"paused":false} · estado PLAYING(3) · activa true · Pulso, Kora, Amanecer
+ok    · la papelera pide confirmar y, al confirmar, borra la lista · armada true · 2 → 2 → 1
+ok    · al cambiar de pestaña cambia la nativa, y al volver «Mis listas» es nativa y está arriba · ["buscar",{"shown":true,"screen":"listas","st":{"available":true,"v":9,"covers":11,"songs":9,"screen":"listas","msgs":0,"shown":true,"pages":3,"y":0,"mirror":17,"wins":"","winShown":false,"winSeq":5,"winTexts":[],"vizActive":"","vizFrames":26,"vizDrawn":"vizHero:gl:orbita:210x210","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6583333015441895,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":0,"lyDrawn":"","lyIdx":-2,"lyY":0,"lyFill":0,"lyTaps":0,"lyGen":-1,"lyAt":-2,"home":true,"homeY":0}}]
+ok    · sin cierres por error con «Mis listas» nativa
+ok    · «Tú» sale nativa al entrar · {"shown":true,"screen":"tu","st":{"available":true,"v":9,"covers":11,"songs":9,"screen":"tu","msgs":0,"shown":true,"pages":7,"y":0,"mirror":17,"wins":"","winShown":false,"winSeq":5,"winTexts":[],"vizActive":"","vizFrames":26,"vizDrawn":"vizHero:gl:orbita:210x210","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6583333015441895,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":0,"lyDrawn":"","lyIdx":-2,"lyY":0,"lyFill":0,"lyTaps":0,"lyGen":-1,"lyAt":-2,"home":true,"homeY":0}} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | P | Abrir
+ok    · «Tú»: cada texto, donde en la pantalla de siempre (± 3), de arriba abajo · 108 comparados · 0 fuera: 
+ok    · el botón de una canción de «Tus canciones» la pone · {"title":"Andén 3","paused":false} · Escuchar Andén 3
+ok    · «Ver los datos» despliega la tabla de la gráfica · true · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | A | Abrir Ahora  | Favorita | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador | 0:04 | Posición | 0:30 | Más al medio | 8 min | 0:00 | 6:00 | 12:00 | 18:00 | 
+ok    · cambiar el periodo («Siempre») llega a la app · Siempre
+ok    · «Recordar lo que escucho» se apaga y se enciende · false → true
+ok    · el botón «Ajustes» de abajo lleva a Ajustes · {"view":"ajustes","shown":true,"screen":"ajustes"}
+ok    · y al volver, «Tú» es nativa y está arriba · {"shown":true,"screen":"tu","st":{"available":true,"v":9,"covers":11,"songs":9,"screen":"tu","msgs":0,"shown":true,"pages":7,"y":0,"mirror":17,"wins":"","winShown":false,"winSeq":5,"winTexts":[],"vizActive":"","vizFrames":26,"vizDrawn":"vizHero:gl:orbita:210x210","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6583333015441895,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":0,"lyDrawn":"","lyIdx":-2,"lyY":0,"lyFill":0,"lyTaps":0,"lyGen":-1,"lyAt":-2,"home":true,"homeY":0}}
+ok    · sin cierres por error con «Tú» nativa
+ok    · el temporizador sale nativo, en su capa, y «Ahora» sigue nativa debajo · {"on":"sleep","shown":true,"screen":"inicio","st":{"available":true,"v":9,"covers":11,"songs":9,"screen":"inicio","msgs":0,"shown":true,"pages":7,"y":0,"mirror":17,"wins":"sleep","winShown":true,"winSeq":6,"winTexts":["[sleep]","Temporizador para dormir","La música bajará poco a poco y se parará sola. Nova te","dará las buenas noches.","15 min","30 min","45 min","1 hora","1 h 30","Esta canción","Cerrar"],"vizActive":"","vizFrames":26,"vizDrawn":"vizHero:gl:orbita:210x210","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6583333015441895,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":fal
+ok    · el temporizador: cada renglón, donde en la de siempre (± 3) · 10 comparados · 0 fuera: 
+ok    · tocar «30 min» pone el temporizador y cierra la ventana (también la nativa) · {"on":true,"open":false,"win":""} · {"wins":"","shown":false}
+ok    · y «Desactivar» lo quita · false
+ok    · el reproductor, abierto y quieto, es nativo (y la pantalla de debajo se aparta: lo tapa todo) · {"on":"np","shown":false,"screen":"","st":{"available":true,"v":9,"covers":11,"songs":9,"screen":"inicio","msgs":0,"shown":false,"pages":7,"y":0,"mirror":17,"wins":"np","winShown":true,"winSeq":15,"winTexts":["[np]","Cerrar","DESDE TU BIBLIOTECA","Viernes 23:59","Órbita · demo","0:10","0:30","Letra","Visual","Videoclip","WAV · HI-FI","Pistas de prueba","Dormir","Más como esta","No me la pongas más","Háblale","A CONTINUACIÓN","Luz de las siete","Kora","Faros","Banda Sur","Pulso","Kora"],"vizActive":"","vizFrames":26,"vizDrawn":"vizHero:gl:orbita:210x210","vizErr":"","vizTwo":false,"vizCover":fa
+ok    · el reproductor: cada renglón, donde en el de siempre (± 3) · 14 comparados · 0 fuera: 
+ok    · «Siguiente» del reproductor nativo pasa de canción (y lo enseña) · Viernes 23:59 → Luz de las siete (3 → 4)
+ok    · deslizar la portada a la izquierda pasa a la siguiente (y la nativa la enseña) · Luz de las siete → Faros (4 → 5)
+ok    · dentro del reproductor nativo se baja con el dedo (y el de siempre se pone a la misma altura) · {"web":68.19047546386719,"max":69,"st":{"available":true,"v":9,"covers":13,"songs":9,"screen":"inicio","msgs":0,"shown":false,"pages":7,"y":0,"mirror":17,"wins":"np","winShown":true,"winSeq":28,"winTexts":["[np]","Cerrar","DESDE TU BIBLIOTECA","Faros","Banda Sur","0:02","0:40","Letra","Visual","Videoclip","MP3 128k","Costa","Dormir","Más como esta","No me la pongas más","Háblale","A CONTINUACIÓN","Pulso","Kora"],"vizActive":"","vizFrames":26,"vizDrawn":"vizHero:gl:orbita:210x210","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6583333015441895,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytD
+ok    · subir dentro del reproductor no lo cierra aunque se llegue arriba · {"web":0,"np":true,"on":"np"}
+ok    · arriba del todo, bajarlo con el dedo lo cierra, y vuelve «Ahora» nativa · [{"web":0,"np":true,"on":"np"},{"np":false,"on":"","shown":true,"screen":"inicio","st":{"available":true,"v":9,"covers":13,"songs":9,"screen":"inicio","msgs":0,"shown":true,"pages":7,"y":0,"mirror":17,"wins":"","winShown":false,"winSeq":28,"winTexts":[],"vizActive":"","vizFrames":26,"vizDrawn":"vizHero:gl:orbita:210x210","vizErr":"","vizTwo":false,"vizCover":false,"vizYaw":0.6583333015441895,"vizPitch":0.5,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":0,"lyDrawn":"","lyIdx":-2,"lyY":0,"lyFill":0,"lyTaps":0,"lyGen":-1,"lyAt":-2,"home":true,"homeY":0}}]
+ok    · se abre otra vez nativo, y «Cerrar» lo cierra · ["np",{"np":false,"on":"","shown":true}]
+ok    · editar una canción en la ventana nativa: lo escrito llega y «Guardar» lo guarda · {"ef":true,"ev":"Andén 3 2","tit1":{"t":"Andén 3 2","open":false,"on":""}}
+ok    · la ventana de la letra es nativa: se escribe en su caja y «Cancelar» la cierra · {"lw":"ly","lv":"hola","lc":{"open":false,"on":""}}
+ok    · las novedades salen nativas y un toque en lo oscuro de alrededor las cierra · ["news",{"open":false,"on":""}]
+ok    · sin cierres por error con las ventanas y el reproductor nativos
+ok    · «Ahora» con el visualizador arriba es nativa y el visualizador lo dibuja Android (y se mueve) · {"hs":{"shown":true,"screen":"inicio","which":"vizHero","hero":"viz"},"n":40,"drawn":"vizHero:gl:orbita:210x210","err":""}
+ok    · tocar el visualizador de «Ahora» abre el reproductor, y su «Visual» lo dibuja Android (el reproductor sigue nativo) · {"hn":true,"nv":true,"np1":{"np":true,"viz":true,"on":"np"},"n":51,"drawn":"vizNP:gl:orbita:402x402","err":""}
+ok    · la etiqueta del estilo, encima del visualizador del reproductor, cambia de estilo (y Android lo dibuja) · {"de":"orbita","a":"galaxia","drawn":"vizNP:gl:galaxia:278x278"}
+ok    · a pantalla completa es una ventana nativa y el visualizador lo dibuja Android · {"fs1":{"full":true,"on":"np,viz","chrome":false},"n":46,"drawn":"vizFS:gl:galaxia:447x913"}
+ok    · arrastrar el dedo gira el visualizador (y no esconde el título) · {"y0":1.6466809511184692,"y1":3.1272785663604736,"chrome":[false,false]}
+ok    · un toque sin mover esconde el título (como siempre) · [false,true]
+ok    · cada estilo, quieto, igual en Android que en la web (en bloques, ±6 de 255) · orbita 0.02/0.04 (67.8·67.8) · galaxia 0.01/0.04 (45.4·45.4) · ondas 0.01/0.01 (32.8·32.8) · montanas 2.09/5.99 (47.5·47.6) · aurora 0.01/0.01 (64·64) · tunel 0.02/0.02 (46.8·46.8) · particulas 0.16/0.3 (61·61)
+ok    · con animaciones «Ligeras», Android dibuja los clásicos (2D) · {"n":20,"drawn":"vizFS:2d:particulas:515x1053","err":""}
+ok    · y al volver a «Completas», otra vez los de la tarjeta gráfica · {"n":28,"drawn":"vizFS:gl:particulas:618x1263"}
+ok    · «Cerrar» cierra la pantalla completa y vuelve el del reproductor · {"bw":{"full":false,"on":"np"},"a":"vizNP","nat":true}
+ok    · con el disco otra vez arriba, Android ya no dibuja ningún visualizador · {"a":"","err":""}
+ok    · sin cierres por error con los visualizadores
+ok    · con la letra abierta, el reproductor sigue siendo nativo y la letra la dibuja Android · {"w1":{"on":"np","open":true,"lg":2,"idx":1,"t":2.75},"drawn":"s:2:16"}
+ok    · va con la canción: el verso encendido avanza (el mismo que en la web), se llena y la caja lo sigue · {"a":[1,150.9,0.84],"b":[4,305.1,0.6],"web":{"idx":4,"t":9.68}}
+ok    · tocar un verso lleva la canción allí (y se enciende ese) · {"want":3,"nodo":"Verso 4 de la letra","w3":{"idx":3,"t":5.95},"nat":3,"taps":[0,1]}
+ok    · deslizar la letra con el dedo la mueve a ella, y no baja el reproductor · {"sy0":269,"sy1":115,"w4":{"on":"np","np":true}}
+ok    · quieta, cada verso de la letra está donde en la de siempre (± 3) · 8 comparados · fuera:  · caja: Android 305.1 / web 304.76190185546875
+ok    · al cerrar la letra, el reproductor sigue nativo con su portada · {"on":"np","open":false}
+ok    · sin cierres por error con la letra nativa
+ok    · con un vídeo, el reproductor sigue nativo y deja el hueco del vídeo justo en su sitio (y por él se ve el vídeo) · {"w1":{"on":"np","yt":true,"nat":"{\"on\":1,\"x\":20,\"y\":95.27,\"w\":372.19,\"h\":209.36}"},"hueco":"53,250,976x550","web":[52.5,250.1,977,549.6],"seen":[[255,32,32],[32,255,32],[32,64,255]]}
+ok    · lo que se toca en el hueco le llega al vídeo (y el reproductor sigue igual) · {"f0":0,"f1":1,"toquesDelVideo":1,"w2":{"on":"np","np":true,"yt":true}}
+ok    · al deslizar el reproductor, el vídeo y su hueco van con él · {"antes":"53,250,976x550","ahora":"53,103,976x549","web":[52.5,103.1,977,549.6]}
+ok    · al cerrar el reproductor, el hueco del vídeo se va · {"hueco":"","dock":false}
+ok    · sin vídeo, el hueco no vuelve · {"hueco":""}
+ok    · sin cierres por error con el videoclip nativo
+ok    · «Buscar» sale nativa · {"shown":true,"screen":"buscar","mirOk":true,"err":"","st":{"available":true,"v":9,"covers":14,"songs":9,"screen":"buscar","msgs":0,"shown":true,"pages":7,"y":0,"mirror":17,"wins":"","winShown":false,"winSeq":195,"winTexts":[],"vizActive":"","vizFrames":1669,"vizDrawn":"vizHero:gl:particulas:210x210","vizErr":"","vizTwo":false,"vizCover":true,"vizYaw":1.6250109672546387,"vizPitch":0.550000011920929,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":1,"lyDrawn":"s:2:16","lyIdx":4,"lyY":305.1428527832031,"lyFill":1,"lyTaps":1,"lyGen":2,"lyAt":4,"home":true,"homeY":0}} · Órbita | Secci
+ok    · «Buscar»: cada renglón, donde en la pantalla de siempre (± 3) · 34 comparados · 0 fuera: 
+ok    · escribir en la caja nativa y darle a «buscar»: busca, se cierra el teclado y salen los resultados (las de Kora que ya tienes) · {"box":true,"q1":"kora","kb":false,"qs":{"q":"kora","lib":17,"out":"Ya en tu bibliotecaLuz de las siete · KoraMP3 · 132 kbpsEscucharPPulso · KoraMP3 · 128 kbpsEscucharEscúchalas ya · avances de 30 segundosEscuchar todosKora · Ballaké SissokoDjourou · 4:23AvanceYouTube"}} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | L | Abrir Ahora suena | Favorita | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador para  | 0:01 | Posición | 0:30 | BUSCAR | canciones, radios  | Canciones | Radios | YouTube | kora | Buscar | YA EN
+ok    · la pestaña «Radios» se abre tocándola · {"radios":true,"cc":"US","opts":[["","Todo el mundo"],["ES","España"],["MX","México"],["AR","Argentina"]]}
+ok    · y el país se elige en la lista desplegable nativa · US → ES
+ok    · sin cierres por error con «Buscar» nativa
+ok    · «Ajustes» sale nativa · {"shown":true,"screen":"ajustes","st":{"available":true,"v":9,"covers":72,"songs":9,"screen":"ajustes","msgs":0,"shown":true,"pages":7,"y":0,"mirror":18,"wins":"","winShown":false,"winSeq":195,"winTexts":[],"vizActive":"","vizFrames":1669,"vizDrawn":"vizHero:gl:particulas:210x210","vizErr":"","vizTwo":false,"vizCover":true,"vizYaw":1.6250109672546387,"vizPitch":0.550000011920929,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":1,"lyDrawn":"s:2:16","lyIdx":4,"lyY":305.1428527832031,"lyFill":1,"lyTaps":1,"lyGen":2,"lyAt":4,"home":true,"homeY":0}}
+ok    · «Ajustes»: cada renglón, donde en la pantalla de siempre (± 3) · 153 comparados · 0 fuera: 
+ok    · un interruptor de «Ajustes» nativa (vibración al tocar) se cambia tocándolo · true → false
+ok    · una barra de «Ajustes» nativa (duración del fundido) se desliza con el dedo · 8 → 15
+ok    · y un toque en la barra la pone ahí (y la nativa enseña el valor) · 15 → 5
+ok    · una banda del ecualizador nativa se arrastra con el dedo (sube a +6) · +6
+ok    · y un toque en el medio la deja a 0 · 0
+ok    · «Cambiar la hora» abre el reloj de Android; al aceptar, la hora queda puesta y «Ajustes» sigue nativa · {"t":"07:30","shown":true,"screen":"ajustes"} · 07 | : | 30 | CANCEL | OK
+ok    · lo que se escribe en una caja de «Ajustes» nativa llega a la de siempre · "Soria"
+ok    · tocar un tema en «Ajustes» nativa lo elige · neon
+ok    · con una ventana de las de siempre encima (YouTube), «Ajustes» se aparta (la de siempre a la misma altura) y al cerrarla vuelve donde estaba · [{"web":2600,"nat":2600.142822265625},{"shown":false,"web":2600},{"shown":true,"screen":"ajustes","nat":2600.142822265625}]
+ok    · sin cierres por error con «Ajustes» nativa
+ok    · la conversación con Nova sale nativa · {"shown":true,"screen":"chat","chatOk":true,"err":"","st":{"available":true,"v":9,"covers":72,"songs":9,"screen":"chat","msgs":1,"shown":true,"pages":7,"y":0,"mirror":18,"wins":"","winShown":false,"winSeq":195,"winTexts":[],"vizActive":"","vizFrames":1669,"vizDrawn":"vizHero:gl:particulas:210x210","vizErr":"","vizTwo":false,"vizCover":true,"vizYaw":1.6250109672546387,"vizPitch":0.550000011920929,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":1,"lyDrawn":"s:2:16","lyIdx":4,"lyY":305.1428527832031,"lyFill":1,"lyTaps":1,"lyGen":2,"lyAt":4,"home":true,"homeY":0}}
+ok    · la conversación nativa: cada cosa donde en la de siempre (± 3) · [["Nova",0,0.1],["qué suena",0,0],["Borrar",0,0],["Cerrar",0,0],["Enviar",0,-0.3],["saludo",0.1,0.2],["«¿Qué recuerdas de mí?»",0.1,-1],["«Más movida»",0.3,-1],["«Más tranquila»",0.6,-1],["«¿Por qué esta?»",0.2,-0.7],["«Resumen de mi semana»",0.6,-0.7],["«Ayuda»",0.9,-0.7],["caja",0,-0.4],["micrófono",-0.1,-0.1]]
+ok    · mantener pulsado un mensaje (copiarlo) no rompe nada
+ok    · tocar una sugerencia: sale mi mensaje y Nova contesta · Nova | Suena: Luz de las  | Borrar | Cerrar | Ayuda | Puedes pedirme cos | ¿Qué recuerdas de  | Más movida | Más tranquila | ¿Por qué esta? | Resumen de mi sema | Ayuda | Escribe a la DJ… | Enviar | Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | ÓRBITA FM | 16:09 | Despertador: mañan |
+ok    · con el teclado abierto se ve lo último que dijo Nova y lo que escribo · teclado true · alto de la app 1389
+ok    · «enviar» en el teclado manda el mensaje, la caja se vacía y Nova contesta · [["me","Ayuda"],["nova","Puedes pedirme cosas como: más"],["me","gracias"],["nova","Para eso estoy."]]
+ok    · el botón «Enviar» manda el mensaje · [["me","hola"],["nova","¡Hola! Aquí estoy. ¿Te pongo a"]]
+ok    · los avisos de la app se ven encima de la conversación nativa
+ok    · si una ventana de las de siempre se pone encima, la nativa se aparta y luego vuelve · false → true
+ok    · el temporizador (nativo) sale encima de la conversación, que sigue nativa debajo · {"chat":true,"win":"sleep"}
+ok    · «Borrar» vacía la conversación · 0
+ok    · «Cerrar» cierra la conversación, vuelve «Ahora» y baja el teclado · {"cerrada":true,"shown":true,"st":{"available":true,"v":9,"covers":72,"songs":9,"screen":"inicio","msgs":1,"shown":true,"pages":7,"y":0,"mirror":18,"wins":"","winShown":false,"winSeq":196,"winTexts":[],"vizActive":"","vizFrames":1669,"vizDrawn":"vizHero:gl:particulas:210x210","vizErr":"","vizTwo":false,"vizCover":true,"vizYaw":1.6250109672546387,"vizPitch":0.550000011920929,"vizZoom":1,"ytHole":"","ytDock":false,"ytSlot":false,"ytFwd":1,"lyDrawn":"s:2:16","lyIdx":4,"lyY":305.1428527832031,"lyFill":1,"lyTaps":1,"lyGen":2,"lyAt":4,"home":true,"homeY":0}} · teclado false
+ok    · sin cierres por error con la conversación nativa
+muestra de Deezer «Harder, Better, Faster, Stronger»: su dirección caduca en 15 min · https://cdnt-preview.dzcdn.net/api/1/1/6/a/2/0/6a2c0a5670afe821e08fc5154909534a.mp3?hdnea=exp=1794932796~acl=/api/1/1/6/a/2/0/6a2c0a5670afe821e08fc5154909534a.mp3*~data=u
+  una dirección recién pedida: suena · una caducada: no se puede (error 4)
+ok    · una muestra de Deezer recién pedida suena en la app · suena
+ok    · una recomendación guardada con la dirección caducada: la app pide la nueva y suena, sin aviso de error · la caducada a pelo: no se puede (error 4) · {"cur":"dz:3135556","nueva":true,"boton":"Pausar","t":8,"toast":"","guardada":true}
+ok    · el reproductor es el de Kotlin · {"available":true,"rate":48000,"v":3,"bt":false,"lat":174,"player":"kotlin","service":true}
+ok    · suena y la app sigue abierta · estado PLAYING(3) · activa true · Marea lenta, Los Rayos, Mar
+ok    · el servicio de música arrancó (Media3) · {"available":true,"rate":48000,"v":3,"bt":false,"lat":179,"player":"kotlin","service":true}
+ok    · el servicio está en primer plano mientras suena · en primer plano
+ok    · sin cierres por error hasta aquí
+ok    · «siguiente» de los auriculares: cambia la canción y la app la sigue · Marea lenta → Viernes 23:59 · estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad
+ok    · «pausa» de los auriculares · estado PAUSED(2) · activa true · Viernes 23:59, Neón Norte, Ciudad
+ok    · «play» de los auriculares · estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad
+ok    · la parte web se reinicia y recoge lo que suena (misma canción, sigue avanzando) · {"before":{"id":"dev:1000000020","t":6.500520833333333},"after":{"id":"dev:1000000020","t":19.419137500000186,"paused":false}}
+ok    · cerrada desde las recientes: la música sigue · actividad cerrada true · proceso true · estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad · en primer plano
+ok    · con la app cerrada, «siguiente» funciona · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa
+ok    · al volver a abrirla, sigue sonando y la app lo muestra · {"boton":"Pausar","titulo":"Nada sonando"} · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa
+tras cerrar en pausa: proceso vivo = true · estado PAUSED(2) · activa true · Faros, Banda Sur, Costa
+ok    · «play» con Órbita cerrada: vuelve la música · proceso true · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa · en primer plano
+ok    · ningún cierre por error en toda la prueba
+fluidez de «Ajustes» nativa: 74 fotogramas · lentos 74 (100.00 %) · p90 300 ms · p99 350 ms
+ok    · «Ajustes» nativa aguanta que se deslice deprisa (sin cierres)
+justo antes de deslizar «Ahora»: proceso vivo = true
+fluidez de «Ahora» nativa: 77 fotogramas · lentos 77 (100.00 %) · p90 200 ms · p99 350 ms
+fluidez de «Ahora» de siempre (mismo gesto): 95 fotogramas · lentos 95 (100.00 %) · p90 200 ms · p99 250 ms
+ok    · «Ahora» nativa aguanta que se deslice deprisa (sin cierres)
+ok    · «Descargar» (aviso de versión nueva, en la nativa) abre el enlace fuera de la app · antes: ty=ActivityRecord{fd90e55 u0 io.github.orbita.musica/.MainActivity t8} · después: rd{33b5fc3 u0 com.android.chrome/org.chromium.chrome.browser.firstrun.FirstRunActivity t9}
+
+164 de 164 bien

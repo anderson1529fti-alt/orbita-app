@@ -1,0 +1,917 @@
+[
+ {
+  "tag": "abierto",
+  "d": {
+   "web": "Viernes 23:59",
+   "np": true,
+   "on": "np",
+   "drag": false,
+   "held": true,
+   "seq": 15,
+   "log": [
+    {
+     "seq": 9,
+     "list": "sleep",
+     "force": false,
+     "n": 1,
+     "t": 652672
+    },
+    {
+     "hide": "ninguna",
+     "t": 661705
+    },
+    {
+     "seq": 10,
+     "list": "np",
+     "force": true,
+     "n": 9,
+     "title": "Viernes 23:59",
+     "np": [
+      "Cerrar",
+      "DESDE TU BIBLIOTECA",
+      "Viernes 23:59",
+      "Órbita · demo"
+     ],
+     "t": 663757
+    },
+    {
+     "seq": 11,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:08",
+      "0:30"
+     ],
+     "t": 664739
+    },
+    {
+     "seq": 12,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:08",
+      "0:30"
+     ],
+     "t": 665243
+    },
+    {
+     "seq": 13,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:09",
+      "0:30"
+     ],
+     "t": 665849
+    },
+    {
+     "seq": 14,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:09",
+      "0:30"
+     ],
+     "t": 666392
+    },
+    {
+     "seq": 15,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:10",
+      "0:30"
+     ],
+     "t": 666779
+    }
+   ],
+   "nat": {
+    "seq": 15,
+    "wins": "np",
+    "shown": true,
+    "texts": [
+     "[np]",
+     "Cerrar",
+     "DESDE TU BIBLIOTECA",
+     "Viernes 23:59",
+     "Órbita · demo",
+     "0:10",
+     "0:30",
+     "Letra",
+     "Visual",
+     "Videoclip",
+     "WAV · HI-FI",
+     "Pistas de prueba",
+     "Dormir",
+     "Más como esta",
+     "No me la pongas más",
+     "Háblale",
+     "A CONTINUACIÓN",
+     "Luz de las siete",
+     "Kora",
+     "Faros",
+     "Banda Sur",
+     "Pulso",
+     "Kora"
+    ]
+   }
+  },
+  "nativo": [
+   "Cerrar",
+   "V",
+   "DESDE TU BIBLIOTECA",
+   "Viernes 23:59",
+   "Órbita · demo",
+   "(Favorita)",
+   "0:10",
+   "(Posición)",
+   "0:30",
+   "(Anterior)",
+   "(Reproducir)",
+   "(Siguiente)",
+   "Letra",
+   "Visual",
+   "Videoclip",
+   "WAV · HI-FI",
+   "Pistas de prueba",
+   "Dormir",
+   "Más como esta",
+   "No me la pongas más",
+   "Háblale",
+   "A CONTINUACIÓN",
+   "(Quitar Luz de las siete de la cola)"
+  ],
+  "web": [
+   "Órbita",
+   "Secciones",
+   "Ahora",
+   "Buscar",
+   "Música",
+   "Listas",
+   "Tú",
+   "ÓRBITA FM",
+   "15:55",
+   "Ajustes: tema, voces y animaciones",
+   "MARTES por la tarde",
+   "Energía para llegar arriba al final del día.",
+   "Abrir Ahora suena",
+   "DJ",
+   "TU ASISTENTE MUSICAL",
+   "DJ Nova",
+   "Voz",
+   "Presenta cada canción",
+   "Abrir la conversación con la DJ",
+   "NOVATe he preparado una mezcla para este martes. Abrimos con Pulso, de Kora.",
+   "Faros",
+   "Banda Sur",
+   "ayuda",
+   "Háblale a la DJ",
+   "Pedir",
+   "Más movida",
+   "Más tranquila",
+   "¿Por qué esta?",
+   "Más como esta",
+   "¿Quién canta?"
+  ]
+ },
+ {
+  "tag": "tras-comparar",
+  "d": {
+   "web": "Viernes 23:59",
+   "np": true,
+   "on": "np",
+   "drag": false,
+   "held": true,
+   "seq": 16,
+   "log": [
+    {
+     "seq": 10,
+     "list": "np",
+     "force": true,
+     "n": 9,
+     "title": "Viernes 23:59",
+     "np": [
+      "Cerrar",
+      "DESDE TU BIBLIOTECA",
+      "Viernes 23:59",
+      "Órbita · demo"
+     ],
+     "t": 663757
+    },
+    {
+     "seq": 11,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:08",
+      "0:30"
+     ],
+     "t": 664739
+    },
+    {
+     "seq": 12,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:08",
+      "0:30"
+     ],
+     "t": 665243
+    },
+    {
+     "seq": 13,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:09",
+      "0:30"
+     ],
+     "t": 665849
+    },
+    {
+     "seq": 14,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:09",
+      "0:30"
+     ],
+     "t": 666392
+    },
+    {
+     "seq": 15,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:10",
+      "0:30"
+     ],
+     "t": 666779
+    },
+    {
+     "hide": "ninguna",
+     "t": 695661
+    },
+    {
+     "seq": 16,
+     "list": "np",
+     "force": true,
+     "n": 9,
+     "title": "Viernes 23:59",
+     "np": [
+      "Cerrar",
+      "DESDE TU BIBLIOTECA",
+      "Viernes 23:59",
+      "Órbita · demo"
+     ],
+     "t": 697751
+    }
+   ],
+   "nat": {
+    "seq": 16,
+    "wins": "np",
+    "shown": true,
+    "texts": [
+     "[np]",
+     "Cerrar",
+     "DESDE TU BIBLIOTECA",
+     "Viernes 23:59",
+     "Órbita · demo",
+     "0:10",
+     "0:30",
+     "Letra",
+     "Visual",
+     "Videoclip",
+     "WAV · HI-FI",
+     "Pistas de prueba",
+     "Dormir",
+     "Más como esta",
+     "No me la pongas más",
+     "Háblale",
+     "A CONTINUACIÓN",
+     "Luz de las siete",
+     "Kora",
+     "Faros",
+     "Banda Sur",
+     "Pulso",
+     "Kora"
+    ]
+   }
+  },
+  "nativo": [
+   "Cerrar",
+   "V",
+   "DESDE TU BIBLIOTECA",
+   "Viernes 23:59",
+   "Órbita · demo",
+   "(Favorita)",
+   "0:10",
+   "(Posición)",
+   "0:30",
+   "(Anterior)",
+   "(Reproducir)",
+   "(Siguiente)",
+   "Letra",
+   "Visual",
+   "Videoclip",
+   "WAV · HI-FI",
+   "Pistas de prueba",
+   "Dormir",
+   "Más como esta",
+   "No me la pongas más",
+   "Háblale",
+   "A CONTINUACIÓN",
+   "(Quitar Luz de las siete de la cola)"
+  ],
+  "web": [
+   "Órbita",
+   "Secciones",
+   "Ahora",
+   "Buscar",
+   "Música",
+   "Listas",
+   "Tú",
+   "ÓRBITA FM",
+   "15:55",
+   "Ajustes: tema, voces y animaciones",
+   "MARTES por la tarde",
+   "Energía para llegar arriba al final del día.",
+   "Abrir Ahora suena",
+   "DJ",
+   "TU ASISTENTE MUSICAL",
+   "DJ Nova",
+   "Voz",
+   "Presenta cada canción",
+   "Abrir la conversación con la DJ",
+   "NOVATe he preparado una mezcla para este martes. Abrimos con Pulso, de Kora.",
+   "Faros",
+   "Banda Sur",
+   "ayuda",
+   "Háblale a la DJ",
+   "Pedir",
+   "Más movida",
+   "Más tranquila",
+   "¿Por qué esta?",
+   "Más como esta",
+   "¿Quién canta?"
+  ]
+ },
+ {
+  "tag": "siguiente",
+  "d": {
+   "web": "Luz de las siete",
+   "np": true,
+   "on": "np",
+   "drag": false,
+   "held": true,
+   "seq": 22,
+   "log": [
+    {
+     "hide": "ninguna",
+     "t": 695661
+    },
+    {
+     "seq": 16,
+     "list": "np",
+     "force": true,
+     "n": 9,
+     "title": "Viernes 23:59",
+     "np": [
+      "Cerrar",
+      "DESDE TU BIBLIOTECA",
+      "Viernes 23:59",
+      "Órbita · demo"
+     ],
+     "t": 697751
+    },
+    {
+     "seq": 17,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Viernes 23:59",
+     "np": [],
+     "t": 749760
+    },
+    {
+     "seq": 18,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Viernes 23:59",
+     "np": [
+      "0:00",
+      "0:40",
+      "Letra",
+      "Visual"
+     ],
+     "t": 750792
+    },
+    {
+     "seq": 19,
+     "list": "np",
+     "force": false,
+     "n": 6,
+     "title": "Luz de las siete",
+     "np": [
+      "DESDE TU BIBLIOTECA",
+      "Luz de las siete",
+      "Kora",
+      "Letra"
+     ],
+     "t": 751470
+    },
+    {
+     "seq": 20,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Luz de las siete",
+     "np": [
+      "0:00",
+      "0:40"
+     ],
+     "t": 751500
+    },
+    {
+     "seq": 21,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Luz de las siete",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 752042
+    },
+    {
+     "seq": 22,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Luz de las siete",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 752763
+    }
+   ],
+   "nat": {
+    "seq": 22,
+    "wins": "np",
+    "shown": true,
+    "texts": [
+     "[np]",
+     "Cerrar",
+     "DESDE TU BIBLIOTECA",
+     "Luz de las siete",
+     "Kora",
+     "0:01",
+     "0:40",
+     "Letra",
+     "Visual",
+     "Videoclip",
+     "MP3 132k",
+     "Amanecer",
+     "Dormir",
+     "Más como esta",
+     "No me la pongas más",
+     "Háblale",
+     "A CONTINUACIÓN",
+     "Faros",
+     "Banda Sur",
+     "Pulso",
+     "Kora",
+     "SOBRE KORA INTERNATIONAL",
+     "KORA Intermational es una compañía mexicana que",
+     "inició sus operaciones en Distrito Federal, México",
+     "en el año 2012, soportada por una estructura",
+     "profesional de más de 5 años de experiencia en la",
+     "producción de medios audiovisuales.",
+     "Leer más en Wikipedia",
+     "Que me lo cuente Nova"
+    ]
+   }
+  },
+  "nativo": [
+   "Cerrar",
+   "DESDE TU BIBLIOTECA",
+   "Luz de las siete",
+   "Kora",
+   "(Favorita)",
+   "0:01",
+   "(Posición)",
+   "0:40",
+   "(Anterior)",
+   "(Reproducir)",
+   "(Siguiente)",
+   "Letra",
+   "Visual",
+   "Videoclip",
+   "MP3 132k",
+   "Amanecer",
+   "Dormir",
+   "Más como esta",
+   "No me la pongas más",
+   "Háblale",
+   "A CONTINUACIÓN",
+   "(Quitar Faros de la cola)"
+  ],
+  "web": [
+   "Órbita",
+   "Secciones",
+   "Ahora",
+   "Buscar",
+   "Música",
+   "Listas",
+   "Tú",
+   "ÓRBITA FM",
+   "15:56",
+   "Ajustes: tema, voces y animaciones",
+   "MARTES por la tarde",
+   "Energía para llegar arriba al final del día.",
+   "Abrir Ahora suena",
+   "DJ",
+   "TU ASISTENTE MUSICAL",
+   "DJ Nova",
+   "Voz",
+   "Presenta cada canción",
+   "Abrir la conversación con la DJ",
+   "NOVATe he preparado una mezcla para este martes. Abrimos con Pulso, de Kora.",
+   "Faros",
+   "Banda Sur",
+   "ayuda",
+   "Háblale a la DJ",
+   "Pedir",
+   "Más movida",
+   "Más tranquila",
+   "¿Por qué esta?",
+   "Más como esta",
+   "¿Quién canta?"
+  ]
+ },
+ {
+  "tag": "deslizada",
+  "d": {
+   "web": "Faros",
+   "np": true,
+   "on": "np",
+   "drag": false,
+   "held": true,
+   "seq": 28,
+   "log": [
+    {
+     "seq": 21,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Luz de las siete",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 752042
+    },
+    {
+     "seq": 22,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Luz de las siete",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 752763
+    },
+    {
+     "seq": 23,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Luz de las siete",
+     "np": [],
+     "t": 770095
+    },
+    {
+     "seq": 24,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Luz de las siete",
+     "np": [
+      "0:00",
+      "0:40",
+      "Letra",
+      "Visual"
+     ],
+     "t": 770764
+    },
+    {
+     "seq": 25,
+     "list": "np",
+     "force": false,
+     "n": 5,
+     "title": "Faros",
+     "np": [
+      "DESDE TU BIBLIOTECA",
+      "Faros",
+      "Banda Sur",
+      "Letra"
+     ],
+     "t": 771238
+    },
+    {
+     "seq": 26,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Faros",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 771702
+    },
+    {
+     "seq": 27,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Faros",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 772149
+    },
+    {
+     "seq": 28,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Faros",
+     "np": [
+      "0:02",
+      "0:40"
+     ],
+     "t": 772686
+    }
+   ],
+   "nat": {
+    "seq": 28,
+    "wins": "np",
+    "shown": true,
+    "texts": [
+     "[np]",
+     "Cerrar",
+     "DESDE TU BIBLIOTECA",
+     "Faros",
+     "Banda Sur",
+     "0:02",
+     "0:40",
+     "Letra",
+     "Visual",
+     "Videoclip",
+     "MP3 128k",
+     "Costa",
+     "Dormir",
+     "Más como esta",
+     "No me la pongas más",
+     "Háblale",
+     "A CONTINUACIÓN",
+     "Pulso",
+     "Kora"
+    ]
+   }
+  },
+  "nativo": [
+   "Cerrar",
+   "F",
+   "DESDE TU BIBLIOTECA",
+   "Faros",
+   "Banda Sur",
+   "(Favorita)",
+   "0:02",
+   "(Posición)",
+   "0:40",
+   "(Anterior)",
+   "(Reproducir)",
+   "(Siguiente)",
+   "Letra",
+   "Visual",
+   "Videoclip",
+   "MP3 128k",
+   "Costa",
+   "Dormir",
+   "Más como esta",
+   "No me la pongas más",
+   "Háblale",
+   "A CONTINUACIÓN",
+   "(Quitar Pulso de la cola)"
+  ],
+  "web": [
+   "Órbita",
+   "Secciones",
+   "Ahora",
+   "Buscar",
+   "Música",
+   "Listas",
+   "Tú",
+   "ÓRBITA FM",
+   "15:56",
+   "Ajustes: tema, voces y animaciones",
+   "MARTES por la tarde",
+   "Energía para llegar arriba al final del día.",
+   "Abrir Ahora suena",
+   "DJ",
+   "TU ASISTENTE MUSICAL",
+   "DJ Nova",
+   "Voz",
+   "Presenta cada canción",
+   "Abrir la conversación con la DJ",
+   "NOVATe he preparado una mezcla para este martes. Abrimos con Pulso, de Kora.",
+   "Faros",
+   "Banda Sur",
+   "ayuda",
+   "Háblale a la DJ",
+   "Pedir",
+   "Más movida",
+   "Más tranquila",
+   "¿Por qué esta?",
+   "Más como esta",
+   "¿Quién canta?"
+  ]
+ },
+ {
+  "tag": "bajado",
+  "d": {
+   "web": "Faros",
+   "np": false,
+   "on": "",
+   "drag": false,
+   "held": false,
+   "seq": 28,
+   "log": [
+    {
+     "seq": 22,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Luz de las siete",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 752763
+    },
+    {
+     "seq": 23,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Luz de las siete",
+     "np": [],
+     "t": 770095
+    },
+    {
+     "seq": 24,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Luz de las siete",
+     "np": [
+      "0:00",
+      "0:40",
+      "Letra",
+      "Visual"
+     ],
+     "t": 770764
+    },
+    {
+     "seq": 25,
+     "list": "np",
+     "force": false,
+     "n": 5,
+     "title": "Faros",
+     "np": [
+      "DESDE TU BIBLIOTECA",
+      "Faros",
+      "Banda Sur",
+      "Letra"
+     ],
+     "t": 771238
+    },
+    {
+     "seq": 26,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Faros",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 771702
+    },
+    {
+     "seq": 27,
+     "list": "np",
+     "force": false,
+     "n": 1,
+     "title": "Faros",
+     "np": [
+      "0:01",
+      "0:40"
+     ],
+     "t": 772149
+    },
+    {
+     "seq": 28,
+     "list": "np",
+     "force": false,
+     "n": 2,
+     "title": "Faros",
+     "np": [
+      "0:02",
+      "0:40"
+     ],
+     "t": 772686
+    },
+    {
+     "hide": "tras el dedo",
+     "t": 815858
+    }
+   ],
+   "nat": {
+    "seq": 28,
+    "wins": "",
+    "shown": false,
+    "texts": []
+   }
+  },
+  "nativo": [
+   "ÓRBITA FM",
+   "15:57",
+   "(Ajustes: tema, voces y animaciones)",
+   "MARTES",
+   "por la tarde",
+   "Energía para llegar arriba al final del día.",
+   "(Abrir Ahora suena)",
+   "CALIDAD: MP3 · 128 KBPS",
+   "✦",
+   "AHORA SUENA: FAROS · BANDA SUR",
+   "TU ASISTENTE MUSICAL",
+   "DJ Nova",
+   "Voz",
+   "Presenta cada canción",
+   "Conversación",
+   "NOVA",
+   "Te he preparado una mezcla para este martes. Abrimos con Pulso, de Kora."
+  ],
+  "web": [
+   "Órbita",
+   "Secciones",
+   "Ahora",
+   "Buscar",
+   "Música",
+   "Listas",
+   "Tú",
+   "Reproductor",
+   "F",
+   "Abrir Ahora suena",
+   "Favorita",
+   "Aleatorio",
+   "Anterior",
+   "Reproducir",
+   "Siguiente",
+   "Repetir: no",
+   "Temporizador para dormir",
+   "0:02",
+   "Posición",
+   "0:40"
+  ]
+ }
+]

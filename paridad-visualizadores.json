@@ -1,0 +1,58 @@
+{
+ "orbita": {
+  "px": 0.04,
+  "blk": 0.02,
+  "luzA": 67.8,
+  "luzB": 67.8,
+  "drawn": "vizFS:gl:orbita:618x1263",
+  "cover": true
+ },
+ "galaxia": {
+  "px": 0.04,
+  "blk": 0.01,
+  "luzA": 45.4,
+  "luzB": 45.4,
+  "drawn": "vizFS:gl:galaxia:618x1263",
+  "cover": true
+ },
+ "ondas": {
+  "px": 0.01,
+  "blk": 0.01,
+  "luzA": 32.8,
+  "luzB": 32.8,
+  "drawn": "vizFS:gl:ondas:412x842",
+  "cover": true
+ },
+ "montanas": {
+  "px": 5.99,
+  "blk": 2.09,
+  "luzA": 47.5,
+  "luzB": 47.6,
+  "drawn": "vizFS:gl:montanas:618x1263",
+  "cover": true
+ },
+ "aurora": {
+  "px": 0.01,
+  "blk": 0.01,
+  "luzA": 64,
+  "luzB": 64,
+  "drawn": "vizFS:gl:aurora:412x842",
+  "cover": true
+ },
+ "tunel": {
+  "px": 0.02,
+  "blk": 0.02,
+  "luzA": 46.8,
+  "luzB": 46.8,
+  "drawn": "vizFS:gl:tunel:412x842",
+  "cover": true
+ },
+ "particulas": {
+  "px": 0.3,
+  "blk": 0.16,
+  "luzA": 61,
+  "luzB": 61,
+  "drawn": "vizFS:gl:particulas:618x1263",
+  "cover": true
+ }
+}

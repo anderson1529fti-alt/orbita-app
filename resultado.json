@@ -1,0 +1,822 @@
+[
+ {
+  "name": "la app se instala",
+  "ok": true,
+  "info": "Success"
+ },
+ {
+  "name": "la app sigue abierta tras arrancar",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "se puede manejar por dentro (depuración del WebView)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "la app ve la música del emulador",
+  "ok": true,
+  "info": "6 canciones"
+ },
+ {
+  "name": "la app lee las portadas de las canciones del móvil",
+  "ok": true,
+  "info": "2 con portada"
+ },
+ {
+  "name": "Ajustes: el interruptor de «Mi música» nativa se enciende",
+  "ok": true,
+  "info": "true · Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre."
+ },
+ {
+  "name": "«Mi música» nativa a la vista",
+  "ok": true,
+  "info": "{\"on\":true,\"shown\":true,\"err\":\"\",\"rect\":\"{\\\"x\\\":0,\\\"y\\\":0,\\\"w\\\":412.19049072265625,\\\"h\\\":630.2261962890625,\\\"dpr\\\":2.625}\"}"
+ },
+ {
+  "name": "sin cierres al abrir la pantalla nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "la pantalla nativa enseña el título, la música del móvil y los filtros",
+  "ok": true,
+  "info": "Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | ♪ | Abrir Ahora suena | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador para dormir | 0:00 | Posición | 0:00 | BIBLIOTECA | 10 canciones · 6 min | Añadir canciones | 6 canciones tienen poca calida | Música del móvil | 6 canciones conectadas. Se rep | Actualizar | Filtrar por título, artista o  | Todas | Favoritas | Mi voz | Del móvil | Recientes | Reproducir todo"
+ },
+ {
+  "name": "al final de la lista, todo queda donde en la pantalla de siempre (± 3)",
+  "ok": true,
+  "info": "nativa 563.4 · web 563.4"
+ },
+ {
+  "name": "se ven las canciones",
+  "ok": true,
+  "info": "Luz de las siete | Faros | Pulso | Luz de las siete | Andén 3 | Lámpara de escritorio | Viernes 23:59"
+ },
+ {
+  "name": "las portadas llegan a la pantalla nativa",
+  "ok": true,
+  "info": "{\"available\":true,\"v\":9,\"covers\":2,\"songs\":10,\"screen\":\"biblioteca\",\"msgs\":0,\"shown\":true,\"pages\":0,\"y\":0,\"mirror\":0,\"wins\":\"\",\"winShown\":false,\"winSeq\":0,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":0,\"vizDrawn\":\"\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6000000238418579,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":0,\"lyDrawn\":\"\",\"lyIdx\":-2,\"lyY\":0,\"lyFill\":0,\"lyTaps\":0,\"lyGen\":-1,\"lyAt\":-2,\"home\":true,\"homeY\":0}"
+ },
+ {
+  "name": "tocar una canción en la pantalla nativa la pone",
+  "ok": true,
+  "info": "{\"title\":\"Pulso\",\"paused\":false,\"q\":10} · estado PLAYING(3) · activa true · Pulso, Kora, Amanecer"
+ },
+ {
+  "name": "el corazón marca la canción como favorita",
+  "ok": true,
+  "info": "true"
+ },
+ {
+  "name": "el filtro «Favoritas» deja solo la favorita",
+  "ok": true,
+  "info": "Pulso"
+ },
+ {
+  "name": "ordenar por título",
+  "ok": true,
+  "info": "Andén 3 | Domingo | Faros | Lámpara de escritorio"
+ },
+ {
+  "name": "el orden elegido se guarda en la app",
+  "ok": true,
+  "info": "{\"sort\":\"title\",\"guardado\":\"title\"}"
+ },
+ {
+  "name": "buscar «kora»: la caja sube arriba del todo y se ven resultados con el teclado abierto",
+  "ok": true,
+  "info": "Luz de las siete | Pulso · la caja queda a 6.9 del borde"
+ },
+ {
+  "name": "«buscar» en el teclado lo cierra y quedan las dos canciones de Kora",
+  "ok": true,
+  "info": "teclado false · Luz de las siete | Pulso"
+ },
+ {
+  "name": "la ✕ vacía la búsqueda",
+  "ok": true,
+  "info": "Andén 3 | Domingo | Faros | Lámpara de escritorio | Luz de las siete"
+ },
+ {
+  "name": "«editar» abre la ventana (nativa, con esa canción) y «Mi música» nativa sigue debajo",
+  "ok": true,
+  "info": "{\"shown\":true,\"win\":\"edit\",\"dialog\":true,\"titulo\":\"Domingo\"}"
+ },
+ {
+  "name": "al cerrar el diálogo, la pantalla nativa vuelve",
+  "ok": true,
+  "info": "{\"shown\":true,\"kb\":0}"
+ },
+ {
+  "name": "un solo toque en la papelera no borra nada",
+  "ok": true,
+  "info": "10 → 10"
+ },
+ {
+  "name": "si no se confirma, a los 3 s vuelve a su sitio",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "papelera y luego «¿Borrar?»: la canción se quita de Órbita",
+  "ok": true,
+  "info": "10 → 9"
+ },
+ {
+  "name": "los avisos de la app se ven encima de la pantalla nativa",
+  "ok": true,
+  "info": "mirar la pantalla tardó 10803 ms"
+ },
+ {
+  "name": "al cambiar de pestaña cambia la pantalla nativa, y al volver vuelve «Mi música»",
+  "ok": true,
+  "info": "buscar → biblioteca"
+ },
+ {
+  "name": "al volver de otra pestaña, la lista empieza arriba (como la de siempre)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "el reproductor a pantalla completa se abre por encima (la nativa se aparta)",
+  "ok": true,
+  "info": "{\"shown\":false,\"np\":true}"
+ },
+ {
+  "name": "al cerrarlo, la nativa vuelve",
+  "ok": true,
+  "info": "{\"shown\":true,\"np\":false,\"view\":\"biblioteca\"}"
+ },
+ {
+  "name": "el aspecto elegido en «Personaliza Órbita» llega a la pantalla nativa (letra más grande)",
+  "ok": true,
+  "info": "[true,true,true] · alto del título 126 px"
+ },
+ {
+  "name": "sin cierres por error en las pruebas de la pantalla nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Añadir canciones» abre el selector de archivos de Android",
+  "ok": true,
+  "info": "topResumedActivity=ActivityRecord{548e821 u0 com.google.android.documentsui/com.android.documentsui.picker.PickActivity t8}"
+ },
+ {
+  "name": "la canción elegida en el selector entra en la biblioteca",
+  "ok": true,
+  "info": "9 → 10 · {\"id\":\"tmwkv47mv75l56\",\"title\":\"Luz de las siete\",\"artist\":\"Kora\",\"shown\":true}"
+ },
+ {
+  "name": "borrar desde la pantalla nativa la quita de la biblioteca",
+  "ok": true,
+  "info": "10 → 9"
+ },
+ {
+  "name": "tras el selector, la app sigue abierta, delante, y la pantalla nativa vuelve",
+  "ok": true,
+  "info": "topResumedActivity=ActivityRecord{fd90e55 u0 io.github.orbita.musica/.MainActivity t8}"
+ },
+ {
+  "name": "recién instalada, «Mi música» nativa viene encendida sin tocar nada",
+  "ok": true,
+  "info": "{\"on\":true,\"shown\":true,\"err\":\"\",\"guardado\":null}"
+ },
+ {
+  "name": "sin cierres por error tras reiniciar la parte web con la pantalla nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Ahora» sale nativa al entrar",
+  "ok": true,
+  "info": "{\"shown\":true,\"screen\":\"inicio\",\"homeOk\":true,\"err\":\"\",\"st\":{\"available\":true,\"v\":9,\"covers\":2,\"songs\":9,\"screen\":\"inicio\",\"msgs\":0,\"shown\":true,\"pages\":0,\"y\":0,\"mirror\":17,\"wins\":\"\",\"winShown\":false,\"winSeq\":2,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":0,\"vizDrawn\":\"\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6000000238418579,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":0,\"lyDrawn\":\"\",\"lyIdx\":-2,\"lyY\":0,\"lyFill\":0,\"lyTaps\":0,\"lyGen\":-1,\"lyAt\":-2,\"home\":true,\"homeY\":0}} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | P | A"
+ },
+ {
+  "name": "sin cierres al abrir «Ahora» nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Ahora»: cada texto, donde en la pantalla de siempre (± 3), de arriba abajo",
+  "ok": true,
+  "info": "138 comparados · 0 fuera: "
+ },
+ {
+  "name": "«Presenta cada canción» se enciende y se apaga",
+  "ok": true,
+  "info": "true → false"
+ },
+ {
+  "name": "al escribirle, sale el teclado y la caja se sigue viendo",
+  "ok": true,
+  "info": "teclado true · caja 135,530,947,590 «» · app 0,128,1080,1517"
+ },
+ {
+  "name": "al mandarlo, Nova contesta en su recuadro y el teclado baja",
+  "ok": true,
+  "info": "teclado false · Puedes pedirme cosas como: más movida, más tranqui"
+ },
+ {
+  "name": "un desplegable: se abre y lo elegido llega a la app",
+  "ok": true,
+  "info": "Automática → DJ"
+ },
+ {
+  "name": "tocar un ánimo lo marca en la app",
+  "ok": true,
+  "info": "Energía"
+ },
+ {
+  "name": "«Crear mezcla»: la mezcla sale en la nativa, con sus botones y sus canciones",
+  "ok": true,
+  "info": "8 canciones · a la vista: Marea lenta | Viernes 23:59 | Luz de las siete | Luz de las siete | Andén 3"
+ },
+ {
+  "name": "tocar una canción de la mezcla la pone",
+  "ok": true,
+  "info": "{\"title\":\"Andén 3\",\"paused\":false} · estado PLAYING(3) · activa true · Andén 3, Órbita · demo, Pistas de prueba"
+ },
+ {
+  "name": "tocar el disco abre el reproductor (la nativa se aparta) y al cerrarlo vuelve",
+  "ok": true,
+  "info": "[{\"np\":true,\"shown\":false},{\"np\":false,\"shown\":true,\"screen\":\"inicio\"}]"
+ },
+ {
+  "name": "la ruleta: cae en una canción, se ve en la nativa y suena",
+  "ok": true,
+  "info": "{\"title\":\"Faros\",\"landed\":true,\"radio\":\"true\",\"paused\":false}"
+ },
+ {
+  "name": "los avisos de la app se ven encima de «Ahora» nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "el aviso de versión nueva sale en la nativa, con sus dos botones",
+  "ok": true,
+  "info": "true"
+ },
+ {
+  "name": "«Luego» quita el aviso de versión nueva",
+  "ok": true,
+  "info": "true"
+ },
+ {
+  "name": "el botón de ajustes lleva a Ajustes, y al volver «Ahora» es nativa otra vez",
+  "ok": true,
+  "info": "[{\"view\":\"ajustes\",\"shown\":true,\"screen\":\"ajustes\"},{\"view\":\"inicio\",\"shown\":true,\"screen\":\"inicio\",\"st\":{\"available\":true,\"v\":9,\"covers\":9,\"songs\":9,\"screen\":\"inicio\",\"msgs\":0,\"shown\":true,\"pages\":0,\"y\":0,\"mirror\":17,\"wins\":\"\",\"winShown\":false,\"winSeq\":5,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":0,\"vizDrawn\":\"\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6000000238418579,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":0,\"lyDrawn\":\"\",\"lyIdx\":-2,\"lyY\":0,\"lyFill\":0,\"lyTaps\":0,\"lyGen\":-1,\"lyAt\":-2,\"home\":true,\"homeY\":0}}]"
+ },
+ {
+  "name": "con la portada arriba sigue nativa; con un visualizador, también (y el visualizador lo dibuja Android); y de vuelta al disco, nativa",
+  "ok": true,
+  "info": "[true,{\"shown\":true,\"vis\":\"hidden\",\"which\":\"vizHero\"},true]"
+ },
+ {
+  "name": "el aspecto elegido llega a «Ahora» nativa (letra más grande)",
+  "ok": true,
+  "info": "alto del nombre 91 px"
+ },
+ {
+  "name": "sin cierres por error con «Ahora» nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Mis listas» sale nativa al entrar",
+  "ok": true,
+  "info": "{\"shown\":true,\"screen\":\"listas\",\"pgOk\":true,\"st\":{\"available\":true,\"v\":9,\"covers\":11,\"songs\":9,\"screen\":\"listas\",\"msgs\":0,\"shown\":true,\"pages\":3,\"y\":0,\"mirror\":17,\"wins\":\"\",\"winShown\":false,\"winSeq\":5,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":26,\"vizDrawn\":\"vizHero:gl:orbita:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6583333015441895,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":0,\"lyDrawn\":\"\",\"lyIdx\":-2,\"lyY\":0,\"lyFill\":0,\"lyTaps\":0,\"lyGen\":-1,\"lyAt\":-2,\"home\":true,\"homeY\":0}} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Rep"
+ },
+ {
+  "name": "las listas guardadas salen en la nativa",
+  "ok": true,
+  "info": "{\"n\":2,\"name\":\"Martes en órbita\",\"screen\":\"listas\"} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | F | Abrir Ahora suena | Favorita | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador para dorm | 0:16 | Posición | 0:40 | L | L | Martes en órbita | Elegida por Nova en tu | 8 canciones · 4:40 · m | E"
+ },
+ {
+  "name": "«Mis listas»: cada texto, donde en la pantalla de siempre (± 3)",
+  "ok": true,
+  "info": "21 comparados · 0 fuera: "
+ },
+ {
+  "name": "«Escuchar» pone la lista",
+  "ok": true,
+  "info": "{\"q\":8,\"paused\":false} · estado PLAYING(3) · activa true · Pulso, Kora, Amanecer"
+ },
+ {
+  "name": "la papelera pide confirmar y, al confirmar, borra la lista",
+  "ok": true,
+  "info": "armada true · 2 → 2 → 1"
+ },
+ {
+  "name": "al cambiar de pestaña cambia la nativa, y al volver «Mis listas» es nativa y está arriba",
+  "ok": true,
+  "info": "[\"buscar\",{\"shown\":true,\"screen\":\"listas\",\"st\":{\"available\":true,\"v\":9,\"covers\":11,\"songs\":9,\"screen\":\"listas\",\"msgs\":0,\"shown\":true,\"pages\":3,\"y\":0,\"mirror\":17,\"wins\":\"\",\"winShown\":false,\"winSeq\":5,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":26,\"vizDrawn\":\"vizHero:gl:orbita:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6583333015441895,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":0,\"lyDrawn\":\"\",\"lyIdx\":-2,\"lyY\":0,\"lyFill\":0,\"lyTaps\":0,\"lyGen\":-1,\"lyAt\":-2,\"home\":true,\"homeY\":0}}]"
+ },
+ {
+  "name": "sin cierres por error con «Mis listas» nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Tú» sale nativa al entrar",
+  "ok": true,
+  "info": "{\"shown\":true,\"screen\":\"tu\",\"st\":{\"available\":true,\"v\":9,\"covers\":11,\"songs\":9,\"screen\":\"tu\",\"msgs\":0,\"shown\":true,\"pages\":7,\"y\":0,\"mirror\":17,\"wins\":\"\",\"winShown\":false,\"winSeq\":5,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":26,\"vizDrawn\":\"vizHero:gl:orbita:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6583333015441895,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":0,\"lyDrawn\":\"\",\"lyIdx\":-2,\"lyY\":0,\"lyFill\":0,\"lyTaps\":0,\"lyGen\":-1,\"lyAt\":-2,\"home\":true,\"homeY\":0}} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | P | Abrir"
+ },
+ {
+  "name": "«Tú»: cada texto, donde en la pantalla de siempre (± 3), de arriba abajo",
+  "ok": true,
+  "info": "108 comparados · 0 fuera: "
+ },
+ {
+  "name": "el botón de una canción de «Tus canciones» la pone",
+  "ok": true,
+  "info": "{\"title\":\"Andén 3\",\"paused\":false} · Escuchar Andén 3"
+ },
+ {
+  "name": "«Ver los datos» despliega la tabla de la gráfica",
+  "ok": true,
+  "info": "true · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | A | Abrir Ahora  | Favorita | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador | 0:04 | Posición | 0:30 | Más al medio | 8 min | 0:00 | 6:00 | 12:00 | 18:00 | "
+ },
+ {
+  "name": "cambiar el periodo («Siempre») llega a la app",
+  "ok": true,
+  "info": "Siempre"
+ },
+ {
+  "name": "«Recordar lo que escucho» se apaga y se enciende",
+  "ok": true,
+  "info": "false → true"
+ },
+ {
+  "name": "el botón «Ajustes» de abajo lleva a Ajustes",
+  "ok": true,
+  "info": "{\"view\":\"ajustes\",\"shown\":true,\"screen\":\"ajustes\"}"
+ },
+ {
+  "name": "y al volver, «Tú» es nativa y está arriba",
+  "ok": true,
+  "info": "{\"shown\":true,\"screen\":\"tu\",\"st\":{\"available\":true,\"v\":9,\"covers\":11,\"songs\":9,\"screen\":\"tu\",\"msgs\":0,\"shown\":true,\"pages\":7,\"y\":0,\"mirror\":17,\"wins\":\"\",\"winShown\":false,\"winSeq\":5,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":26,\"vizDrawn\":\"vizHero:gl:orbita:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6583333015441895,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":0,\"lyDrawn\":\"\",\"lyIdx\":-2,\"lyY\":0,\"lyFill\":0,\"lyTaps\":0,\"lyGen\":-1,\"lyAt\":-2,\"home\":true,\"homeY\":0}}"
+ },
+ {
+  "name": "sin cierres por error con «Tú» nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "el temporizador sale nativo, en su capa, y «Ahora» sigue nativa debajo",
+  "ok": true,
+  "info": "{\"on\":\"sleep\",\"shown\":true,\"screen\":\"inicio\",\"st\":{\"available\":true,\"v\":9,\"covers\":11,\"songs\":9,\"screen\":\"inicio\",\"msgs\":0,\"shown\":true,\"pages\":7,\"y\":0,\"mirror\":17,\"wins\":\"sleep\",\"winShown\":true,\"winSeq\":6,\"winTexts\":[\"[sleep]\",\"Temporizador para dormir\",\"La música bajará poco a poco y se parará sola. Nova te\",\"dará las buenas noches.\",\"15 min\",\"30 min\",\"45 min\",\"1 hora\",\"1 h 30\",\"Esta canción\",\"Cerrar\"],\"vizActive\":\"\",\"vizFrames\":26,\"vizDrawn\":\"vizHero:gl:orbita:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6583333015441895,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":fal"
+ },
+ {
+  "name": "el temporizador: cada renglón, donde en la de siempre (± 3)",
+  "ok": true,
+  "info": "10 comparados · 0 fuera: "
+ },
+ {
+  "name": "tocar «30 min» pone el temporizador y cierra la ventana (también la nativa)",
+  "ok": true,
+  "info": "{\"on\":true,\"open\":false,\"win\":\"\"} · {\"wins\":\"\",\"shown\":false}"
+ },
+ {
+  "name": "y «Desactivar» lo quita",
+  "ok": true,
+  "info": "false"
+ },
+ {
+  "name": "el reproductor, abierto y quieto, es nativo (y la pantalla de debajo se aparta: lo tapa todo)",
+  "ok": true,
+  "info": "{\"on\":\"np\",\"shown\":false,\"screen\":\"\",\"st\":{\"available\":true,\"v\":9,\"covers\":11,\"songs\":9,\"screen\":\"inicio\",\"msgs\":0,\"shown\":false,\"pages\":7,\"y\":0,\"mirror\":17,\"wins\":\"np\",\"winShown\":true,\"winSeq\":15,\"winTexts\":[\"[np]\",\"Cerrar\",\"DESDE TU BIBLIOTECA\",\"Viernes 23:59\",\"Órbita · demo\",\"0:10\",\"0:30\",\"Letra\",\"Visual\",\"Videoclip\",\"WAV · HI-FI\",\"Pistas de prueba\",\"Dormir\",\"Más como esta\",\"No me la pongas más\",\"Háblale\",\"A CONTINUACIÓN\",\"Luz de las siete\",\"Kora\",\"Faros\",\"Banda Sur\",\"Pulso\",\"Kora\"],\"vizActive\":\"\",\"vizFrames\":26,\"vizDrawn\":\"vizHero:gl:orbita:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":fa"
+ },
+ {
+  "name": "el reproductor: cada renglón, donde en el de siempre (± 3)",
+  "ok": true,
+  "info": "14 comparados · 0 fuera: "
+ },
+ {
+  "name": "«Siguiente» del reproductor nativo pasa de canción (y lo enseña)",
+  "ok": true,
+  "info": "Viernes 23:59 → Luz de las siete (3 → 4)"
+ },
+ {
+  "name": "deslizar la portada a la izquierda pasa a la siguiente (y la nativa la enseña)",
+  "ok": true,
+  "info": "Luz de las siete → Faros (4 → 5)"
+ },
+ {
+  "name": "dentro del reproductor nativo se baja con el dedo (y el de siempre se pone a la misma altura)",
+  "ok": true,
+  "info": "{\"web\":68.19047546386719,\"max\":69,\"st\":{\"available\":true,\"v\":9,\"covers\":13,\"songs\":9,\"screen\":\"inicio\",\"msgs\":0,\"shown\":false,\"pages\":7,\"y\":0,\"mirror\":17,\"wins\":\"np\",\"winShown\":true,\"winSeq\":28,\"winTexts\":[\"[np]\",\"Cerrar\",\"DESDE TU BIBLIOTECA\",\"Faros\",\"Banda Sur\",\"0:02\",\"0:40\",\"Letra\",\"Visual\",\"Videoclip\",\"MP3 128k\",\"Costa\",\"Dormir\",\"Más como esta\",\"No me la pongas más\",\"Háblale\",\"A CONTINUACIÓN\",\"Pulso\",\"Kora\"],\"vizActive\":\"\",\"vizFrames\":26,\"vizDrawn\":\"vizHero:gl:orbita:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6583333015441895,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytD"
+ },
+ {
+  "name": "subir dentro del reproductor no lo cierra aunque se llegue arriba",
+  "ok": true,
+  "info": "{\"web\":0,\"np\":true,\"on\":\"np\"}"
+ },
+ {
+  "name": "arriba del todo, bajarlo con el dedo lo cierra, y vuelve «Ahora» nativa",
+  "ok": true,
+  "info": "[{\"web\":0,\"np\":true,\"on\":\"np\"},{\"np\":false,\"on\":\"\",\"shown\":true,\"screen\":\"inicio\",\"st\":{\"available\":true,\"v\":9,\"covers\":13,\"songs\":9,\"screen\":\"inicio\",\"msgs\":0,\"shown\":true,\"pages\":7,\"y\":0,\"mirror\":17,\"wins\":\"\",\"winShown\":false,\"winSeq\":28,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":26,\"vizDrawn\":\"vizHero:gl:orbita:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":false,\"vizYaw\":0.6583333015441895,\"vizPitch\":0.5,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":0,\"lyDrawn\":\"\",\"lyIdx\":-2,\"lyY\":0,\"lyFill\":0,\"lyTaps\":0,\"lyGen\":-1,\"lyAt\":-2,\"home\":true,\"homeY\":0}}]"
+ },
+ {
+  "name": "se abre otra vez nativo, y «Cerrar» lo cierra",
+  "ok": true,
+  "info": "[\"np\",{\"np\":false,\"on\":\"\",\"shown\":true}]"
+ },
+ {
+  "name": "editar una canción en la ventana nativa: lo escrito llega y «Guardar» lo guarda",
+  "ok": true,
+  "info": "{\"ef\":true,\"ev\":\"Andén 3 2\",\"tit1\":{\"t\":\"Andén 3 2\",\"open\":false,\"on\":\"\"}}"
+ },
+ {
+  "name": "la ventana de la letra es nativa: se escribe en su caja y «Cancelar» la cierra",
+  "ok": true,
+  "info": "{\"lw\":\"ly\",\"lv\":\"hola\",\"lc\":{\"open\":false,\"on\":\"\"}}"
+ },
+ {
+  "name": "las novedades salen nativas y un toque en lo oscuro de alrededor las cierra",
+  "ok": true,
+  "info": "[\"news\",{\"open\":false,\"on\":\"\"}]"
+ },
+ {
+  "name": "sin cierres por error con las ventanas y el reproductor nativos",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Ahora» con el visualizador arriba es nativa y el visualizador lo dibuja Android (y se mueve)",
+  "ok": true,
+  "info": "{\"hs\":{\"shown\":true,\"screen\":\"inicio\",\"which\":\"vizHero\",\"hero\":\"viz\"},\"n\":40,\"drawn\":\"vizHero:gl:orbita:210x210\",\"err\":\"\"}"
+ },
+ {
+  "name": "tocar el visualizador de «Ahora» abre el reproductor, y su «Visual» lo dibuja Android (el reproductor sigue nativo)",
+  "ok": true,
+  "info": "{\"hn\":true,\"nv\":true,\"np1\":{\"np\":true,\"viz\":true,\"on\":\"np\"},\"n\":51,\"drawn\":\"vizNP:gl:orbita:402x402\",\"err\":\"\"}"
+ },
+ {
+  "name": "la etiqueta del estilo, encima del visualizador del reproductor, cambia de estilo (y Android lo dibuja)",
+  "ok": true,
+  "info": "{\"de\":\"orbita\",\"a\":\"galaxia\",\"drawn\":\"vizNP:gl:galaxia:278x278\"}"
+ },
+ {
+  "name": "a pantalla completa es una ventana nativa y el visualizador lo dibuja Android",
+  "ok": true,
+  "info": "{\"fs1\":{\"full\":true,\"on\":\"np,viz\",\"chrome\":false},\"n\":46,\"drawn\":\"vizFS:gl:galaxia:447x913\"}"
+ },
+ {
+  "name": "arrastrar el dedo gira el visualizador (y no esconde el título)",
+  "ok": true,
+  "info": "{\"y0\":1.6466809511184692,\"y1\":3.1272785663604736,\"chrome\":[false,false]}"
+ },
+ {
+  "name": "un toque sin mover esconde el título (como siempre)",
+  "ok": true,
+  "info": "[false,true]"
+ },
+ {
+  "name": "cada estilo, quieto, igual en Android que en la web (en bloques, ±6 de 255)",
+  "ok": true,
+  "info": "orbita 0.02/0.04 (67.8·67.8) · galaxia 0.01/0.04 (45.4·45.4) · ondas 0.01/0.01 (32.8·32.8) · montanas 2.09/5.99 (47.5·47.6) · aurora 0.01/0.01 (64·64) · tunel 0.02/0.02 (46.8·46.8) · particulas 0.16/0.3 (61·61)"
+ },
+ {
+  "name": "con animaciones «Ligeras», Android dibuja los clásicos (2D)",
+  "ok": true,
+  "info": "{\"n\":20,\"drawn\":\"vizFS:2d:particulas:515x1053\",\"err\":\"\"}"
+ },
+ {
+  "name": "y al volver a «Completas», otra vez los de la tarjeta gráfica",
+  "ok": true,
+  "info": "{\"n\":28,\"drawn\":\"vizFS:gl:particulas:618x1263\"}"
+ },
+ {
+  "name": "«Cerrar» cierra la pantalla completa y vuelve el del reproductor",
+  "ok": true,
+  "info": "{\"bw\":{\"full\":false,\"on\":\"np\"},\"a\":\"vizNP\",\"nat\":true}"
+ },
+ {
+  "name": "con el disco otra vez arriba, Android ya no dibuja ningún visualizador",
+  "ok": true,
+  "info": "{\"a\":\"\",\"err\":\"\"}"
+ },
+ {
+  "name": "sin cierres por error con los visualizadores",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "con la letra abierta, el reproductor sigue siendo nativo y la letra la dibuja Android",
+  "ok": true,
+  "info": "{\"w1\":{\"on\":\"np\",\"open\":true,\"lg\":2,\"idx\":1,\"t\":2.75},\"drawn\":\"s:2:16\"}"
+ },
+ {
+  "name": "va con la canción: el verso encendido avanza (el mismo que en la web), se llena y la caja lo sigue",
+  "ok": true,
+  "info": "{\"a\":[1,150.9,0.84],\"b\":[4,305.1,0.6],\"web\":{\"idx\":4,\"t\":9.68}}"
+ },
+ {
+  "name": "tocar un verso lleva la canción allí (y se enciende ese)",
+  "ok": true,
+  "info": "{\"want\":3,\"nodo\":\"Verso 4 de la letra\",\"w3\":{\"idx\":3,\"t\":5.95},\"nat\":3,\"taps\":[0,1]}"
+ },
+ {
+  "name": "deslizar la letra con el dedo la mueve a ella, y no baja el reproductor",
+  "ok": true,
+  "info": "{\"sy0\":269,\"sy1\":115,\"w4\":{\"on\":\"np\",\"np\":true}}"
+ },
+ {
+  "name": "quieta, cada verso de la letra está donde en la de siempre (± 3)",
+  "ok": true,
+  "info": "8 comparados · fuera:  · caja: Android 305.1 / web 304.76190185546875"
+ },
+ {
+  "name": "al cerrar la letra, el reproductor sigue nativo con su portada",
+  "ok": true,
+  "info": "{\"on\":\"np\",\"open\":false}"
+ },
+ {
+  "name": "sin cierres por error con la letra nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "con un vídeo, el reproductor sigue nativo y deja el hueco del vídeo justo en su sitio (y por él se ve el vídeo)",
+  "ok": true,
+  "info": "{\"w1\":{\"on\":\"np\",\"yt\":true,\"nat\":\"{\\\"on\\\":1,\\\"x\\\":20,\\\"y\\\":95.27,\\\"w\\\":372.19,\\\"h\\\":209.36}\"},\"hueco\":\"53,250,976x550\",\"web\":[52.5,250.1,977,549.6],\"seen\":[[255,32,32],[32,255,32],[32,64,255]]}"
+ },
+ {
+  "name": "lo que se toca en el hueco le llega al vídeo (y el reproductor sigue igual)",
+  "ok": true,
+  "info": "{\"f0\":0,\"f1\":1,\"toquesDelVideo\":1,\"w2\":{\"on\":\"np\",\"np\":true,\"yt\":true}}"
+ },
+ {
+  "name": "al deslizar el reproductor, el vídeo y su hueco van con él",
+  "ok": true,
+  "info": "{\"antes\":\"53,250,976x550\",\"ahora\":\"53,103,976x549\",\"web\":[52.5,103.1,977,549.6]}"
+ },
+ {
+  "name": "al cerrar el reproductor, el hueco del vídeo se va",
+  "ok": true,
+  "info": "{\"hueco\":\"\",\"dock\":false}"
+ },
+ {
+  "name": "sin vídeo, el hueco no vuelve",
+  "ok": true,
+  "info": "{\"hueco\":\"\"}"
+ },
+ {
+  "name": "sin cierres por error con el videoclip nativo",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Buscar» sale nativa",
+  "ok": true,
+  "info": "{\"shown\":true,\"screen\":\"buscar\",\"mirOk\":true,\"err\":\"\",\"st\":{\"available\":true,\"v\":9,\"covers\":14,\"songs\":9,\"screen\":\"buscar\",\"msgs\":0,\"shown\":true,\"pages\":7,\"y\":0,\"mirror\":17,\"wins\":\"\",\"winShown\":false,\"winSeq\":195,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":1669,\"vizDrawn\":\"vizHero:gl:particulas:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":true,\"vizYaw\":1.6250109672546387,\"vizPitch\":0.550000011920929,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":1,\"lyDrawn\":\"s:2:16\",\"lyIdx\":4,\"lyY\":305.1428527832031,\"lyFill\":1,\"lyTaps\":1,\"lyGen\":2,\"lyAt\":4,\"home\":true,\"homeY\":0}} · Órbita | Secci"
+ },
+ {
+  "name": "«Buscar»: cada renglón, donde en la pantalla de siempre (± 3)",
+  "ok": true,
+  "info": "34 comparados · 0 fuera: "
+ },
+ {
+  "name": "escribir en la caja nativa y darle a «buscar»: busca, se cierra el teclado y salen los resultados (las de Kora que ya tienes)",
+  "ok": true,
+  "info": "{\"box\":true,\"q1\":\"kora\",\"kb\":false,\"qs\":{\"q\":\"kora\",\"lib\":17,\"out\":\"Ya en tu bibliotecaLuz de las siete · KoraMP3 · 132 kbpsEscucharPPulso · KoraMP3 · 128 kbpsEscucharEscúchalas ya · avances de 30 segundosEscuchar todosKora · Ballaké SissokoDjourou · 4:23AvanceYouTube\"}} · Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | Reproductor | L | Abrir Ahora suena | Favorita | Aleatorio | Anterior | Reproducir | Siguiente | Repetir: no | Temporizador para  | 0:01 | Posición | 0:30 | BUSCAR | canciones, radios  | Canciones | Radios | YouTube | kora | Buscar | YA EN"
+ },
+ {
+  "name": "la pestaña «Radios» se abre tocándola",
+  "ok": true,
+  "info": "{\"radios\":true,\"cc\":\"US\",\"opts\":[[\"\",\"Todo el mundo\"],[\"ES\",\"España\"],[\"MX\",\"México\"],[\"AR\",\"Argentina\"]]}"
+ },
+ {
+  "name": "y el país se elige en la lista desplegable nativa",
+  "ok": true,
+  "info": "US → ES"
+ },
+ {
+  "name": "sin cierres por error con «Buscar» nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Ajustes» sale nativa",
+  "ok": true,
+  "info": "{\"shown\":true,\"screen\":\"ajustes\",\"st\":{\"available\":true,\"v\":9,\"covers\":72,\"songs\":9,\"screen\":\"ajustes\",\"msgs\":0,\"shown\":true,\"pages\":7,\"y\":0,\"mirror\":18,\"wins\":\"\",\"winShown\":false,\"winSeq\":195,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":1669,\"vizDrawn\":\"vizHero:gl:particulas:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":true,\"vizYaw\":1.6250109672546387,\"vizPitch\":0.550000011920929,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":1,\"lyDrawn\":\"s:2:16\",\"lyIdx\":4,\"lyY\":305.1428527832031,\"lyFill\":1,\"lyTaps\":1,\"lyGen\":2,\"lyAt\":4,\"home\":true,\"homeY\":0}}"
+ },
+ {
+  "name": "«Ajustes»: cada renglón, donde en la pantalla de siempre (± 3)",
+  "ok": true,
+  "info": "153 comparados · 0 fuera: "
+ },
+ {
+  "name": "un interruptor de «Ajustes» nativa (vibración al tocar) se cambia tocándolo",
+  "ok": true,
+  "info": "true → false"
+ },
+ {
+  "name": "una barra de «Ajustes» nativa (duración del fundido) se desliza con el dedo",
+  "ok": true,
+  "info": "8 → 15"
+ },
+ {
+  "name": "y un toque en la barra la pone ahí (y la nativa enseña el valor)",
+  "ok": true,
+  "info": "15 → 5"
+ },
+ {
+  "name": "una banda del ecualizador nativa se arrastra con el dedo (sube a +6)",
+  "ok": true,
+  "info": "+6"
+ },
+ {
+  "name": "y un toque en el medio la deja a 0",
+  "ok": true,
+  "info": "0"
+ },
+ {
+  "name": "«Cambiar la hora» abre el reloj de Android; al aceptar, la hora queda puesta y «Ajustes» sigue nativa",
+  "ok": true,
+  "info": "{\"t\":\"07:30\",\"shown\":true,\"screen\":\"ajustes\"} · 07 | : | 30 | CANCEL | OK"
+ },
+ {
+  "name": "lo que se escribe en una caja de «Ajustes» nativa llega a la de siempre",
+  "ok": true,
+  "info": "\"Soria\""
+ },
+ {
+  "name": "tocar un tema en «Ajustes» nativa lo elige",
+  "ok": true,
+  "info": "neon"
+ },
+ {
+  "name": "con una ventana de las de siempre encima (YouTube), «Ajustes» se aparta (la de siempre a la misma altura) y al cerrarla vuelve donde estaba",
+  "ok": true,
+  "info": "[{\"web\":2600,\"nat\":2600.142822265625},{\"shown\":false,\"web\":2600},{\"shown\":true,\"screen\":\"ajustes\",\"nat\":2600.142822265625}]"
+ },
+ {
+  "name": "sin cierres por error con «Ajustes» nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "la conversación con Nova sale nativa",
+  "ok": true,
+  "info": "{\"shown\":true,\"screen\":\"chat\",\"chatOk\":true,\"err\":\"\",\"st\":{\"available\":true,\"v\":9,\"covers\":72,\"songs\":9,\"screen\":\"chat\",\"msgs\":1,\"shown\":true,\"pages\":7,\"y\":0,\"mirror\":18,\"wins\":\"\",\"winShown\":false,\"winSeq\":195,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":1669,\"vizDrawn\":\"vizHero:gl:particulas:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":true,\"vizYaw\":1.6250109672546387,\"vizPitch\":0.550000011920929,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":1,\"lyDrawn\":\"s:2:16\",\"lyIdx\":4,\"lyY\":305.1428527832031,\"lyFill\":1,\"lyTaps\":1,\"lyGen\":2,\"lyAt\":4,\"home\":true,\"homeY\":0}}"
+ },
+ {
+  "name": "la conversación nativa: cada cosa donde en la de siempre (± 3)",
+  "ok": true,
+  "info": "[[\"Nova\",0,0.1],[\"qué suena\",0,0],[\"Borrar\",0,0],[\"Cerrar\",0,0],[\"Enviar\",0,-0.3],[\"saludo\",0.1,0.2],[\"«¿Qué recuerdas de mí?»\",0.1,-1],[\"«Más movida»\",0.3,-1],[\"«Más tranquila»\",0.6,-1],[\"«¿Por qué esta?»\",0.2,-0.7],[\"«Resumen de mi semana»\",0.6,-0.7],[\"«Ayuda»\",0.9,-0.7],[\"caja\",0,-0.4],[\"micrófono\",-0.1,-0.1]]"
+ },
+ {
+  "name": "mantener pulsado un mensaje (copiarlo) no rompe nada",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "tocar una sugerencia: sale mi mensaje y Nova contesta",
+  "ok": true,
+  "info": "Nova | Suena: Luz de las  | Borrar | Cerrar | Ayuda | Puedes pedirme cos | ¿Qué recuerdas de  | Más movida | Más tranquila | ¿Por qué esta? | Resumen de mi sema | Ayuda | Escribe a la DJ… | Enviar | Órbita | Secciones | Ahora | Buscar | Música | Listas | Tú | ÓRBITA FM | 16:09 | Despertador: mañan |"
+ },
+ {
+  "name": "con el teclado abierto se ve lo último que dijo Nova y lo que escribo",
+  "ok": true,
+  "info": "teclado true · alto de la app 1389"
+ },
+ {
+  "name": "«enviar» en el teclado manda el mensaje, la caja se vacía y Nova contesta",
+  "ok": true,
+  "info": "[[\"me\",\"Ayuda\"],[\"nova\",\"Puedes pedirme cosas como: más\"],[\"me\",\"gracias\"],[\"nova\",\"Para eso estoy.\"]]"
+ },
+ {
+  "name": "el botón «Enviar» manda el mensaje",
+  "ok": true,
+  "info": "[[\"me\",\"hola\"],[\"nova\",\"¡Hola! Aquí estoy. ¿Te pongo a\"]]"
+ },
+ {
+  "name": "los avisos de la app se ven encima de la conversación nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "si una ventana de las de siempre se pone encima, la nativa se aparta y luego vuelve",
+  "ok": true,
+  "info": "false → true"
+ },
+ {
+  "name": "el temporizador (nativo) sale encima de la conversación, que sigue nativa debajo",
+  "ok": true,
+  "info": "{\"chat\":true,\"win\":\"sleep\"}"
+ },
+ {
+  "name": "«Borrar» vacía la conversación",
+  "ok": true,
+  "info": "0"
+ },
+ {
+  "name": "«Cerrar» cierra la conversación, vuelve «Ahora» y baja el teclado",
+  "ok": true,
+  "info": "{\"cerrada\":true,\"shown\":true,\"st\":{\"available\":true,\"v\":9,\"covers\":72,\"songs\":9,\"screen\":\"inicio\",\"msgs\":1,\"shown\":true,\"pages\":7,\"y\":0,\"mirror\":18,\"wins\":\"\",\"winShown\":false,\"winSeq\":196,\"winTexts\":[],\"vizActive\":\"\",\"vizFrames\":1669,\"vizDrawn\":\"vizHero:gl:particulas:210x210\",\"vizErr\":\"\",\"vizTwo\":false,\"vizCover\":true,\"vizYaw\":1.6250109672546387,\"vizPitch\":0.550000011920929,\"vizZoom\":1,\"ytHole\":\"\",\"ytDock\":false,\"ytSlot\":false,\"ytFwd\":1,\"lyDrawn\":\"s:2:16\",\"lyIdx\":4,\"lyY\":305.1428527832031,\"lyFill\":1,\"lyTaps\":1,\"lyGen\":2,\"lyAt\":4,\"home\":true,\"homeY\":0}} · teclado false"
+ },
+ {
+  "name": "sin cierres por error con la conversación nativa",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "una muestra de Deezer recién pedida suena en la app",
+  "ok": true,
+  "info": "suena"
+ },
+ {
+  "name": "una recomendación guardada con la dirección caducada: la app pide la nueva y suena, sin aviso de error",
+  "ok": true,
+  "info": "la caducada a pelo: no se puede (error 4) · {\"cur\":\"dz:3135556\",\"nueva\":true,\"boton\":\"Pausar\",\"t\":8,\"toast\":\"\",\"guardada\":true}"
+ },
+ {
+  "name": "el reproductor es el de Kotlin",
+  "ok": true,
+  "info": "{\"available\":true,\"rate\":48000,\"v\":3,\"bt\":false,\"lat\":174,\"player\":\"kotlin\",\"service\":true}"
+ },
+ {
+  "name": "suena y la app sigue abierta",
+  "ok": true,
+  "info": "estado PLAYING(3) · activa true · Marea lenta, Los Rayos, Mar"
+ },
+ {
+  "name": "el servicio de música arrancó (Media3)",
+  "ok": true,
+  "info": "{\"available\":true,\"rate\":48000,\"v\":3,\"bt\":false,\"lat\":179,\"player\":\"kotlin\",\"service\":true}"
+ },
+ {
+  "name": "el servicio está en primer plano mientras suena",
+  "ok": true,
+  "info": "en primer plano"
+ },
+ {
+  "name": "sin cierres por error hasta aquí",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«siguiente» de los auriculares: cambia la canción y la app la sigue",
+  "ok": true,
+  "info": "Marea lenta → Viernes 23:59 · estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad"
+ },
+ {
+  "name": "«pausa» de los auriculares",
+  "ok": true,
+  "info": "estado PAUSED(2) · activa true · Viernes 23:59, Neón Norte, Ciudad"
+ },
+ {
+  "name": "«play» de los auriculares",
+  "ok": true,
+  "info": "estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad"
+ },
+ {
+  "name": "la parte web se reinicia y recoge lo que suena (misma canción, sigue avanzando)",
+  "ok": true,
+  "info": "{\"before\":{\"id\":\"dev:1000000020\",\"t\":6.500520833333333},\"after\":{\"id\":\"dev:1000000020\",\"t\":19.419137500000186,\"paused\":false}}"
+ },
+ {
+  "name": "cerrada desde las recientes: la música sigue",
+  "ok": true,
+  "info": "actividad cerrada true · proceso true · estado PLAYING(3) · activa true · Viernes 23:59, Neón Norte, Ciudad · en primer plano"
+ },
+ {
+  "name": "con la app cerrada, «siguiente» funciona",
+  "ok": true,
+  "info": "estado PLAYING(3) · activa true · Faros, Banda Sur, Costa"
+ },
+ {
+  "name": "al volver a abrirla, sigue sonando y la app lo muestra",
+  "ok": true,
+  "info": "{\"boton\":\"Pausar\",\"titulo\":\"Nada sonando\"} · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa"
+ },
+ {
+  "name": "«play» con Órbita cerrada: vuelve la música",
+  "ok": true,
+  "info": "proceso true · estado PLAYING(3) · activa true · Faros, Banda Sur, Costa · en primer plano"
+ },
+ {
+  "name": "ningún cierre por error en toda la prueba",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Ajustes» nativa aguanta que se deslice deprisa (sin cierres)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Ahora» nativa aguanta que se deslice deprisa (sin cierres)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Descargar» (aviso de versión nueva, en la nativa) abre el enlace fuera de la app",
+  "ok": true,
+  "info": "antes: ty=ActivityRecord{fd90e55 u0 io.github.orbita.musica/.MainActivity t8} · después: rd{33b5fc3 u0 com.android.chrome/org.chromium.chrome.browser.firstrun.FirstRunActivity t9}"
+ }
+]
