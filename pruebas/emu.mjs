@@ -18,6 +18,14 @@ function finish(why) {
   process.exit(0);
 }
 setTimeout(() => finish('pasó de 44 minutos'), 44 * 60000).unref();
+// (si existe pruebas/solo-ventanas: una prueba rápida, solo de las ventanas y el reproductor a pantalla completa)
+const SOLO = fs.existsSync('pruebas/solo-ventanas');
+function saveLogs() {
+  fs.writeFileSync(`${OUT}/logcat.txt`, adb('logcat -d -v time *:W').split('\n').slice(-6000).join('\n'));
+  fs.writeFileSync(`${OUT}/logcat-app.txt`, adb('logcat -d -v time').split('\n').filter(l => /orbita|Orbita|Nova|Media3|MediaSess|AndroidRuntime|Capacitor\/Console|chromium/i.test(l)).slice(-4000).join('\n'));
+  fs.writeFileSync(`${OUT}/cierres.txt`, adb('logcat -d -b crash'));
+  fs.writeFileSync(`${OUT}/sesion.txt`, session());
+}
 let adbFails = 0;
 const adb = (c, o = {}) => { if (adbFails > 12) finish('el emulador dejó de contestar'); try { const r = execSync('adb ' + c, { encoding: 'utf8', timeout: 45000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64e6, ...o }); adbFails = 0; return r; } catch (e) { if (e.killed || /ETIMEDOUT|offline|no devices|not found/.test(String(e.message) + e.stderr)) adbFails++; return 'ERR ' + (e.stdout || '') + (e.stderr || e.message); } };
 const sh = c => adb(`shell "${c.replace(/"/g, '\\"')}"`);
@@ -87,10 +95,15 @@ function ui(again = true) {
   const x = sh('cat /sdcard/ui.xml'), out = [];
   // el emulador de pruebas va justo: si sale «tal app no responde» (del sistema, no de Órbita), «Esperar» y se mira otra vez
   if (again && /isn&apos;t responding|isn't responding|no responde/.test(x)) { const m = x.match(/text="Wait"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/); log('  (aviso del sistema del emulador: ' + (x.match(/text="([^"]*respond[^"]*)"/) || [])[1] + ')'); if (m) sh(`input tap ${(+m[1] + +m[3]) / 2} ${(+m[2] + +m[4]) / 2}`); else sh('input keyevent KEYCODE_ENTER'); execSync('sleep 2'); return ui(false); }
-  for (const m of x.matchAll(/<node [^>]*>/g)) {
+  ui.last = x;
+  const inWeb = [];
+  for (const m of x.matchAll(/<node [^>]*?(\/?)>|<\/node>/g)) {
+    if (m[0] === '</node>') { inWeb.pop(); continue; }
     const g = k => { const r = m[0].match(new RegExp(' ' + k + '="([^"]*)"')); return r ? r[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)) : ''; };
-    const b = (g('bounds').match(/\d+/g) || []).map(Number);
-    if (b.length === 4) out.push({ text: g('text'), desc: g('content-desc'), cls: g('class'), b });
+    const b = (g('bounds').match(/\d+/g) || []).map(Number), cls = g('class');
+    const web = !!inWeb[inWeb.length - 1] || cls === 'android.webkit.WebView';
+    if (b.length === 4) out.push({ text: g('text'), desc: g('content-desc'), cls, b, web });
+    if (!m[1]) inWeb.push(web);
   }
   return out;
 }
@@ -163,6 +176,154 @@ try {
   // cómo se ve cada pantalla de la app web (referencia para las pantallas nativas)
   const goView = async v => { for (let k = 0; k < 5; k++) { const r = await js(`location.hash = '#${v}'; await new Promise(r => setTimeout(r, 400)); return window.__orbita.state.view;`); if (r === v) return true; await sleep(700); } log('  (no cambia a ' + v + ')'); return false; };
   for (const v of ['listas', 'tu', 'ajustes', 'inicio']) { await goView(v); await sleep(1300); shot('web-' + v); }
+
+  // ================= FASE 2 · último paso (4.8): las ventanas y el reproductor a pantalla completa, nativos =================
+  const ventanas48 = async () => {
+    const O = `const o = window.__orbita, N = o.NUI, W = o.W;`;
+    const D5 = await js(`return devicePixelRatio;`);
+    const wst = () => js(`${O} return { on: W.on.join(), shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    // lo que hay en cada paso del reproductor: lo que dice la web, lo último que le mandó a Android, lo que Android tiene
+    // y lo que se ve (el volcado de la pantalla, separando lo de la web y lo de Android)
+    const diag48 = [];
+    const npDiag = async tag => {
+      const d = await js(`${O} const st = await Capacitor.Plugins.OrbitaUi.status(); const t = document.querySelector('#npTitle'); return { web: t && t.textContent, np: !document.querySelector('#np').hidden, on: W.on.join(), drag: W.drag, held: W.held, seq: W.seq, log: (W.log || []).slice(-8), nat: { seq: st.winSeq, wins: st.wins, shown: st.winShown, texts: st.winTexts } };`);
+      const nodes = ui(); try { fs.writeFileSync(`${OUT}/ui-${tag}.xml`, ui.last || ''); } catch {}
+      diag48.push({ tag, d, nativo: nodes.filter(n => !n.web && (n.text || n.desc)).map(n => n.text || '(' + n.desc + ')').slice(0, 60), web: nodes.filter(n => n.web && n.text).map(n => n.text).slice(0, 30) });
+      fs.writeFileSync(`${OUT}/ventanas-diag.json`, JSON.stringify(diag48, null, 1));
+      return nodes;
+    };
+    // un texto que dibuja Android (no la web de debajo); un título largo puede ir en dos renglones
+    const findNat = (nodes, t) => nodes.find(n => !n.web && n.text && (n.text === t || (t.startsWith(n.text) && n.text.length >= Math.min(4, t.length))));
+    let T5 = 0; { const wv = ui().find(n => n.cls === 'android.webkit.WebView'); T5 = wv ? wv.b[1] : 0; }
+    // cada renglón de una ventana, donde en la de siempre (± 3): la de siempre (con «classic») contra la nativa
+    const pariWin = async (sel, file, fotos) => {
+      const Q = `const out = [], g0 = document.createRange(), root = document.querySelector('${sel}');
+        const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n = w.nextNode(); n; n = w.nextNode()) {
+          const p = n.parentElement; if (!p || !n.textContent.trim() || p.closest('select, [hidden], canvas, svg, textarea')) continue;
+          const cs = getComputedStyle(p); if (cs.display === 'none') continue;
+          const raw = n.textContent, ws = [], re = /\\S+/g; let mm; while ((mm = re.exec(raw))) { g0.setStart(n, mm.index); g0.setEnd(n, mm.index + mm[0].length); const q = g0.getBoundingClientRect(); if (q.width) ws.push({ s: mm[0], q }); }
+          const L = []; for (const x of ws) { const l = L[L.length - 1]; if (l && Math.abs(x.q.top - l.top) < 3) { l.s += ' ' + x.s; l.bottom = Math.max(l.bottom, x.q.bottom); } else L.push({ s: x.s, left: x.q.left, top: x.q.top, bottom: x.q.bottom }); }
+          for (const l of L) { if (l.top < 4 || l.bottom > innerHeight - 4) continue; out.push({ t: (cs.textTransform === 'uppercase' ? l.s.toUpperCase() : l.s).slice(0, 60), x: +l.left.toFixed(1), y: +((l.top + l.bottom) / 2).toFixed(1) }); }
+        }
+        return out;`;
+      await js(`window.__orbita.NUI.classic = true; await new Promise(r => setTimeout(r, 900)); return 1;`); await sleep(600);
+      const web = await js(Q); shot(`igual-${fotos}-web`);
+      await js(`window.__orbita.NUI.classic = false; await new Promise(r => setTimeout(r, 900)); return 1;`); await sleep(1200);
+      const ns = ui(); shot(`igual-${fotos}-nativa`);
+      const par = [], bad = [], cnt = {}; for (const e of web || []) cnt[e.t] = (cnt[e.t] || 0) + 1;
+      for (const e of web || []) {
+        if (cnt[e.t] > 1 || e.t.length < 3 || /^\d+:\d\d$/.test(e.t)) continue;
+        const c = ns.filter(n => !n.web && n.text && n.text.trim().slice(0, 60) === e.t);
+        if (c.length !== 1) { par.push({ t: e.t, falta: c.length }); if (!c.length) bad.push(`«${e.t.slice(0, 24)}» no está`); continue; }
+        const nx = c[0].b[0] / D5, ny = ((c[0].b[1] + c[0].b[3]) / 2 - T5) / D5, dx = +(nx - e.x).toFixed(1), dy = +(ny - e.y).toFixed(1);
+        par.push({ t: e.t, web: [e.x, e.y], nat: [+nx.toFixed(1), +ny.toFixed(1)], dx, dy });
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) bad.push(`«${e.t.slice(0, 24)}» ${dx}/${dy}`);
+      }
+      fs.writeFileSync(`${OUT}/${file}`, JSON.stringify({ par }));
+      return { n: par.filter(e => e.nat).length, bad: [...new Set(bad)] };
+    };
+    await goView('inicio'); await sleep(1500);
+    await js(`${O} const ids = o.state.tracks.slice(0, 7).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(2500);
+    // --- el temporizador (la luna de la barra de abajo)
+    await js(`document.querySelector('[data-act="sleep-open"]').click(); return 1;`); await sleep(1600);
+    let wn = ui(); shot('ventana-temporizador');
+    let w0 = await wst();
+    check('el temporizador sale nativo, en su capa, y «Ahora» sigue nativa debajo', !!w0 && w0.on === 'sleep' && w0.st.v === 7 && w0.st.wins === 'sleep' && w0.st.winShown && w0.shown && w0.screen === 'inicio' && !!find(wn, 'Temporizador para dormir') && !!find(wn, '30 min'), JSON.stringify(w0));
+    const ps = await pariWin('#sleepOverlay', 'paridad-temporizador.json', 'temporizador');
+    check('el temporizador: cada renglón, donde en la de siempre (± 3)', ps.n >= 6 && ps.bad.length === 0, `${ps.n} comparados · ${ps.bad.length} fuera: ${ps.bad.slice(0, 10).join(' · ')}`);
+    await tapText('30 min', 1800);
+    const sl = await js(`return { on: document.querySelector('[data-act="sleep-open"]').classList.contains('sleep-on'), open: !document.querySelector('#sleepOverlay').hidden, win: window.__orbita.W.on.join() };`);
+    const slN = await wst(), slU = ui();
+    check('tocar «30 min» pone el temporizador y cierra la ventana (también la nativa)', !!sl && sl.on && !sl.open && sl.win === '' && !!slN && slN.st.wins === '' && !slN.st.winShown && !find(slU.filter(n => !n.web), '45 min'), JSON.stringify(sl) + ' · ' + JSON.stringify(slN && { wins: slN.st.wins, shown: slN.st.winShown }));
+    await js(`document.querySelector('[data-act="sleep-open"]').click(); return 1;`); await sleep(1500);
+    await tapText('Desactivar', 1600);
+    const sl2 = await js(`return document.querySelector('[data-act="sleep-open"]').classList.contains('sleep-on');`);
+    if (!(await js(`return document.querySelector('#sleepOverlay').hidden;`))) await tapText('Cerrar', 1200);
+    check('y «Desactivar» lo quita', sl2 === false, String(sl2));
+    // --- el reproductor a pantalla completa
+    await js(`document.querySelector('[data-act="np-open"]').click(); return 1;`); await sleep(2800);
+    let pn = await npDiag('abierto'); shot('reproductor-nativo');
+    let p0 = await wst();
+    const tt0 = await js(`return document.querySelector('#npTitle').textContent;`);
+    check('el reproductor, abierto y quieto, es nativo (y la pantalla de debajo se aparta: lo tapa todo)', !!p0 && p0.on === 'np' && p0.st.wins === 'np' && p0.st.winShown && !p0.shown && !!findNat(pn, tt0) && !!findNat(pn, 'Cerrar'), JSON.stringify(p0) + ' · ' + tt0);
+    const pp = await pariWin('#np', 'paridad-reproductor.json', 'reproductor');
+    check('el reproductor: cada renglón, donde en el de siempre (± 3)', pp.n >= 6 && pp.bad.length === 0, `${pp.n} comparados · ${pp.bad.length} fuera: ${pp.bad.slice(0, 10).join(' · ')}`);
+    await npDiag('tras-comparar');
+    // «Siguiente» (el del reproductor nativo, no el de la barra de abajo)
+    pn = ui();
+    const nxs = pn.filter(n => n.desc === 'Siguiente').sort((a, b) => a.b[1] - b.b[1]);
+    if (nxs.length) { tap(...center(nxs[0])); await sleep(2200); }
+    const tt1 = await js(`return document.querySelector('#npTitle').textContent;`);
+    pn = await npDiag('siguiente'); shot('reproductor-siguiente');
+    check('«Siguiente» del reproductor nativo pasa de canción (y lo enseña)', nxs.length > 0 && tt1 !== tt0 && !!findNat(pn, tt1), `${tt0} → ${tt1}`);
+    // deslizar la portada a la izquierda: la siguiente
+    const art = await js(`const r = document.querySelector('#npArt').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];`);
+    if (art) { const y = Math.round(T5 + (art[1] + art[3]) / 2 * D5); sh(`input swipe ${Math.round(art[2] * D5 - 60)} ${y} ${Math.round(art[0] * D5 + 60)} ${y} 300`); await sleep(2400); }
+    const tt2 = await js(`return document.querySelector('#npTitle').textContent;`);
+    const pn2 = await npDiag('deslizada');
+    check('deslizar la portada a la izquierda pasa a la siguiente (y la nativa la enseña)', !!art && tt2 !== tt1 && !!findNat(pn2, tt2), `${tt1} → ${tt2}`);
+    // bajar dentro del reproductor (a lo que viene después) y volver: la de siempre a la misma altura
+    sh('input swipe 540 1700 540 700 400'); await sleep(1800);
+    const sc1 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    pn = ui(); shot('reproductor-abajo');
+    check('dentro del reproductor nativo se baja con el dedo (y el de siempre se pone a la misma altura)', !!sc1 && sc1.web > 100 && Math.abs(sc1.web - sc1.st.winY) < 3 && sc1.st.wins === 'np', JSON.stringify(sc1));
+    // (a mitad de gesto, al llegar arriba, no se cierra: solo si el dedo empieza arriba del todo, como en el de siempre)
+    sh('input swipe 540 700 540 1900 400'); await sleep(1600);
+    const sc2 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, np: !document.querySelector('#np').hidden, on: W.on.join() };`);
+    if (sc2 && sc2.np && sc2.web >= 3) { await js(`await Capacitor.Plugins.OrbitaUi.winScroll({ id: 'np', y: 0 }); return 1;`); await sleep(1500); }
+    const sc3 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, np: !document.querySelector('#np').hidden, on: W.on.join() };`);
+    check('subir dentro del reproductor no lo cierra aunque se llegue arriba', !!sc2 && sc2.np && sc2.on === 'np', JSON.stringify(sc2));
+    // bajarlo con el dedo desde arriba: se cierra (lo mueve el de siempre, como siempre)
+    if (sc3 && sc3.np && sc3.web < 3) { sh('input swipe 540 500 540 1900 250'); await sleep(2200); }
+    const cl = await js(`${O} return { np: !document.querySelector('#np').hidden, on: W.on.join(), shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    await npDiag('bajado'); shot('reproductor-bajado');
+    check('arriba del todo, bajarlo con el dedo lo cierra, y vuelve «Ahora» nativa', !!sc3 && sc3.web < 3 && !!cl && !cl.np && cl.on === '' && !cl.st.winShown && cl.shown && cl.screen === 'inicio', JSON.stringify([sc3, cl]));
+    // otra vez, y «Cerrar»
+    await js(`document.querySelector('[data-act="np-open"]').click(); return 1;`); await sleep(2800);
+    const p2 = await wst();
+    await tapText('Cerrar', 2400);
+    const p3 = await js(`${O} return { np: !document.querySelector('#np').hidden, on: W.on.join(), shown: N.shown };`);
+    check('se abre otra vez nativo, y «Cerrar» lo cierra', !!p2 && p2.on === 'np' && !!p3 && !p3.np && p3.on === '' && p3.shown, JSON.stringify([p2 && p2.on, p3]));
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    // --- editar una canción: escribir en la ventana nativa y guardar
+    const tid = await js(`return window.__orbita.state.tracks[1].id;`);
+    const tit0 = await js(`return window.__orbita.trackById('${tid}').title;`);
+    await js(`window.__orbita.openEdit('track', '${tid}'); return 1;`); await sleep(1600);
+    wn = ui(); shot('ventana-editar');
+    const ef = find(wn, tit0);
+    if (ef) { tap(ef.b[2] - 20, (ef.b[1] + ef.b[3]) / 2); await sleep(1600); sh('input keyevent KEYCODE_MOVE_END'); sh('input text %s2'); await sleep(1500); }
+    const ev = await js(`return document.querySelector('#editTitle').value;`);
+    shot('ventana-editar-teclado');
+    await sleep(800); wn = ui();
+    let gb = find(wn, 'Guardar');
+    if (!gb && /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'))) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); gb = find(ui(), 'Guardar'); }
+    if (gb) { tap(...center(gb)); await sleep(2000); }
+    const tit1 = await js(`${O} return { t: o.trackById('${tid}').title, open: !document.querySelector('#editOverlay').hidden, on: W.on.join() };`);
+    check('editar una canción en la ventana nativa: lo escrito llega y «Guardar» lo guarda', !!ef && ev === tit0 + ' 2' && !!tit1 && tit1.t === tit0 + ' 2' && !tit1.open && tit1.on === '', JSON.stringify({ ef: !!ef, ev, tit1 }));
+    await js(`const t = window.__orbita.trackById('${tid}'); t.title = ${JSON.stringify(tit0)}; return 1;`);
+    // --- la letra: una caja de varias líneas
+    await js(`${O} o.openLyricsEdit(o.trackById('${tid}')); return 1;`); await sleep(1500);
+    wn = ui(); shot('ventana-letra');
+    const lw = await js(`${O} return { on: W.on.join(), r: (() => { const r = document.querySelector('#lyText').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; })() };`);
+    if (lw && lw.r) { tap((lw.r[0] + 30) * D5, T5 + (lw.r[1] + 30) * D5); await sleep(1500); sh('input text hola'); await sleep(1200); }
+    const lv = await js(`return document.querySelector('#lyText').value;`);
+    await sleep(800);
+    let cb = find(ui(), 'Cancelar');
+    if (!cb && /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'))) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); cb = find(ui(), 'Cancelar'); }
+    if (cb) { tap(...center(cb)); await sleep(1500); }
+    const lc = await js(`${O} return { open: !document.querySelector('#lyOverlay').hidden, on: W.on.join() };`);
+    check('la ventana de la letra es nativa: se escribe en su caja y «Cancelar» la cierra', !!lw && lw.on === 'ly' && /hola/.test(lv) && !!lc && !lc.open && lc.on === '', JSON.stringify({ lw: lw && lw.on, lv, lc }));
+    // --- las novedades: un toque en lo oscuro las cierra
+    await js(`document.querySelector('#newsOverlay').hidden = false; return 1;`); await sleep(1400);
+    const nw = await js(`${O} return W.on.join();`); shot('ventana-novedades');
+    tap(40 * D5, T5 + 30 * D5); await sleep(1500);
+    const nc = await js(`${O} return { open: !document.querySelector('#newsOverlay').hidden, on: W.on.join() };`);
+    check('las novedades salen nativas y un toque en lo oscuro de alrededor las cierra', nw === 'news' && !!nc && !nc.open && nc.on === '', JSON.stringify([nw, nc]));
+    check('sin cierres por error con las ventanas y el reproductor nativos', alive() && crashes() === 0, crashText().slice(0, 2500));
+    await goView('inicio'); await sleep(1200);
+    };
+  if (SOLO) { await ventanas48(); saveLogs(); finish('prueba rápida: solo las ventanas'); }
 
   // ================= FASE 2 · «Mi música» nativa (Compose) =================
   // --- la pantalla de siempre: captura y medidas exactas de cada cosa (para que la nativa sea igual)
@@ -731,136 +892,8 @@ try {
     await goView('inicio'); await sleep(1200);
   }
   // ================= FASE 2 · último paso (4.8): las ventanas y el reproductor a pantalla completa, nativos =================
-  {
-    const O = `const o = window.__orbita, N = o.NUI, W = o.W;`;
-    const D5 = await js(`return devicePixelRatio;`);
-    const wst = () => js(`${O} return { on: W.on.join(), shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
-    let T5 = 0; { const wv = ui().find(n => n.cls === 'android.webkit.WebView'); T5 = wv ? wv.b[1] : 0; }
-    // cada renglón de una ventana, donde en la de siempre (± 3): la de siempre (con «classic») contra la nativa
-    const pariWin = async (sel, file, fotos) => {
-      const Q = `const out = [], g0 = document.createRange(), root = document.querySelector('${sel}');
-        const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        for (let n = w.nextNode(); n; n = w.nextNode()) {
-          const p = n.parentElement; if (!p || !n.textContent.trim() || p.closest('select, [hidden], canvas, svg, textarea')) continue;
-          const cs = getComputedStyle(p); if (cs.display === 'none') continue;
-          const raw = n.textContent, ws = [], re = /\\S+/g; let mm; while ((mm = re.exec(raw))) { g0.setStart(n, mm.index); g0.setEnd(n, mm.index + mm[0].length); const q = g0.getBoundingClientRect(); if (q.width) ws.push({ s: mm[0], q }); }
-          const L = []; for (const x of ws) { const l = L[L.length - 1]; if (l && Math.abs(x.q.top - l.top) < 3) { l.s += ' ' + x.s; l.bottom = Math.max(l.bottom, x.q.bottom); } else L.push({ s: x.s, left: x.q.left, top: x.q.top, bottom: x.q.bottom }); }
-          for (const l of L) { if (l.top < 4 || l.bottom > innerHeight - 4) continue; out.push({ t: (cs.textTransform === 'uppercase' ? l.s.toUpperCase() : l.s).slice(0, 60), x: +l.left.toFixed(1), y: +((l.top + l.bottom) / 2).toFixed(1) }); }
-        }
-        return out;`;
-      await js(`window.__orbita.NUI.classic = true; await new Promise(r => setTimeout(r, 900)); return 1;`); await sleep(600);
-      const web = await js(Q); shot(`igual-${fotos}-web`);
-      await js(`window.__orbita.NUI.classic = false; await new Promise(r => setTimeout(r, 900)); return 1;`); await sleep(1200);
-      const ns = ui(); shot(`igual-${fotos}-nativa`);
-      const par = [], bad = [], cnt = {}; for (const e of web || []) cnt[e.t] = (cnt[e.t] || 0) + 1;
-      for (const e of web || []) {
-        if (cnt[e.t] > 1 || e.t.length < 3 || /^\d+:\d\d$/.test(e.t)) continue;
-        const c = ns.filter(n => n.text && n.text.trim().slice(0, 60) === e.t);
-        if (c.length !== 1) { par.push({ t: e.t, falta: c.length }); if (!c.length) bad.push(`«${e.t.slice(0, 24)}» no está`); continue; }
-        const nx = c[0].b[0] / D5, ny = ((c[0].b[1] + c[0].b[3]) / 2 - T5) / D5, dx = +(nx - e.x).toFixed(1), dy = +(ny - e.y).toFixed(1);
-        par.push({ t: e.t, web: [e.x, e.y], nat: [+nx.toFixed(1), +ny.toFixed(1)], dx, dy });
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) bad.push(`«${e.t.slice(0, 24)}» ${dx}/${dy}`);
-      }
-      fs.writeFileSync(`${OUT}/${file}`, JSON.stringify({ par }));
-      return { n: par.filter(e => e.nat).length, bad: [...new Set(bad)] };
-    };
-    await goView('inicio'); await sleep(1500);
-    await js(`${O} const ids = o.state.tracks.slice(0, 7).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(2500);
-    // --- el temporizador (la luna de la barra de abajo)
-    await js(`document.querySelector('[data-act="sleep-open"]').click(); return 1;`); await sleep(1600);
-    let wn = ui(); shot('ventana-temporizador');
-    let w0 = await wst();
-    check('el temporizador sale nativo, en su capa, y «Ahora» sigue nativa debajo', !!w0 && w0.on === 'sleep' && w0.st.v === 7 && w0.st.wins === 'sleep' && w0.st.winShown && w0.shown && w0.screen === 'inicio' && !!find(wn, 'Temporizador para dormir') && !!find(wn, '30 min'), JSON.stringify(w0));
-    const ps = await pariWin('#sleepOverlay', 'paridad-temporizador.json', 'temporizador');
-    check('el temporizador: cada renglón, donde en la de siempre (± 3)', ps.n >= 6 && ps.bad.length === 0, `${ps.n} comparados · ${ps.bad.length} fuera: ${ps.bad.slice(0, 10).join(' · ')}`);
-    await tapText('30 min', 1800);
-    const sl = await js(`return { on: document.querySelector('[data-act="sleep-open"]').classList.contains('sleep-on'), open: !document.querySelector('#sleepOverlay').hidden, win: window.__orbita.W.on.join() };`);
-    check('tocar «30 min» pone el temporizador y cierra la ventana (también la nativa)', !!sl && sl.on && !sl.open && sl.win === '' && !find(ui(), 'Temporizador para dormir'), JSON.stringify(sl));
-    await js(`document.querySelector('[data-act="sleep-open"]').click(); return 1;`); await sleep(1500);
-    await tapText('Desactivar', 1600);
-    const sl2 = await js(`return document.querySelector('[data-act="sleep-open"]').classList.contains('sleep-on');`);
-    if (!(await js(`return document.querySelector('#sleepOverlay').hidden;`))) await tapText('Cerrar', 1200);
-    check('y «Desactivar» lo quita', sl2 === false, String(sl2));
-    // --- el reproductor a pantalla completa
-    await js(`document.querySelector('[data-act="np-open"]').click(); return 1;`); await sleep(2800);
-    let pn = ui(); shot('reproductor-nativo');
-    let p0 = await wst();
-    const tt0 = await js(`return document.querySelector('#npTitle').textContent;`);
-    check('el reproductor, abierto y quieto, es nativo (y la pantalla de debajo se aparta: lo tapa todo)', !!p0 && p0.on === 'np' && p0.st.wins === 'np' && p0.st.winShown && !p0.shown && !!find(pn, tt0) && !!find(pn, 'Cerrar'), JSON.stringify(p0) + ' · ' + tt0);
-    const pp = await pariWin('#np', 'paridad-reproductor.json', 'reproductor');
-    check('el reproductor: cada renglón, donde en el de siempre (± 3)', pp.n >= 6 && pp.bad.length === 0, `${pp.n} comparados · ${pp.bad.length} fuera: ${pp.bad.slice(0, 10).join(' · ')}`);
-    // «Siguiente» (el del reproductor nativo, no el de la barra de abajo)
-    pn = ui();
-    const nxs = pn.filter(n => n.desc === 'Siguiente').sort((a, b) => a.b[1] - b.b[1]);
-    if (nxs.length) { tap(...center(nxs[0])); await sleep(2200); }
-    const tt1 = await js(`return document.querySelector('#npTitle').textContent;`);
-    pn = ui(); shot('reproductor-siguiente');
-    check('«Siguiente» del reproductor nativo pasa de canción (y lo enseña)', nxs.length > 0 && tt1 !== tt0 && !!find(pn, tt1), `${tt0} → ${tt1}`);
-    // deslizar la portada a la izquierda: la siguiente
-    const art = await js(`const r = document.querySelector('#npArt').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];`);
-    if (art) { const y = Math.round(T5 + (art[1] + art[3]) / 2 * D5); sh(`input swipe ${Math.round(art[2] * D5 - 60)} ${y} ${Math.round(art[0] * D5 + 60)} ${y} 300`); await sleep(2400); }
-    const tt2 = await js(`return document.querySelector('#npTitle').textContent;`);
-    check('deslizar la portada a la izquierda pasa a la siguiente', !!art && tt2 !== tt1, `${tt1} → ${tt2}`);
-    // bajar dentro del reproductor (a lo que viene después) y volver: la de siempre a la misma altura
-    sh('input swipe 540 1700 540 700 400'); await sleep(1800);
-    const sc1 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, st: await Capacitor.Plugins.OrbitaUi.status() };`);
-    pn = ui(); shot('reproductor-abajo');
-    check('dentro del reproductor nativo se baja con el dedo (y el de siempre se pone a la misma altura)', !!sc1 && sc1.web > 100 && Math.abs(sc1.web - sc1.st.winY) < 3 && sc1.st.wins === 'np', JSON.stringify(sc1));
-    // (a mitad de gesto, al llegar arriba, no se cierra: solo si el dedo empieza arriba del todo, como en el de siempre)
-    sh('input swipe 540 700 540 1900 400'); await sleep(1600);
-    const sc2 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, np: !document.querySelector('#np').hidden, on: W.on.join() };`);
-    if (sc2 && sc2.np && sc2.web >= 3) { await js(`await Capacitor.Plugins.OrbitaUi.winScroll({ id: 'np', y: 0 }); return 1;`); await sleep(1500); }
-    const sc3 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, np: !document.querySelector('#np').hidden, on: W.on.join() };`);
-    check('subir dentro del reproductor no lo cierra aunque se llegue arriba', !!sc2 && sc2.np && sc2.on === 'np', JSON.stringify(sc2));
-    // bajarlo con el dedo desde arriba: se cierra (lo mueve el de siempre, como siempre)
-    if (sc3 && sc3.np && sc3.web < 3) { sh('input swipe 540 500 540 1900 250'); await sleep(2200); }
-    const cl = await js(`${O} return { np: !document.querySelector('#np').hidden, on: W.on.join(), shown: N.shown, screen: N.screen, st: await Capacitor.Plugins.OrbitaUi.status() };`);
-    shot('reproductor-bajado');
-    check('arriba del todo, bajarlo con el dedo lo cierra, y vuelve «Ahora» nativa', !!sc3 && sc3.web < 3 && !!cl && !cl.np && cl.on === '' && !cl.st.winShown && cl.shown && cl.screen === 'inicio', JSON.stringify([sc3, cl]));
-    // otra vez, y «Cerrar»
-    await js(`document.querySelector('[data-act="np-open"]').click(); return 1;`); await sleep(2800);
-    const p2 = await wst();
-    await tapText('Cerrar', 2400);
-    const p3 = await js(`${O} return { np: !document.querySelector('#np').hidden, on: W.on.join(), shown: N.shown };`);
-    check('se abre otra vez nativo, y «Cerrar» lo cierra', !!p2 && p2.on === 'np' && !!p3 && !p3.np && p3.on === '' && p3.shown, JSON.stringify([p2 && p2.on, p3]));
-    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
-    // --- editar una canción: escribir en la ventana nativa y guardar
-    const tid = await js(`return window.__orbita.state.tracks[1].id;`);
-    const tit0 = await js(`return window.__orbita.trackById('${tid}').title;`);
-    await js(`window.__orbita.openEdit('track', '${tid}'); return 1;`); await sleep(1600);
-    wn = ui(); shot('ventana-editar');
-    const ef = find(wn, tit0);
-    if (ef) { tap(ef.b[2] - 20, (ef.b[1] + ef.b[3]) / 2); await sleep(1600); sh('input keyevent KEYCODE_MOVE_END'); sh('input text %s2'); await sleep(1500); }
-    const ev = await js(`return document.querySelector('#editTitle').value;`);
-    shot('ventana-editar-teclado');
-    await sleep(800); wn = ui();
-    let gb = find(wn, 'Guardar');
-    if (!gb && /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'))) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); gb = find(ui(), 'Guardar'); }
-    if (gb) { tap(...center(gb)); await sleep(2000); }
-    const tit1 = await js(`${O} return { t: o.trackById('${tid}').title, open: !document.querySelector('#editOverlay').hidden, on: W.on.join() };`);
-    check('editar una canción en la ventana nativa: lo escrito llega y «Guardar» lo guarda', !!ef && ev === tit0 + ' 2' && !!tit1 && tit1.t === tit0 + ' 2' && !tit1.open && tit1.on === '', JSON.stringify({ ef: !!ef, ev, tit1 }));
-    await js(`const t = window.__orbita.trackById('${tid}'); t.title = ${JSON.stringify(tit0)}; return 1;`);
-    // --- la letra: una caja de varias líneas
-    await js(`${O} o.openLyricsEdit(o.trackById('${tid}')); return 1;`); await sleep(1500);
-    wn = ui(); shot('ventana-letra');
-    const lw = await js(`${O} return { on: W.on.join(), r: (() => { const r = document.querySelector('#lyText').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; })() };`);
-    if (lw && lw.r) { tap((lw.r[0] + 30) * D5, T5 + (lw.r[1] + 30) * D5); await sleep(1500); sh('input text hola'); await sleep(1200); }
-    const lv = await js(`return document.querySelector('#lyText').value;`);
-    await sleep(800);
-    let cb = find(ui(), 'Cancelar');
-    if (!cb && /mInputShown=true/.test(sh('dumpsys input_method | grep mInputShown'))) { sh('input keyevent KEYCODE_BACK'); await sleep(1500); cb = find(ui(), 'Cancelar'); }
-    if (cb) { tap(...center(cb)); await sleep(1500); }
-    const lc = await js(`${O} return { open: !document.querySelector('#lyOverlay').hidden, on: W.on.join() };`);
-    check('la ventana de la letra es nativa: se escribe en su caja y «Cancelar» la cierra', !!lw && lw.on === 'ly' && /hola/.test(lv) && !!lc && !lc.open && lc.on === '', JSON.stringify({ lw: lw && lw.on, lv, lc }));
-    // --- las novedades: un toque en lo oscuro las cierra
-    await js(`document.querySelector('#newsOverlay').hidden = false; return 1;`); await sleep(1400);
-    const nw = await js(`${O} return W.on.join();`); shot('ventana-novedades');
-    tap(40 * D5, T5 + 30 * D5); await sleep(1500);
-    const nc = await js(`${O} return { open: !document.querySelector('#newsOverlay').hidden, on: W.on.join() };`);
-    check('las novedades salen nativas y un toque en lo oscuro de alrededor las cierra', nw === 'news' && !!nc && !nc.open && nc.on === '', JSON.stringify([nw, nc]));
-    check('sin cierres por error con las ventanas y el reproductor nativos', alive() && crashes() === 0, crashText().slice(0, 2500));
-    await goView('inicio'); await sleep(1200);
-  }
+  await ventanas48();
+
   // ================= FASE 2 · pasos 4 y 5 (4.7): «Buscar» y «Ajustes», nativas =================
   {
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1000);
@@ -1210,8 +1243,5 @@ try {
 } catch (e) {
   check('la prueba terminó sin errores propios', false, e && e.stack || e);
 }
-fs.writeFileSync(`${OUT}/logcat.txt`, adb('logcat -d -v time *:W').split('\n').slice(-6000).join('\n'));
-fs.writeFileSync(`${OUT}/logcat-app.txt`, adb('logcat -d -v time').split('\n').filter(l => /orbita|Orbita|Nova|Media3|MediaSess|AndroidRuntime|Capacitor\/Console|chromium/i.test(l)).slice(-4000).join('\n'));
-fs.writeFileSync(`${OUT}/cierres.txt`, adb('logcat -d -b crash'));
-fs.writeFileSync(`${OUT}/sesion.txt`, session());
+saveLogs();
 finish('');

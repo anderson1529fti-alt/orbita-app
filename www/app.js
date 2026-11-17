@@ -6552,6 +6552,24 @@ function mStyle(cs, ctx) {
   const k = a.join('|'); let i = ctx.sk.get(k); if (i === undefined) { i = ctx.st.length; ctx.st.push(a); ctx.sk.set(k, i); }
   return i;
 }
+/* arcs written the short way («A8 8 0 019.5 4»: the two flags stuck to each other and to the next number), written
+   in full, with spaces: that is how Android reads them (the moon of «Dormir» came out as a dot) */
+function mArcFix(d) {
+  if (!/[Aa]/.test(d)) return d;
+  const out = [], n = d.length; let i = 0, cmd = '', k = 0;
+  const sp = () => { while (i < n && /[\s,]/.test(d[i])) i++; };
+  const num = () => { sp(); const m = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/.exec(d.slice(i, i + 40)); if (!m) return null; i += m[0].length; return m[0]; };
+  for (;;) {
+    sp(); if (i >= n) break;
+    const ch = d[i];
+    if (/[MmZzLlHhVvCcSsQqTtAa]/.test(ch)) { cmd = ch; k = 0; out.push(ch); i++; continue; }
+    let v;
+    if ((cmd === 'A' || cmd === 'a') && (k % 7 === 3 || k % 7 === 4)) { if (d[i] !== '0' && d[i] !== '1') return d; v = d[i]; i++; }
+    else { v = num(); if (v === null) return d; }
+    out.push(v); k++;
+  }
+  return out.join(' ');
+}
 /* a drawing (svg) as a list of paths with their colours */
 function mSvg(el, cs) {
   const sig = el.childElementCount + '|' + (el.innerHTML || '').length + '|' + cs.color;
@@ -6562,7 +6580,7 @@ function mSvg(el, cs) {
     for (const ch of node.children) {
       const t = ch.tagName.toLowerCase(); if (t === 'g') { walk(ch); continue; }
       let d = '';
-      if (t === 'path') d = ch.getAttribute('d') || '';
+      if (t === 'path') d = mArcFix(ch.getAttribute('d') || '');
       else if (t === 'circle' || t === 'ellipse') { const cx = num(ch, 'cx'), cy = num(ch, 'cy'), rx = t === 'circle' ? num(ch, 'r') : num(ch, 'rx'), ry = t === 'circle' ? rx : num(ch, 'ry'); d = `M${cx - rx} ${cy}a${rx} ${ry} 0 1 0 ${2 * rx} 0a${rx} ${ry} 0 1 0 ${-2 * rx} 0z`; }
       else if (t === 'rect') { const x = num(ch, 'x'), y = num(ch, 'y'), w = num(ch, 'width'), h = num(ch, 'height'), r = Math.min(num(ch, 'rx') || num(ch, 'ry'), w / 2, h / 2); d = r ? `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - 2 * r)}a${r} ${r} 0 0 1 ${-r} ${-r}v${-(h - 2 * r)}a${r} ${r} 0 0 1 ${r} ${-r}z` : `M${x} ${y}h${w}v${h}h${-w}z`; }
       else if (t === 'line') d = `M${num(ch, 'x1')} ${num(ch, 'y1')}L${num(ch, 'x2')} ${num(ch, 'y2')}`;
@@ -6839,7 +6857,11 @@ const WIN = {
 };
 /* windows that go as always (and, while one of them is up, every window does) */
 const WIN_WEB = ['#ytOverlay', '#vizFull', '#recap', '#onb', '#alarmScr'];
-const W = { on: [], key: '', keys: {}, dirty: {}, t: 0, poll: 0, els: {}, obs: {}, sy: {}, drag: false, vals: new Map(), sent: {} };
+const W = { on: [], key: '', keys: {}, dirty: {}, t: 0, poll: 0, els: {}, obs: {}, sy: {}, drag: false, vals: new Map(), sent: {}, held: false, seq: 0, log: [] };
+/* what was sent to Android and when (the last few: the tests read it) */
+function wLog(o) { o.t = Math.round(performance.now()); W.log.push(o); if (W.log.length > 40) W.log.shift(); }
+/* Android takes its layer of windows away and forgets them (also after closing the player with the finger) */
+function winGone(why) { W.held = false; W.sent = {}; wLog({ hide: why }); try { NUI_PLUGIN.winHide().catch(() => {}); } catch {} }
 const winIsOpen = el => !!el && !el.hidden && getComputedStyle(el).display !== 'none';
 /* can it be drawn natively now? */
 function winReady(id, el) {
@@ -6864,11 +6886,12 @@ function winTick() {
   if (key !== W.key) {
     const was = W.on; W.key = key; W.on = ids.slice();
     for (const id of ids) { winWatch(id); if (!was.includes(id)) W.dirty[id] = new Set(['*']); }
-    if (!ids.length) { W.sent = {}; if (!W.drag && was.length) { try { NUI_PLUGIN.winHide().catch(() => {}); } catch {} } }
+    if (!ids.length) { W.sent = {}; if (!W.drag && (was.length || W.held)) winGone(key === '-' ? 'como siempre' : 'ninguna'); }
     else winSync(true);
     return;
   }
-  if (!ids.length) return;
+  // (closed with the finger: while the finger was on it, Android kept it, see-through; now it goes)
+  if (!ids.length) { if (W.held && !W.drag) winGone('tras el dedo'); return; }
   const now = performance.now();
   if (now - W.poll > 3000) { W.poll = now; for (const id of ids) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); }
   // (values that change with nothing changing in the page: the bar of the song while it plays)
@@ -6942,8 +6965,12 @@ function winSync(force) {
     if (force || Object.keys(parts).length || shape !== W.sent[id]) { W.sent[id] = shape; wins[id] = { fixed, sc, parts }; changed = true; }
   }
   if (NUI.hEls.size > 2500) for (const [k, el] of NUI.hEls) if (!el.isConnected) NUI.hEls.delete(k);
-  if (changed || force) NUI_PLUGIN.win({ list: W.on.slice(), wins, w: innerWidth, h: innerHeight, force: !!force }).catch(e => { diag('ventanas nativas: ' + (e && e.message || e)); NUI.winOk = false; for (const id in WIN) root.classList.remove('nui-win-' + id); W.on = []; W.key = ''; });
+  if (changed || force) W.held = true;
+  if (changed || force) { const seq = ++W.seq, np = wins.np && Object.values(wins.np.parts).flatMap(v => mTexts(v.c)).slice(0, 4); wLog({ seq, list: W.on.join(), force: !!force, n: Object.values(wins).reduce((a, w) => a + Object.keys(w.parts).length, 0), title: W.on.includes('np') ? $('#npTitle').textContent : undefined, np }); }
+  if (changed || force) NUI_PLUGIN.win({ list: W.on.slice(), wins, w: innerWidth, h: innerHeight, force: !!force, seq: W.seq }).catch(e => { diag('ventanas nativas: ' + (e && e.message || e)); NUI.winOk = false; for (const id in WIN) root.classList.remove('nui-win-' + id); W.on = []; W.key = ''; });
 }
+/* the texts of some pieces, in order (for the log) */
+function mTexts(c, out = []) { for (const n of c || []) { if (n.e === 't' && n.s && n.s.trim()) out.push(n.s); mTexts(n.c, out); } return out; }
 /* the web changes size (the keyboard comes up, the phone turns): the windows are read again, where they are now */
 addEventListener('resize', () => { for (const id of W.on) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); });
 /* the native window has been left somewhere (scrolling): the one of always goes there too */

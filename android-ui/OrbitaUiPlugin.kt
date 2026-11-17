@@ -129,6 +129,8 @@ object UiState {
     fun winList(id: String): LazyListState = winLists.getOrPut(id) { LazyListState() }
     /** Transparente mientras se baja el reproductor con el dedo (la web lo mueve, debajo). */
     var winAlpha by mutableStateOf(1f)
+    /** (Para las pruebas) el número del último envío de la web que se ha puesto. */
+    @Volatile var winSeq = 0
     /** Quitar la capa de las ventanas (la pone el plugin). */
     var winGone: () -> Unit = {}
     private fun winOrder(id: String): List<MPos>? = wins.firstOrNull { it.id == id }?.sc?.order
@@ -294,6 +296,8 @@ class OrbitaUiPlugin : Plugin() {
             r.put("pages", UiState.pages.size); r.put("y", (if (UiState.screen in UiState.PAGES) UiState.pageScroll(UiState.screen).value.toFloat() else if (UiState.screen in UiState.MIRROR) UiState.mirY(UiState.screen, dpr) else 0f).toDouble())
             r.put("mirror", UiState.mirParts.size)
             r.put("wins", UiState.wins.joinToString(",") { it.id }); r.put("winShown", winHost?.visibility == View.VISIBLE)
+            // (para las pruebas: el último envío de la web que se ha puesto y lo que dice cada ventana, de arriba abajo)
+            r.put("winSeq", UiState.winSeq); r.put("winTexts", JSArray(winTexts(40)))
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }
             r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
         } catch (ignored: Throwable) { }
@@ -503,10 +507,12 @@ class OrbitaUiPlugin : Plugin() {
                 }
             }
             val force = call.getBoolean("force", false) == true
+            val seq = call.getInt("seq", 0) ?: 0
             activity.runOnUiThread {
                 try {
                     ensureWinHost(); placeWin()
                     for ((k, v) in parts) UiState.winParts[k] = v
+                    UiState.winSeq = seq
                     val cur = UiState.wins.associateBy { it.id }
                     val next = list.mapNotNull { defs[it] ?: cur[it] }
                     if (next != UiState.wins) UiState.wins = next
@@ -516,11 +522,12 @@ class OrbitaUiPlugin : Plugin() {
                     // una ventana que sale: por donde la tiene la web
                     for (w in next) { val sc = w.sc; if (sc != null && (force || cur[w.id] == null)) UiState.winGo(w.id, sc.y0, dpr) }
                     UiState.winAlpha = 1f
-                    if (next.isEmpty()) hideWin(true) else winHost?.visibility = View.VISIBLE
-                } catch (ignored: Throwable) { }
+                    if (next.isEmpty()) hideWin(true) else winHost?.let { v -> if (v.visibility != View.VISIBLE) { v.visibility = View.VISIBLE; v.invalidate() } }
+                } catch (t: Throwable) { android.util.Log.w("OrbitaUi", "ventanas: " + t) }
             }
             call.resolve()
         } catch (t: Throwable) {
+            android.util.Log.w("OrbitaUi", "ventanas, al leer: " + t)
             call.reject("No he podido leer la ventana: " + t.message, "UI")
         }
     }

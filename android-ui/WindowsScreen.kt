@@ -68,6 +68,19 @@ internal fun wDef(id: String, o: JSONObject): WDef {
     return WDef(id, fixed, sc)
 }
 
+/** (Para las pruebas) los textos que Android tiene de cada ventana, en el orden en que los dibuja. */
+internal fun winTexts(max: Int): List<String> {
+    val out = ArrayList<String>()
+    fun walk(ns: List<MNode>) { for (n in ns) { if (out.size >= max) return; if (n.e == "t" && n.s.isNotBlank()) out.add(n.s); walk(n.kids) } }
+    for (w in UiState.wins) {
+        if (out.size >= max) break
+        out.add("[" + w.id + "]")
+        for (f in w.fixed) walk(UiState.winParts["${w.id}.${f.k}"] ?: emptyList())
+        w.sc?.order?.forEach { walk(UiState.winParts["${w.id}.${it.k}"] ?: emptyList()) }
+    }
+    return out
+}
+
 /** Las ventanas que hay, una sobre otra (la última, arriba), y los avisos de la app encima de todo. */
 @Composable
 fun OrbitaWindows() {

@@ -60,6 +60,7 @@ jobs:
           ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../salida/gradle.txt | tail -n 60
       # Lo mismo que compila la versión que se publica (sin firmar): que no falle por algo que solo salga ahí
       - name: Compilar como la versión publicada
+        if: hashFiles('pruebas/solo-ventanas') == ''
         run: |
           cd android
           set -o pipefail
