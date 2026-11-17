@@ -57,14 +57,27 @@ jobs:
           mkdir -p salida
           cd android && chmod +x gradlew
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../salida/gradle.txt | tail -n 60
+          # (si el servidor de descargas dice «demasiadas peticiones» o no contesta, otra vez al minuto; un error de verdad, no)
+          ok=0
+          for i in 1 2 3; do
+            if ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../salida/gradle.txt | tail -n 60; then ok=1; break; fi
+            grep -qE "status code (429|5[0-9][0-9])|Could not GET|Read timed out|Connection reset" ../salida/gradle.txt || break
+            echo "(descargas: otra vez en 60 s)"; sleep 60
+          done
+          [ $ok = 1 ]
       # Lo mismo que compila la versión que se publica (sin firmar): que no falle por algo que solo salga ahí
       - name: Compilar como la versión publicada
         if: hashFiles('pruebas/solo-ventanas') == ''
         run: |
           cd android
           set -o pipefail
-          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee ../salida/gradle-release.txt | tail -n 30
+          ok=0
+          for i in 1 2 3; do
+            if ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee ../salida/gradle-release.txt | tail -n 30; then ok=1; break; fi
+            grep -qE "status code (429|5[0-9][0-9])|Could not GET|Read timed out|Connection reset" ../salida/gradle-release.txt || break
+            echo "(descargas: otra vez en 60 s)"; sleep 60
+          done
+          [ $ok = 1 ]
       - name: Errores de compilación
         if: failure()
         run: |
