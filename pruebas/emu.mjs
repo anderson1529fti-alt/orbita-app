@@ -84,8 +84,9 @@ async function cdpConnect() {
 }
 const cdp = (method, params = {}) => new Promise((ok, no) => { const id = ++msgId; pending.set(id, ok); try { ws.send(JSON.stringify({ id, method, params })); } catch (e) { no(e); } setTimeout(() => { if (pending.delete(id)) ok({ error: { message: 'sin respuesta' } }); }, 20000); });
 async function js(expr, retry = true) {
-  if (!ws || ws.readyState !== 1) await cdpConnect();
-  const r = await cdp('Runtime.evaluate', { expression: `(async () => { ${expr} })()`, awaitPromise: true, returnByValue: true });
+  if (!ws || ws.readyState !== 1) { if (!(await cdpConnect())) return { __err: 'sin conexión con el WebView' }; }
+  let r;
+  try { r = await cdp('Runtime.evaluate', { expression: `(async () => { ${expr} })()`, awaitPromise: true, returnByValue: true }); } catch (e) { r = { error: { message: String(e && e.message || e) } }; }
   if (r.error && retry) {
     log('  (el WebView no contesta: ' + r.error.message + '; reconecto)');
     if (!(await cdpConnect())) {
@@ -381,20 +382,26 @@ try {
     shot('viz-ahora');
     check('«Ahora» con el visualizador arriba es nativa y el visualizador lo dibuja Android (y se mueve)', !!hs && hs.shown && hs.screen === 'inicio' && hs.which === 'vizHero' && h1.st && h1.st.vizActive === 'vizHero' && h1.n >= 10 && /^vizHero:gl:/.test(h1.st.vizDrawn), JSON.stringify({ hs, n: h1.n, drawn: h1.st && h1.st.vizDrawn, err: h1.st && h1.st.vizErr }));
     // tocarlo abre el reproductor (como siempre); allí, «Visual»
+    const until = async (expr, ms = 8000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await js(expr); if (v === true) return true; await sleep(500); } return false; };
     let hn = ui().find(n => !n.web && /Visualizador/.test(n.desc || ''));
-    if (hn) { tap(...center(hn)); await sleep(3000); }
+    if (hn) { tap(...center(hn)); await sleep(1500); }
+    await until(`${O} return W.on.join() === 'np';`);
+    await sleep(800);
     const nv = ui().find(n => !n.web && n.text === 'Visual');
-    if (nv) { tap(...center(nv)); await sleep(2500); }
+    if (nv) tap(...center(nv)); else await js(`document.querySelector('#npVizBtn').click(); return 1;`);
+    await until(`return (await Capacitor.Plugins.OrbitaUi.status()).vizActive === 'vizNP';`, 6000); await sleep(800);
     const n1 = await moving(1500);
     shot('viz-reproductor');
     const np1 = await js(`${O} return { np: !document.querySelector('#np').hidden, viz: o.VZ.np, on: W.on.join() };`);
     check('tocar el visualizador de «Ahora» abre el reproductor, y su «Visual» lo dibuja Android (el reproductor sigue nativo)', !!hn && !!nv && !!np1 && np1.np && np1.viz && np1.on === 'np' && n1.st && n1.st.vizActive === 'vizNP' && n1.n >= 10 && /^vizNP:gl:/.test(n1.st.vizDrawn), JSON.stringify({ hn: !!hn, nv: !!nv, np1, n: n1.n, drawn: n1.st && n1.st.vizDrawn, err: n1.st && n1.st.vizErr }));
     // --- a pantalla completa (tocando el del reproductor, como siempre)
-    await tapWeb('#npViz', 2800);
+    await tapWeb('#npViz', 1200);
+    await until(`${O} return W.on.join() === 'np,viz';`, 6000); await sleep(800);
     const f1 = await moving(1500);
     shot('viz-pantalla-completa');
     const fs1 = await js(`${O} return { full: !document.querySelector('#vizFull').hidden, on: W.on.join(), chrome: document.querySelector('#vizFull').classList.contains('chrome') };`);
     check('a pantalla completa es una ventana nativa y el visualizador lo dibuja Android', !!fs1 && fs1.full && fs1.on === 'np,viz' && f1.st && f1.st.vizActive === 'vizFS' && f1.n >= 10 && /^vizFS:gl:/.test(f1.st.vizDrawn), JSON.stringify({ fs1, n: f1.n, drawn: f1.st && f1.st.vizDrawn }));
+    if (!fs1 || !fs1.full) { check('(sin la pantalla completa no se puede seguir con los visualizadores)', false, ''); await js(`document.querySelector('[data-hero="vinyl"]').click(); return 1;`); return; }
     // arrastrar lo gira (y no cuenta como toque); un toque sin mover enseña o esconde el título
     const y0 = f1.st ? f1.st.vizYaw : 0;
     sh('input swipe 250 1100 850 1150 500'); await sleep(900);
@@ -431,7 +438,7 @@ try {
     const l2 = await moving(1200);
     check('y al volver a «Completas», otra vez los de la tarjeta gráfica', !!l2.st && /^vizFS:gl:/.test(l2.st.vizDrawn) && l2.n >= 5, JSON.stringify({ n: l2.n, drawn: l2.st && l2.st.vizDrawn }));
     // --- cerrar: atrás cierra la pantalla completa; el del reproductor vuelve a dibujarlo Android
-    sh('input keyevent KEYCODE_BACK'); await sleep(2200);
+    if (await js(`return !document.querySelector('#vizFull').hidden;`) === true) { sh('input keyevent KEYCODE_BACK'); await sleep(2200); }
     const b1 = await st(); const bw = await js(`${O} return { full: !document.querySelector('#vizFull').hidden, on: W.on.join() };`);
     check('atrás cierra la pantalla completa y vuelve el del reproductor', !!bw && !bw.full && bw.on === 'np' && !!b1 && b1.vizActive === 'vizNP', JSON.stringify([bw, b1 && b1.vizActive]));
     await js(`document.querySelector('#npVizBtn').click(); return 1;`); await sleep(1200);
