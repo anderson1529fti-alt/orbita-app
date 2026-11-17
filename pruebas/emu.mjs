@@ -512,8 +512,9 @@ try {
     shot('letra-nativa');
     check('con la letra abierta, el reproductor sigue siendo nativo y la letra la dibuja Android', !!w1 && w1.on === 'np' && w1.open && !!s1 && s1.lyDrawn === `s:${w1.lg}:16`, JSON.stringify({ w1, drawn: s1 && s1.lyDrawn }));
     // va con la canción: el verso encendido avanza (el mismo que en la web), se va llenando y la caja lo sigue
-    const a = await st(); await sleep(4300); const b = await st(); const wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
-    check('va con la canción: el verso encendido avanza (el mismo que en la web), se llena y la caja lo sigue', !!a && !!b && !!wb && b.lyIdx === wb.idx && b.lyIdx > a.lyIdx && b.lyFill > 0 && b.lyFill <= 1 && b.lyY > a.lyY, JSON.stringify({ a: a && [a.lyIdx, +a.lyY.toFixed(1), +a.lyFill.toFixed(2)], b: b && [b.lyIdx, +b.lyY.toFixed(1), +b.lyFill.toFixed(2)], web: wb }));
+    // (el de la web se lee justo antes y justo después del de Android: un cambio de verso puede caer entre medias)
+    const a = await st(); await sleep(4300); const wa = await js(`return window.__orbita.LY.idx;`); const b = await st(); const wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
+    check('va con la canción: el verso encendido avanza (el mismo que en la web), se llena y la caja lo sigue', !!a && !!b && !!wb && (b.lyIdx === wb.idx || b.lyIdx === wa) && b.lyIdx > a.lyIdx && b.lyFill > 0 && b.lyFill <= 1 && b.lyY > a.lyY, JSON.stringify({ a: a && [a.lyIdx, +a.lyY.toFixed(1), +a.lyFill.toFixed(2)], b: b && [b.lyIdx, +b.lyY.toFixed(1), +b.lyFill.toFixed(2)], web: wb }));
     // tocar un verso (de los que vienen) lleva la canción allí, como en la web (las canciones de prueba son cortas:
     // desde aquí, en pausa y cerca del principio)
     await js(`${O} o.act().pause(); o.LY.userScroll = 0; o.act().currentTime = 2.2; o.lyricsTick(2.2, true); return 1;`); await sleep(1600);
@@ -611,11 +612,12 @@ try {
     // al deslizar el reproductor, el vídeo y su hueco van con él
     {
       const sc = await js(`const sc = document.querySelector('#np .np-inner'); return sc.scrollHeight - sc.clientHeight;`);
-      if (typeof sc === 'number' && sc > 80) {
-        const x = Math.round(206 * D), y0 = Math.round(T + 700 * D), y1 = Math.round(T + 630 * D);   // (poco: que el vídeo siga entero a la vista)
+      if (typeof sc === 'number' && sc > 30) {
+        const dd = Math.min(70, sc - 4) + 10;   // (poco: que el vídeo siga entero a la vista; y lo que se come el dedo al empezar)
+        const x = Math.round(206 * D), y0 = Math.round(T + 700 * D), y1 = Math.round(T + (700 - dd) * D);
         sh(`input swipe ${x} ${y0} ${x} ${y1} 700`); await sleep(1800);
         const s3 = await st(); const v3 = await vrect(); const h3 = hole(s3);
-        check('al deslizar el reproductor, el vídeo y su hueco van con él', !!h1 && !!h3 && h3[1] < h1[1] - 40 && near(h3, v3), JSON.stringify({ antes: s1 && s1.ytHole, ahora: s3 && s3.ytHole, web: v3 && v3.map(x => +(x * D).toFixed(1)) }));
+        check('al deslizar el reproductor, el vídeo y su hueco van con él', !!h1 && !!h3 && h3[1] < h1[1] - 20 && near(h3, v3), JSON.stringify({ antes: s1 && s1.ytHole, ahora: s3 && s3.ytHole, web: v3 && v3.map(x => +(x * D).toFixed(1)) }));
         sh(`input swipe ${x} ${y1} ${x} ${y0 + 200} 500`); await sleep(1500);
       } else check('al deslizar el reproductor, el vídeo y su hueco van con él', true, 'el reproductor cabe entero: no se desliza (' + sc + ')');
     }
