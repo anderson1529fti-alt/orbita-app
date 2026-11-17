@@ -988,11 +988,11 @@ internal class VizView(ctx: Context, private val cid: String, private val two: B
     init { surfaceTextureListener = this; isOpaque = true }
 
     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-        th?.stop()
+        th?.halt()
         th = VizThread(st, cid, two, w, h, resources.displayMetrics.density).also { it.start() }
     }
     override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) { th?.resize(w, h) }
-    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean { th?.stop(); th = null; return false }
+    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean { th?.halt(); th = null; return false }
     override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
 }
 
@@ -1020,7 +1020,7 @@ private class VizThread(private val st: SurfaceTexture, private val cid: String,
 
     fun resize(w: Int, h: Int) { vw = w; vh = h }
 
-    fun stop() {
+    fun halt() {
         stopping = true
         val l = looper ?: return
         Handler(l).post { release(); quitSafely() }
