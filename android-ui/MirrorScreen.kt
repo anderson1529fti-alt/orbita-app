@@ -165,7 +165,9 @@ internal data class MNode(
     val mk: Float, val mc: Int, val mo: Boolean,
     // 4.8 · el filtro (desenfoque, color, luz), la portada que se desliza (su clave) y la luz que va con la música
     val fx: List<Float>, val sw: Int, val lt: Boolean,
-    val kids: List<MNode>
+    val kids: List<MNode>,
+    // 5.0 · la letra: de qué vez es (gn), y de cada verso, si es un hueco (gap) y su offsetTop de la web (ot)
+    val gap: Boolean = false, val ot: Float = 0f, val gn: Int = 0
 )
 
 private val NO_F = emptyList<Float>()
@@ -262,7 +264,8 @@ private fun mNode(o: JSONObject, st: List<MStyle>, depth: Int): MNode {
         opts, vb, paths,
         o.f("mk"), o.c("mc"), o.optInt("mo") == 1,
         o.optJSONArray("fx").let { a -> if (a != null && a.length() == 3) List(3) { a.optDouble(it, if (it == 0) 0.0 else 1.0).toFloat() } else NO_F }, o.optInt("sw", 0), o.optInt("lt") == 1,
-        mKids(o.optJSONArray("c"), st, depth + 1)
+        mKids(o.optJSONArray("c"), st, depth + 1),
+        gap = o.optInt("gp") == 1, ot = o.f("ot"), gn = o.optInt("gn", 0)
     )
 }
 
@@ -382,6 +385,8 @@ private fun MAny(c: MNode) {
         "hole" -> Spacer(Modifier)
         // 4.9 · un visualizador: lo dibuja Android (en pantalla completa, además, se gira y se acerca con los dedos)
         "viz" -> VizBox(c.v, Modifier.mDecor(c), gestures = c.v == "vizFS")
+        // 5.0 · la letra que va con la música (se desliza, se enciende y se llena aquí)
+        "ly" -> LyBox(c, Modifier.mDecor(c))
         else -> MBoxNode(c)
     }
 }
@@ -671,7 +676,7 @@ private fun MBoxNode(c: MNode) {
 
 // ---------------------------------------------------------------- letras
 @Composable
-private fun mStyleOf(st: MStyle, brush: Brush? = null, color: Color = Color(st.col)): androidx.compose.ui.text.TextStyle {
+internal fun mStyleOf(st: MStyle, brush: Brush? = null, color: Color = Color(st.col)): androidx.compose.ui.text.TextStyle {
     val fam = when (st.ff) { "d" -> Display; "m" -> Mono; else -> Body }
     var ts = style(st.fs, color, fam, FontWeight(st.fw.coerceIn(100, 900)), 1.25f, if (st.fs > 0f) st.ls / st.fs else 0f, TextAlign.Start, brush)
     if ((st.fl and 1) != 0) ts = ts.copy(fontStyle = FontStyle.Italic)

@@ -23,6 +23,7 @@ setTimeout(() => finish('pasó de 44 minutos'), 44 * 60000).unref();
 // (si existe pruebas/solo-ventanas: una prueba rápida, solo de las ventanas y el reproductor a pantalla completa)
 const SOLO = fs.existsSync('pruebas/solo-ventanas');
 const SOLO_VIZ = fs.existsSync('pruebas/solo-viz');
+const SOLO_LY = fs.existsSync('pruebas/solo-letra');
 // la pantalla en crudo (sin PNG: así se puede comparar aquí mismo, píxel a píxel)
 const grab = () => {
   const r = spawnSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64e6 }); const b = r.stdout;
@@ -489,6 +490,85 @@ try {
     check('sin cierres por error con los visualizadores', crashes() === 0, crashText().slice(0, 1500));
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(800);
   };
+
+  // ================= FASE 3 · paso 3 (5.0): la letra que va con la música, dibujada por Android =================
+  const ly50 = async () => {
+    const O = `const o = window.__orbita, N = o.NUI, W = o.W;`;
+    const st = () => js(`return await Capacitor.Plugins.OrbitaUi.status();`);
+    const until = async (expr, ms = 8000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await js(expr); if (v === true) return true; await sleep(500); } return false; };
+    const D = await js(`return devicePixelRatio;`);
+    let T = 0; { const wv = ui().find(n => n.cls === 'android.webkit.WebView'); T = wv ? wv.b[1] : 0; }
+    await goView('inicio'); await sleep(800);
+    await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(1500);
+    await js(`document.querySelector('[data-act="np-open"]').click(); return 1;`);
+    await until(`${O} return W.on.join() === 'np';`, 8000); await sleep(600);
+    // la letra abierta, y una sincronizada para esta canción (un verso cada dos segundos; alguno, largo)
+    await js(`${O} o.setLyricsOpen(true); return 1;`); await sleep(2500);
+    const LRC = Array.from({ length: 16 }, (_, k) => `[00:${String(k * 2).padStart(2, '0')}.00]Verso ${k + 1}${k % 5 === 2 ? ', uno bastante más largo que los demás para que se parta en dos renglones' : ' de la letra'}`).join('\n');
+    await js(`${O} o.act().currentTime = 0.2; const t = o.current(); o.renderLyrics(t, { id: t.id, synced: ${JSON.stringify(LRC)}, plain: '', source: 'manual', ts: Date.now() }); return 1;`);
+    await until(`return (await Capacitor.Plugins.OrbitaUi.status()).lyDrawn.startsWith('s:');`, 6000); await sleep(800);
+    const s1 = await st(); const w1 = await js(`${O} return { on: W.on.join(), open: document.querySelector('#np').classList.contains('ly-open'), lg: o.LY.lg, idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
+    shot('letra-nativa');
+    check('con la letra abierta, el reproductor sigue siendo nativo y la letra la dibuja Android', !!w1 && w1.on === 'np' && w1.open && !!s1 && s1.lyDrawn === `s:${w1.lg}:16`, JSON.stringify({ w1, drawn: s1 && s1.lyDrawn }));
+    // va con la canción: el verso encendido avanza (el mismo que en la web), se va llenando y la caja lo sigue
+    const a = await st(); await sleep(4300); const b = await st(); const wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
+    check('va con la canción: el verso encendido avanza (el mismo que en la web), se llena y la caja lo sigue', !!a && !!b && !!wb && b.lyIdx === wb.idx && b.lyIdx > a.lyIdx && b.lyFill > 0 && b.lyFill <= 1 && b.lyY > a.lyY, JSON.stringify({ a: a && [a.lyIdx, +a.lyY.toFixed(1), +a.lyFill.toFixed(2)], b: b && [b.lyIdx, +b.lyY.toFixed(1), +b.lyFill.toFixed(2)], web: wb }));
+    // tocar un verso (de los que vienen) lleva la canción allí, como en la web
+    const cur = await js(`return window.__orbita.LY.idx;`);
+    const want = (typeof cur === 'number' ? cur : 0) + 2;
+    const re = new RegExp('^Verso ' + (want + 1) + '\\b');
+    let nl = null; for (let k = 0; k < 3 && !nl; k++) { nl = ui().find(n => !n.web && re.test(n.text || '')); if (!nl) await sleep(600); }
+    const s2 = await st();
+    if (nl) tap(...center(nl));
+    await sleep(1300);
+    const s3 = await st(); const w3 = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
+    check('tocar un verso lleva la canción allí (y se enciende ese)', !!nl && !!s3 && s3.lyTaps > s2.lyTaps && !!w3 && w3.idx >= want && w3.t >= want * 2 - 0.2 && w3.t < want * 2 + 2.5 && s3.lyIdx === w3.idx, JSON.stringify({ want, nodo: !!nl && nl.text, w3, nat: s3 && s3.lyIdx }));
+    // deslizar la letra con el dedo la mueve a ella, y no baja el reproductor (como en la web)
+    const box = await js(`const r = document.querySelector('#lyScroll').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];`);
+    if (Array.isArray(box)) {
+      const x = Math.round((box[0] + box[2]) / 2 * D), y0 = Math.round(T + (box[1] + (box[3] - box[1]) * 0.25) * D), y1 = Math.round(T + (box[1] + (box[3] - box[1]) * 0.8) * D);
+      const sy0 = (await st()).lyY;
+      sh(`input swipe ${x} ${y0} ${x} ${y1} 600`); await sleep(1300);
+      const s4 = await st(); const w4 = await js(`${O} return { on: W.on.join(), np: !document.querySelector('#np').hidden };`);
+      check('deslizar la letra con el dedo la mueve a ella, y no baja el reproductor', !!w4 && w4.np && w4.on === 'np' && !!s4 && s4.lyY < sy0 - 20, JSON.stringify({ sy0: +sy0.toFixed(1), sy1: s4 && +s4.lyY.toFixed(1), w4 }));
+    } else check('deslizar la letra con el dedo la mueve a ella, y no baja el reproductor', false, 'sin caja de letra');
+    // quieta: cada verso, donde en la web (± 3), con la caja en el mismo sitio
+    await js(`${O} o.act().pause(); return 1;`); await sleep(4200);   // (y pasan los 3,5 s del dedo)
+    await js(`${O} o.LY.userScroll = 0; o.act().currentTime = 9.1; o.lyricsTick(9.1, true); return 1;`); await sleep(1800);
+    const sp = await st();
+    const web = await js(`const sc = document.querySelector('#lyScroll'), out = [], g = document.createRange(), r0 = sc.getBoundingClientRect();
+      for (const p of sc.querySelectorAll('.ly-line')) { const sp = p.firstElementChild || p; const tn = [...sp.childNodes].find(n => n.nodeType === 3); if (!tn || !tn.textContent.trim()) continue;
+        g.selectNodeContents(tn); const rs = g.getClientRects(); if (!rs.length) continue; const r = rs[0];
+        out.push({ t: tn.textContent.trim().slice(0, 12), x: +r.left.toFixed(1), y: +((r.top + r.bottom) / 2).toFixed(1) }); }
+      return { box: [r0.left, r0.top, r0.right, r0.bottom], scroll: sc.scrollTop, rows: out };`);
+    const nat = ui().filter(n => !n.web && /^Verso \d+/.test(n.text || ''));
+    const par = [], bad = [];
+    if (web && web.rows) for (const e of web.rows) {
+      if (e.y < web.box[1] + 8 || e.y > web.box[3] - 8) continue;   // (solo lo que se ve en la caja)
+      const c = nat.filter(n => n.text.trim().slice(0, 12) === e.t);
+      if (c.length !== 1) { bad.push(`«${e.t}» ${c.length}`); continue; }
+      const nx = c[0].b[0] / D, ny = ((c[0].b[1] + c[0].b[3]) / 2 - T) / D, dx = +(nx - e.x).toFixed(1), dy = +(ny - e.y).toFixed(1);
+      par.push({ t: e.t, dx, dy }); if (Math.abs(dx) > 3 || Math.abs(dy) > 3) bad.push(`«${e.t}» ${dx}/${dy}`);
+    }
+    fs.writeFileSync(`${OUT}/paridad-letra.json`, JSON.stringify({ web, nat: nat.map(n => [n.text, n.b]), par, natY: sp && sp.lyY }, null, 1));
+    shot('letra-quieta-nativa');
+    check('quieta, cada verso de la letra está donde en la de siempre (± 3)', par.length >= 4 && bad.length === 0 && !!sp && Math.abs(sp.lyY - web.scroll) < 2, `${par.length} comparados · fuera: ${bad.slice(0, 8).join(' · ')} · caja: Android ${sp && sp.lyY.toFixed(1)} / web ${web && web.scroll}`);
+    await js(`${O} N.classic = true; return 1;`); await sleep(1800); shot('letra-quieta-web');
+    await js(`${O} N.classic = false; return 1;`); await sleep(1800);
+    // cerrarla: el reproductor sigue nativo, con su portada
+    await js(`${O} o.setLyricsOpen(false); return 1;`); await sleep(1500);
+    const w5 = await js(`${O} return { on: W.on.join(), open: document.querySelector('#np').classList.contains('ly-open') };`);
+    check('al cerrar la letra, el reproductor sigue nativo con su portada', !!w5 && w5.on === 'np' && !w5.open, JSON.stringify(w5));
+    await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await sleep(1800);
+    check('sin cierres por error con la letra nativa', crashes() === 0, crashText().slice(0, 1500));
+  };
+  if (SOLO_LY) {
+    await goView('ajustes'); await sleep(1000);
+    const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
+    check('prueba rápida: las pantallas nativas, encendidas', t0 === 'true', t0);
+    await goView('inicio'); await sleep(3000);
+    await ly50(); saveLogs(); finish('prueba rápida: solo la letra');
+  }
   if (SOLO_VIZ) {
     await goView('ajustes'); await sleep(1000);
     const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
@@ -1067,6 +1147,7 @@ try {
   await ventanas48();
 
   await viz49();
+  await ly50();
 
   // ================= FASE 2 · pasos 4 y 5 (4.7): «Buscar» y «Ajustes», nativas =================
   {

@@ -53,6 +53,8 @@ class UiMsg(val me: Boolean, val text: String)
 
 /** Lo que enseñan las pantallas nativas. Lo escribe la app (por el plugin) y lo lee Compose. */
 object UiState {
+    /** 5.0 · el dedo empezó en la letra del reproductor: no baja el reproductor (como en la web: .np-lyrics se salta). */
+    @Volatile var npNoDrag = false
     var look by mutableStateOf(UiLook())
     var tracks by mutableStateOf<List<UiTrack>>(emptyList())
     var filter by mutableStateOf("all")
@@ -289,7 +291,7 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 8)
+        r.put("available", true); r.put("v", 9)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
@@ -301,6 +303,8 @@ class OrbitaUiPlugin : Plugin() {
             // 4.9 · los visualizadores: cuál se ve, cuántos fotogramas lleva y cómo (para las pruebas y el diagnóstico)
             r.put("vizActive", Viz.active); r.put("vizFrames", Viz.frames); r.put("vizDrawn", Viz.drawn); r.put("vizErr", Viz.err); r.put("vizTwo", Viz.two)
             r.put("vizCover", Viz.coverOk); r.put("vizYaw", Viz.yaw.toDouble()); r.put("vizPitch", Viz.pitch.toDouble()); r.put("vizZoom", Viz.zoom.toDouble())
+            // 5.0 · la letra: qué caja se ve, qué verso está encendido, por dónde va y cuánto lleva de relleno
+            r.put("lyDrawn", Ly.drawn); r.put("lyIdx", Ly.shown); r.put("lyY", Ly.y.toDouble()); r.put("lyFill", Ly.fill.toDouble()); r.put("lyTaps", Ly.taps); r.put("lyGen", Ly.g); r.put("lyAt", Ly.i)
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }
             r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
         } catch (ignored: Throwable) { }
@@ -542,6 +546,14 @@ class OrbitaUiPlugin : Plugin() {
     }
 
     /** La web ha movido lo que se desliza en una ventana (o lo pide una prueba): la nativa va a la misma altura. */
+    /** 5.0 · La letra: qué verso se canta (de qué letra) y cuánto dura su relleno; Android la lleva, la enciende y la llena. */
+    @PluginMethod
+    fun ly(call: PluginCall) {
+        val o = call.data
+        try { android.os.Handler(android.os.Looper.getMainLooper()).post { try { Ly.set(o) } catch (ignored: Throwable) { } } } catch (ignored: Throwable) { }
+        call.resolve()
+    }
+
     /** 4.9 · Los visualizadores: qué lienzo se ve, el estilo y sus ajustes, los colores y la portada (los dibuja Android). */
     @PluginMethod
     fun viz(call: PluginCall) {

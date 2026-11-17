@@ -160,7 +160,7 @@ private fun rememberNpDrag(ls: LazyListState, dens: Float): NestedScrollConnecti
         fun move() { UiState.send("npDrag") { it.put("ph", "m"); it.put("dy", (Math.round(dy * 10.0) / 10.0)) } }
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
             if (on) { dy = max(0f, dy + available.y / dens); move(); return available }
-            if (source != NestedScrollSource.UserInput) return Offset.Zero
+            if (source != NestedScrollSource.UserInput || UiState.npNoDrag) return Offset.Zero
             if (!started) { started = true; topAtStart = !ls.canScrollBackward }
             if (available.y > 0f && topAtStart && !ls.canScrollBackward) {
                 on = true; dy = available.y / dens

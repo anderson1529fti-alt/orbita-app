@@ -67,7 +67,7 @@ jobs:
           [ $ok = 1 ]
       # Lo mismo que compila la versión que se publica (sin firmar): que no falle por algo que solo salga ahí
       - name: Compilar como la versión publicada
-        if: hashFiles('pruebas/solo-ventanas') == '' && hashFiles('pruebas/solo-viz') == ''
+        if: hashFiles('pruebas/solo-ventanas') == '' && hashFiles('pruebas/solo-viz') == '' && hashFiles('pruebas/solo-letra') == ''
         run: |
           cd android
           set -o pipefail
