@@ -1010,7 +1010,7 @@ private class VizThread(private val st: SurfaceTexture, private val cid: String,
     @Volatile private var stopping = false
     /** La ventana de la app se ve (no está en segundo plano ni con la pantalla apagada). */
     @Volatile var seen = true
-    private var h: Handler? = null
+    private var hnd: Handler? = null
     private var dpy: EGLDisplay? = null
     private var ectx: EGLContext? = null
     private var esurf: EGLSurface? = null
@@ -1038,14 +1038,14 @@ private class VizThread(private val st: SurfaceTexture, private val cid: String,
     }
 
     override fun onLooperPrepared() {
-        h = Handler(looper)
+        hnd = Handler(looper)
         Choreographer.getInstance().postFrameCallback(cb)
     }
 
     /** Sin nada que dibujar (no es su turno, o la app no se ve), se mira cada cuarto de segundo, no a cada fotograma. */
-    private val wake = Runnable { if (!stopping) Choreographer.getInstance().postFrameCallback(cb) }
+    private val wake: Runnable = Runnable { if (!stopping) Choreographer.getInstance().postFrameCallback(cb) }
 
-    private val cb = object : Choreographer.FrameCallback {
+    private val cb: Choreographer.FrameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(nanos: Long) {
             if (stopping) return
             var busy = false
@@ -1054,7 +1054,7 @@ private class VizThread(private val st: SurfaceTexture, private val cid: String,
                 if (!two) { release(); Viz.brokeGl(t.toString()); stopping = true; return }
             }
             if (stopping) return
-            if (busy) Choreographer.getInstance().postFrameCallback(this) else h?.postDelayed(wake, 250)
+            if (busy) Choreographer.getInstance().postFrameCallback(this) else hnd?.postDelayed(wake, 250)
         }
     }
 
