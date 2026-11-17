@@ -242,30 +242,39 @@ try {
     if (!(await js(`return document.querySelector('#sleepOverlay').hidden;`))) await tapText('Cerrar', 1200);
     check('y «Desactivar» lo quita', sl2 === false, String(sl2));
     // --- el reproductor a pantalla completa
+    // (en pausa: las canciones de prueba duran 30-40 s y se funden con la siguiente, y volcar la pantalla con la barra
+    // avanzando le cuesta al emulador más de 10 s; con la música parada, lo que se compara no cambia entretanto)
+    const pause = async () => { sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1300); };
+    const song = () => js(`const o = window.__orbita, t = document.querySelector('#npTitle'), a = document.querySelector('#npArtist'); return { qi: o.state.qi, t: t && t.textContent, a: a && a.textContent };`);
     await js(`document.querySelector('[data-act="np-open"]').click(); return 1;`); await sleep(2800);
+    await pause();
     let pn = await npDiag('abierto'); shot('reproductor-nativo');
     let p0 = await wst();
-    const tt0 = await js(`return document.querySelector('#npTitle').textContent;`);
+    const s0 = await song(), tt0 = s0 && s0.t;
     check('el reproductor, abierto y quieto, es nativo (y la pantalla de debajo se aparta: lo tapa todo)', !!p0 && p0.on === 'np' && p0.st.wins === 'np' && p0.st.winShown && !p0.shown && !!findNat(pn, tt0) && !!findNat(pn, 'Cerrar'), JSON.stringify(p0) + ' · ' + tt0);
     const pp = await pariWin('#np', 'paridad-reproductor.json', 'reproductor');
     check('el reproductor: cada renglón, donde en el de siempre (± 3)', pp.n >= 6 && pp.bad.length === 0, `${pp.n} comparados · ${pp.bad.length} fuera: ${pp.bad.slice(0, 10).join(' · ')}`);
     await npDiag('tras-comparar');
     // «Siguiente» (el del reproductor nativo, no el de la barra de abajo)
     pn = ui();
-    const nxs = pn.filter(n => n.desc === 'Siguiente').sort((a, b) => a.b[1] - b.b[1]);
+    const nxs = pn.filter(n => !n.web && n.desc === 'Siguiente').sort((a, b) => a.b[1] - b.b[1]);
     if (nxs.length) { tap(...center(nxs[0])); await sleep(2200); }
-    const tt1 = await js(`return document.querySelector('#npTitle').textContent;`);
+    await pause();
+    const s1 = await song(), tt1 = s1 && s1.t;
     pn = await npDiag('siguiente'); shot('reproductor-siguiente');
-    check('«Siguiente» del reproductor nativo pasa de canción (y lo enseña)', nxs.length > 0 && tt1 !== tt0 && !!findNat(pn, tt1), `${tt0} → ${tt1}`);
+    check('«Siguiente» del reproductor nativo pasa de canción (y lo enseña)', nxs.length > 0 && !!s0 && !!s1 && s1.qi !== s0.qi && !!findNat(pn, tt1), `${tt0} → ${tt1} (${s0 && s0.qi} → ${s1 && s1.qi})`);
     // deslizar la portada a la izquierda: la siguiente
     const art = await js(`const r = document.querySelector('#npArt').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];`);
     if (art) { const y = Math.round(T5 + (art[1] + art[3]) / 2 * D5); sh(`input swipe ${Math.round(art[2] * D5 - 60)} ${y} ${Math.round(art[0] * D5 + 60)} ${y} 300`); await sleep(2400); }
-    const tt2 = await js(`return document.querySelector('#npTitle').textContent;`);
+    await pause();
+    const s2 = await song(), tt2 = s2 && s2.t;
     const pn2 = await npDiag('deslizada');
-    check('deslizar la portada a la izquierda pasa a la siguiente (y la nativa la enseña)', !!art && tt2 !== tt1 && !!findNat(pn2, tt2), `${tt1} → ${tt2}`);
+    check('deslizar la portada a la izquierda pasa a la siguiente (y la nativa la enseña)', !!art && !!s1 && !!s2 && s2.qi !== s1.qi && !!findNat(pn2, tt2), `${tt1} → ${tt2} (${s1 && s1.qi} → ${s2 && s2.qi})`);
     // bajar dentro del reproductor (a lo que viene después) y volver: la de siempre a la misma altura
+    // (cuando la nativa se para, le dice a la web dónde se ha quedado: se espera a que llegue, hasta 6 s)
     sh('input swipe 540 1700 540 700 400'); await sleep(1800);
-    const sc1 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, st: await Capacitor.Plugins.OrbitaUi.status() };`);
+    let sc1 = null;
+    for (let k = 0; k < 9; k++) { sc1 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, st: await Capacitor.Plugins.OrbitaUi.status() };`); if (sc1 && sc1.st && Math.abs(sc1.web - sc1.st.winY) < 3) break; await sleep(700); }
     pn = ui(); shot('reproductor-abajo');
     check('dentro del reproductor nativo se baja con el dedo (y el de siempre se pone a la misma altura)', !!sc1 && sc1.web > 100 && Math.abs(sc1.web - sc1.st.winY) < 3 && sc1.st.wins === 'np', JSON.stringify(sc1));
     // (a mitad de gesto, al llegar arriba, no se cierra: solo si el dedo empieza arriba del todo, como en el de siempre)
