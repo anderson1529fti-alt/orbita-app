@@ -514,7 +514,9 @@ try {
     // va con la canción: el verso encendido avanza (el mismo que en la web), se va llenando y la caja lo sigue
     const a = await st(); await sleep(4300); const b = await st(); const wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
     check('va con la canción: el verso encendido avanza (el mismo que en la web), se llena y la caja lo sigue', !!a && !!b && !!wb && b.lyIdx === wb.idx && b.lyIdx > a.lyIdx && b.lyFill > 0 && b.lyFill <= 1 && b.lyY > a.lyY, JSON.stringify({ a: a && [a.lyIdx, +a.lyY.toFixed(1), +a.lyFill.toFixed(2)], b: b && [b.lyIdx, +b.lyY.toFixed(1), +b.lyFill.toFixed(2)], web: wb }));
-    // tocar un verso (de los que vienen) lleva la canción allí, como en la web
+    // tocar un verso (de los que vienen) lleva la canción allí, como en la web (las canciones de prueba son cortas:
+    // desde aquí, en pausa y cerca del principio)
+    await js(`${O} o.act().pause(); o.LY.userScroll = 0; o.act().currentTime = 2.2; o.lyricsTick(2.2, true); return 1;`); await sleep(1600);
     const cur = await js(`return window.__orbita.LY.idx;`);
     const want = (typeof cur === 'number' ? cur : 0) + 2;
     const re = new RegExp('^Verso ' + (want + 1) + '\\b');
@@ -523,7 +525,7 @@ try {
     if (nl) tap(...center(nl));
     await sleep(1300);
     const s3 = await st(); const w3 = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
-    check('tocar un verso lleva la canción allí (y se enciende ese)', !!nl && !!s3 && s3.lyTaps > s2.lyTaps && !!w3 && w3.idx >= want && w3.t >= want * 2 - 0.2 && w3.t < want * 2 + 2.5 && s3.lyIdx === w3.idx, JSON.stringify({ want, nodo: !!nl && nl.text, w3, nat: s3 && s3.lyIdx }));
+    check('tocar un verso lleva la canción allí (y se enciende ese)', !!nl && !!s3 && s3.lyTaps > s2.lyTaps && !!w3 && w3.idx === want && Math.abs(w3.t - (want * 2 - 0.05)) < 0.3 && s3.lyIdx === w3.idx, JSON.stringify({ want, nodo: !!nl && nl.text, w3, nat: s3 && s3.lyIdx, taps: [s2 && s2.lyTaps, s3 && s3.lyTaps] }));
     // deslizar la letra con el dedo la mueve a ella, y no baja el reproductor (como en la web)
     const box = await js(`const r = document.querySelector('#lyScroll').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];`);
     if (Array.isArray(box)) {
@@ -534,7 +536,7 @@ try {
       check('deslizar la letra con el dedo la mueve a ella, y no baja el reproductor', !!w4 && w4.np && w4.on === 'np' && !!s4 && s4.lyY < sy0 - 20, JSON.stringify({ sy0: +sy0.toFixed(1), sy1: s4 && +s4.lyY.toFixed(1), w4 }));
     } else check('deslizar la letra con el dedo la mueve a ella, y no baja el reproductor', false, 'sin caja de letra');
     // quieta: cada verso, donde en la web (± 3), con la caja en el mismo sitio
-    await js(`${O} o.act().pause(); return 1;`); await sleep(4200);   // (y pasan los 3,5 s del dedo)
+    await sleep(3800);   // (que pasen los 3,5 s del dedo)
     await js(`${O} o.LY.userScroll = 0; o.act().currentTime = 9.1; o.lyricsTick(9.1, true); return 1;`); await sleep(1800);
     const sp = await st();
     const web = await js(`const sc = document.querySelector('#lyScroll'), out = [], g = document.createRange(), r0 = sc.getBoundingClientRect();
@@ -574,24 +576,38 @@ try {
     const hole = s => { const m = /^(-?\d+),(-?\d+),(\d+)x(\d+)$/.exec(s && s.ytHole || ''); return m ? m.slice(1).map(Number) : null; };
     const vrect = () => js(`const r = document.querySelector('#npVideo').getBoundingClientRect(); return [r.left, r.top, r.width, r.height];`);
     await goView('inicio'); await sleep(800);
-    // un vídeo de YouTube (Big Buck Bunny, de la Blender Foundation), con el reproductor abierto
-    await js(`${O} o.ytPlay(o.ytLinkFrom('https://youtu.be/aqz-KE-bpKQ'), 'now'); return 1;`);
-    await until(`return document.querySelector('#np').classList.contains('yt-on') || !document.querySelector('#ytDock').hidden;`, 15000); await sleep(1500);
+    // YouTube no deja reproducir desde las máquinas de las pruebas: la web se pone como con un vídeo en el reproductor
+    // (lo que hace ytLayout), con una carta de ajuste en el sitio del vídeo que cuenta los toques que le llegan
+    await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(1500);
+    await js(`${O} o.act().pause(); return 1;`); await sleep(400);
     await js(`if (document.querySelector('#np').hidden) document.querySelector('[data-act="np-open"]').click(); return 1;`);
-    await until(`${O} return W.on.join() === 'np' && document.querySelector('#np').classList.contains('yt-on');`, 10000);
+    await until(`${O} return W.on.join() === 'np';`, 8000); await sleep(800);
+    await js(`${O} const np = document.querySelector('#np'), dk = document.querySelector('#ytDock');
+      np.classList.add('yt-on'); dk.hidden = false; dk.classList.add('big'); dk.classList.remove('mini');
+      let p = document.querySelector('#ytTestPat'); if (!p) { p = document.createElement('div'); p.id = 'ytTestPat'; dk.appendChild(p); }
+      p.style.cssText = 'position:absolute;inset:0;z-index:5;background:linear-gradient(90deg,#ff2020 0 33%,#20ff20 33% 66%,#2040ff 66%)';
+      window.__ytTaps = 0; p.onclick = () => { window.__ytTaps++; };
+      const sc = document.querySelector('#np .np-inner'); if (!sc.__ytt) { sc.__ytt = 1; sc.addEventListener('scroll', () => { if (np.classList.contains('yt-on')) o.ytPlace(); }); }
+      o.ytPlace(); return 1;`);
     await until(`return !!(await Capacitor.Plugins.OrbitaUi.status()).ytHole;`, 6000); await sleep(1200);
     const s1 = await st(); const w1 = await js(`${O} return { on: W.on.join(), yt: document.querySelector('#np').classList.contains('yt-on'), nat: o.ytNat };`); const v1 = await vrect();
     const h1 = hole(s1);
+    const g1 = grab();
     shot('videoclip-nativo');
     const near = (h, v) => !!h && !!v && Math.abs(h[0] - v[0] * D) <= 3 && Math.abs(h[1] - (v[1] * D)) <= 3 && Math.abs(h[2] - v[2] * D) <= 4 && Math.abs(h[3] - v[3] * D) <= 4;
-    check('con un vídeo, el reproductor sigue nativo y deja el hueco del vídeo justo en su sitio', !!w1 && w1.on === 'np' && w1.yt && near(h1, v1), JSON.stringify({ w1, hueco: s1 && s1.ytHole, web: v1 && v1.map(x => +(x * D).toFixed(1)) }));
+    // (por el hueco se ve lo que la web tiene ahí: la carta de ajuste, roja, verde y azul de izquierda a derecha)
+    const px = (g, x, y) => { if (!g) return null; const i = (Math.round(y) * g.w + Math.round(x)) * 4; return [g.d[i], g.d[i + 1], g.d[i + 2]]; };
+    const seen = h1 ? [1 / 6, 1 / 2, 5 / 6].map(f => px(g1, h1[0] + h1[2] * f, T + h1[1] + h1[3] / 2)) : [];
+    const isC = (c, k) => !!c && c[k] > 180 && c[(k + 1) % 3] < 110 && c[(k + 2) % 3] < 110;
+    check('con un vídeo, el reproductor sigue nativo y deja el hueco del vídeo justo en su sitio (y por él se ve el vídeo)', !!w1 && w1.on === 'np' && w1.yt && near(h1, v1) && isC(seen[0], 0) && isC(seen[1], 1) && isC(seen[2], 2), JSON.stringify({ w1, hueco: s1 && s1.ytHole, web: v1 && v1.map(x => +(x * D).toFixed(1)), seen }));
     // lo que se toca en el hueco va al vídeo (a la web), no a Android: el reproductor sigue igual
     if (h1) {
       const f0 = s1.ytFwd;
       tap(Math.round(h1[0] + h1[2] / 2), Math.round(T + h1[1] + h1[3] / 2)); await sleep(1500);
       const s2 = await st(); const w2 = await js(`${O} return { on: W.on.join(), np: !document.querySelector('#np').hidden, yt: document.querySelector('#np').classList.contains('yt-on') };`);
-      check('lo que se toca en el hueco va al vídeo (y el reproductor sigue igual)', !!s2 && s2.ytFwd === f0 + 1 && !!w2 && w2.on === 'np' && w2.np && w2.yt, JSON.stringify({ f0, f1: s2 && s2.ytFwd, w2 }));
-    } else check('lo que se toca en el hueco va al vídeo (y el reproductor sigue igual)', false, 'sin hueco');
+      const taps = await js(`return window.__ytTaps;`);
+      check('lo que se toca en el hueco le llega al vídeo (y el reproductor sigue igual)', !!s2 && s2.ytFwd === f0 + 1 && taps === 1 && !!w2 && w2.on === 'np' && w2.np && w2.yt, JSON.stringify({ f0, f1: s2 && s2.ytFwd, toquesDelVideo: taps, w2 }));
+    } else check('lo que se toca en el hueco le llega al vídeo (y el reproductor sigue igual)', false, 'sin hueco');
     // al deslizar el reproductor, el vídeo y su hueco van con él
     {
       const sc = await js(`const sc = document.querySelector('#np .np-inner'); return sc.scrollHeight - sc.clientHeight;`);
@@ -609,9 +625,10 @@ try {
     await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await sleep(2000);
     const s4 = await st();
     check('al cerrar el reproductor, el hueco del vídeo se va', !!s4 && !s4.ytHole && !s4.ytDock, JSON.stringify({ hueco: s4 && s4.ytHole, dock: s4 && s4.ytDock }));
-    await js(`${O} o.ytClose(); return 1;`); await sleep(1500);
-    await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(1500);
-    await js(`${O} o.act().pause(); return 1;`); await sleep(500);
+    // (la web, otra vez como es: sin vídeo)
+    await js(`${O} const p = document.querySelector('#ytTestPat'); if (p) p.remove(); o.ytLayout(); return 1;`); await sleep(1200);
+    const s5 = await st();
+    check('sin vídeo, el hueco no vuelve', !!s5 && !s5.ytHole, JSON.stringify({ hueco: s5 && s5.ytHole }));
     check('sin cierres por error con el videoclip nativo', crashes() === 0, crashText().slice(0, 1500));
   };
   if (SOLO_LY) {

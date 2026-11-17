@@ -1,3 +1,11 @@
+Órbita 5.0: la letra y el videoclip del reproductor, también de Android.
+
+Fase 3, paso 3
+- La letra que va con la música la dibuja Android: en el reproductor, el verso que suena se enciende, se va llenando de izquierda a derecha como en un karaoke y la letra lo sigue sola. Si la mueves con el dedo, espera un poco antes de volver; y moverla no baja el reproductor. Tocar un verso lleva la canción allí, como siempre. Retrasarla o adelantarla medio segundo y «Editar» siguen igual.
+- El videoclip, también en el reproductor de Android: el vídeo de YouTube se ve en su sitio y se toca como siempre (lo que se toca encima del vídeo le llega al vídeo), y si deslizas el reproductor, va con él.
+- Las letras sin tiempos se ven como siempre, para leerlas deslizando.
+- Siguen en la fase 3: la voz de Nova y lo que Nova entiende y decide.
+
 Órbita 4.9: los visualizadores los dibuja Android.
 
 Fase 3, paso 2
