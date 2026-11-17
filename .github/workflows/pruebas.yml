@@ -68,6 +68,12 @@ jobs:
         if: failure()
         run: |
           cat salida/gradle.txt salida/gradle-release.txt 2>/dev/null | grep -nE "^e: |error:|FAILED|What went wrong" -A3 | head -n 120 > salida/errores.txt || true
+      # (lo que deja la compilación encendido se apaga: el emulador necesita esa memoria)
+      - name: Memoria
+        run: |
+          pkill -f KotlinCompileDaemon || true
+          pkill -f GradleDaemon || true
+          sleep 2; free -m
       - name: KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -84,6 +90,13 @@ jobs:
           disable-animations: false
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: node pruebas/emu.mjs
+      # si el emulador se cierra solo, aquí queda por qué (memoria del ordenador de las pruebas)
+      - name: Memoria al final
+        if: always()
+        run: |
+          mkdir -p salida
+          { free -m; sudo dmesg -T 2>/dev/null | grep -iE "out of memory|killed process|oom|segfault|qemu" | tail -n 40; } > salida/memoria.txt || true
+          cat salida/memoria.txt
       # Los resultados (capturas y registros) van a la rama «resultados», que se sobrescribe en cada prueba
       - name: Publicar resultados
         if: always()

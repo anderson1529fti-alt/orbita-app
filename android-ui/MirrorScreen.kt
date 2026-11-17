@@ -36,6 +36,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -275,10 +277,30 @@ internal fun mParsePart(o: JSONObject): List<MNode> {
     return mKids(o.optJSONArray("c"), st, 0)
 }
 
+// ---------------------------------------------------------------- el aspecto
+/**
+ * El aspecto (colores, esquinas, tamaño de letra) de las piezas copiadas. Sin animar: sus colores los manda la web, que
+ * los cambia de golpe al cambiar de tema. Y se reparte «por el aire» (no pasando de pieza en pieza): así, al cambiar,
+ * solo se vuelven a dibujar las piezas que lo usan (las barras, las listas desplegables…), no las 600 de «Ajustes».
+ */
+internal val LocalMSkin = compositionLocalOf<Skin?> { null }
+
+@Composable
+internal fun rememberMirrorSkin(): Skin {
+    val look = UiState.look
+    val dens = LocalDensity.current.density
+    return remember(look.h, look.s, look.glowK, look.black, look.round, look.tk, look.titles, dens) {
+        Skin(Pal(look.h, look.s, look.glowK, look.black), look.round, look.tk, look.titles, (max(1f, floor(dens)) / dens).dp)
+    }
+}
+
+@Composable
+private fun mSkin(): Skin = LocalMSkin.current ?: rememberMirrorSkin()
+
 // ---------------------------------------------------------------- la pantalla
 @Composable
 fun MirrorScreen(name: String) {
-    val sk = rememberSkin()
+    val sk = rememberMirrorSkin()
     val order = UiState.mirOrder[name] ?: emptyList()
     val total = UiState.mirTotal[name] ?: 0f
     val ls = UiState.mirList(name)
@@ -289,27 +311,27 @@ fun MirrorScreen(name: String) {
             if (y >= 0f) UiState.send("mY") { it.put("name", name); it.put("y", (Math.round(y * 100.0) / 100.0)) }
         }
     }
-    Box(Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalMSkin provides sk) { Box(Modifier.fillMaxSize()) {
         LazyColumn(state = ls, modifier = Modifier.fillMaxSize()) {
             items(order.size, key = { order[it].k }) { i ->
                 val p = order[i]
                 // cada parte ocupa desde donde empieza hasta donde empieza la siguiente (la primera, desde arriba del todo; la última, hasta el final)
                 val top = if (i == 0) 0f else p.y
                 val bottom = if (i + 1 < order.size) order[i + 1].y else max(total, p.y + p.h)
-                MPart(p, UiState.mirParts[name + "." + p.k] ?: emptyList(), top, bottom, sk)
+                MPart(p, UiState.mirParts[name + "." + p.k] ?: emptyList(), top, bottom)
             }
         }
         ToastHost(sk, Modifier.align(Alignment.BottomCenter))
-    }
+    } }
 }
 
 @Composable
-internal fun MPart(p: MPos, nodes: List<MNode>, top: Float, bottom: Float, sk: Skin) {
+internal fun MPart(p: MPos, nodes: List<MNode>, top: Float, bottom: Float) {
     // (un toque fuera de los botones también le llega a la web, en su sitio: allí puede haber algo que lo espere)
     val tapAt = Modifier.pointerInput(p.k, p.x, p.y, top) {
         detectTapGestures(onTap = { o -> UiState.send("mAt") { it.put("k", p.k); it.put("x", (o.x / density - p.x).toDouble()); it.put("y", (o.y / density + top - p.y).toDouble()) } })
     }
-    Layout(content = { MGroup(nodes, 0f, 0f, p.w, p.h, Modifier, sk) }, modifier = Modifier.fillMaxWidth().then(tapAt)) { ms, cs ->
+    Layout(content = { MGroup(nodes, 0f, 0f, p.w, p.h, Modifier) }, modifier = Modifier.fillMaxWidth().then(tapAt)) { ms, cs ->
         val d = density
         val t = (top * d).roundToInt()
         val pl = ms[0].measure(Constraints())
@@ -319,8 +341,8 @@ internal fun MPart(p: MPos, nodes: List<MNode>, top: Float, bottom: Float, sk: S
 
 /** Varias piezas, cada una en su sitio exacto (las medidas son las de la web; los textos se centran en su renglón). */
 @Composable
-internal fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float, modifier: Modifier, sk: Skin) {
-    Layout(content = { for (i in kids.indices) { val c = kids[i]; key(if (c.k > 0) c.k else -1 - i) { MAny(c, sk) } } }, modifier = modifier) { ms, _ ->
+internal fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float, modifier: Modifier) {
+    Layout(content = { for (i in kids.indices) { val c = kids[i]; key(if (c.k > 0) c.k else -1 - i) { MAny(c) } } }, modifier = modifier) { ms, _ ->
         val d = density
         val x0 = (ox * d).roundToInt()
         val y0 = (oy * d).roundToInt()
@@ -346,19 +368,19 @@ internal fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float,
 
 /** Una pieza (siempre un solo elemento, para que cada una caiga en su sitio). */
 @Composable
-private fun MAny(c: MNode, sk: Skin) {
+private fun MAny(c: MNode) {
     when (c.e) {
         "t" -> MText(c)
-        "in", "ta" -> MInput(c, sk)
+        "in", "ta" -> MInput(c)
         "halo" -> MHalo(c)
-        "rg" -> MRange(c, sk)
-        "sel" -> MSelect(c, sk)
+        "rg" -> MRange(c)
+        "sel" -> MSelect(c)
         "svg" -> MSvg(c)
-        "ph" -> MPh(c, sk)
+        "ph" -> MPh(c)
         "img" -> MImg(c)
-        "eqa" -> MEqAnim(sk)
+        "eqa" -> MEqAnim()
         "hole" -> Spacer(Modifier)
-        else -> MBoxNode(c, sk)
+        else -> MBoxNode(c)
     }
 }
 
@@ -577,7 +599,7 @@ private fun mShape(c: MNode): RoundedCornerShape = if (c.r.size == 4) RoundedCor
 private fun mSend(type: String, k: Int, fill: (com.getcapacitor.JSObject) -> Unit = {}) { if (k > 0) UiState.send(type) { it.put("k", k); fill(it) } }
 
 @Composable
-private fun MBoxNode(c: MNode, sk: Skin) {
+private fun MBoxNode(c: MNode) {
     var m: Modifier = Modifier
     if (c.label.isNotEmpty()) m = m.semantics { contentDescription = c.label }
     // (las imágenes de fondo: el fondo del reproductor)
@@ -642,7 +664,7 @@ private fun MBoxNode(c: MNode, sk: Skin) {
     if (c.o < 1f) m = m.alpha(c.o)
     m = m.mDecor(c)
     if (c.clip) m = m.clip(mShape(c))
-    MGroup(c.kids, c.x, c.y, c.w, c.h, m, sk)
+    MGroup(c.kids, c.x, c.y, c.w, c.h, m)
 }
 
 // ---------------------------------------------------------------- letras
@@ -670,7 +692,8 @@ private fun MText(c: MNode) {
 // ---------------------------------------------------------------- controles
 /** Una caja para escribir: lo que se teclea va a la de la web (que es la que manda), y lo que ella cambie, vuelve. */
 @Composable
-private fun MInput(c: MNode, sk: Skin) {
+private fun MInput(c: MNode) {
+    val sk = mSkin()
     val multi = c.e == "ta"
     val st = c.st ?: MStyle(15f, 400, "b", -1, 0f, 0, 0f)
     var text by remember { mutableStateOf(c.v) }
@@ -725,7 +748,8 @@ private fun MInput(c: MNode, sk: Skin) {
 
 /** Una barra para deslizar (el volumen, el tono…), con el aspecto de las de la web. */
 @Composable
-private fun MRange(c: MNode, sk: Skin) {
+private fun MRange(c: MNode) {
+    val sk = mSkin()
     val p = sk.pal
     var drag by remember { mutableStateOf<Float?>(null) }
     var hold by remember { mutableStateOf<Float?>(null) }
@@ -809,7 +833,8 @@ private const val M_DOWN = "M6 9l6 6 6-6"
 
 /** Una lista desplegable (el país de las radios): la caja de la web y, al tocarla, sus opciones. */
 @Composable
-private fun MSelect(c: MNode, sk: Skin) {
+private fun MSelect(c: MNode) {
+    val sk = mSkin()
     val p = sk.pal
     val st = c.st ?: MStyle(13.12f, 400, "b", -1, 0f, 0, 0f)
     var open by remember { mutableStateOf(false) }
@@ -867,7 +892,8 @@ private fun MSvg(c: MNode) {
 
 /** Una portada sin imagen: la inicial sobre el degradado de la canción (como la dibuja la web). */
 @Composable
-private fun MPh(c: MNode, sk: Skin) {
+private fun MPh(c: MNode) {
+    val sk = mSkin()
     val h = c.nv
     Box(Modifier.background(Brush.linearGradient(listOf(hsl(h, 0.75f, 0.50f), hsl(h + 60f, 0.70f, 0.26f))))
         .drawBehind {
@@ -941,7 +967,8 @@ private fun MHalo(c: MNode) {
 
 /** Las cinco barritas que suben y bajan mientras se busca. */
 @Composable
-private fun MEqAnim(sk: Skin) {
+private fun MEqAnim() {
+    val sk = mSkin()
     val ph = rememberInfiniteTransition(label = "meq").animateFloat(0f, 1f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "me").value
     Canvas(Modifier) {
         val dl = floatArrayOf(0f, 0.3f, 0.6f, 0.15f, 0.45f)

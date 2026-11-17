@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -70,16 +71,18 @@ internal fun wDef(id: String, o: JSONObject): WDef {
 /** Las ventanas que hay, una sobre otra (la última, arriba), y los avisos de la app encima de todo. */
 @Composable
 fun OrbitaWindows() {
-    val sk = rememberSkin()
+    val sk = rememberMirrorSkin()
     val list = UiState.wins
-    Box(Modifier.fillMaxSize().graphicsLayer { alpha = UiState.winAlpha }) {
-        for (w in list) key(w.id) { WinView(w, sk) }
-        ToastHost(sk, Modifier.align(Alignment.BottomCenter))
+    CompositionLocalProvider(LocalMSkin provides sk) {
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = UiState.winAlpha }) {
+            for (w in list) key(w.id) { WinView(w) }
+            ToastHost(sk, Modifier.align(Alignment.BottomCenter))
+        }
     }
 }
 
 @Composable
-private fun WinView(w: WDef, sk: Skin) {
+private fun WinView(w: WDef) {
     val sc = w.sc
     Layout(content = {
         for (f in w.fixed) key(f.k) {
@@ -87,9 +90,9 @@ private fun WinView(w: WDef, sk: Skin) {
             val tap = Modifier.pointerInput(f.k) {
                 detectTapGestures(onTap = { o -> UiState.send("mAt") { it.put("k", f.k); it.put("x", (o.x / density).toDouble()); it.put("y", (o.y / density).toDouble()) } })
             }
-            MGroup(UiState.winParts["${w.id}.${f.k}"] ?: emptyList(), 0f, 0f, f.w, f.h, tap, sk)
+            MGroup(UiState.winParts["${w.id}.${f.k}"] ?: emptyList(), 0f, 0f, f.w, f.h, tap)
         }
-        if (sc != null) key("sc") { WinScroller(w.id, sc, sk) }
+        if (sc != null) key("sc") { WinScroller(w.id, sc) }
     }, modifier = Modifier.fillMaxSize()) { ms, cs ->
         val d = density
         val n = ms.size
@@ -107,7 +110,7 @@ private fun WinView(w: WDef, sk: Skin) {
 
 /** Lo que se desliza dentro de una ventana (en el reproductor: la portada, los botones, lo que viene después…). */
 @Composable
-private fun WinScroller(id: String, sc: WScroll, sk: Skin) {
+private fun WinScroller(id: String, sc: WScroll) {
     val ls = UiState.winList(id)
     val dens = LocalDensity.current.density
     // cuando el dedo la suelta, la de siempre se pone a la misma altura
@@ -123,7 +126,7 @@ private fun WinScroller(id: String, sc: WScroll, sk: Skin) {
             val p = sc.order[i]
             val top = if (i == 0) 0f else p.y
             val bottom = if (i + 1 < sc.order.size) sc.order[i + 1].y else max(sc.total, p.y + p.h)
-            MPart(p, UiState.winParts["$id.${p.k}"] ?: emptyList(), top, bottom, sk)
+            MPart(p, UiState.winParts["$id.${p.k}"] ?: emptyList(), top, bottom)
         }
     }
 }
