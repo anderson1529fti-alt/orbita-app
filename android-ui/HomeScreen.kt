@@ -623,6 +623,10 @@ private fun Hero(top: JSONObject, sk: Skin, vw: Float, lite: Boolean) {
                     .clickable(remember { MutableInteractionSource() }, null) { tap("#artWrap") }.clip(shape).border(sk.b, p.line2, shape)) {
                     HCover(top.obj("art"), sk, Modifier.fillMaxSize(), 80f * side / 140f, side = 150)
                 }
+            } else if (top.str("hero") == "viz") {
+                // 4.9 · el visualizador en lugar del disco (un círculo; lo dibuja Android, oyendo al reproductor)
+                VizBox("vizHero", Modifier.size(side.dp).semantics { contentDescription = "Visualizador. Abrir Ahora suena" }
+                    .clickable(remember { MutableInteractionSource() }, null) { tap("#vizWrap") }.clip(CircleShape))
             } else {
                 // (en la web el disco es un dibujo «en línea»: debajo le queda el hueco de un renglón)
                 Box(Modifier.width(side.dp).height((side + 6.75f * sk.tk).dp), contentAlignment = Alignment.TopStart) {

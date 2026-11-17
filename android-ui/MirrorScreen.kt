@@ -380,6 +380,8 @@ private fun MAny(c: MNode) {
         "img" -> MImg(c)
         "eqa" -> MEqAnim()
         "hole" -> Spacer(Modifier)
+        // 4.9 · un visualizador: lo dibuja Android (en pantalla completa, además, se gira y se acerca con los dedos)
+        "viz" -> VizBox(c.v, Modifier.mDecor(c), gestures = c.v == "vizFS")
         else -> MBoxNode(c)
     }
 }

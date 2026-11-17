@@ -4125,7 +4125,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + ' (Kotlin y Compose)' + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -6085,8 +6085,8 @@ function nuiWant() {
   if (PAGES[state.view]) return pgCan(state.view) && nuiFree() && !mirHole(state.view) ? state.view : '';
   return state.view === 'biblioteca' && nuiFree() ? 'biblioteca' : '';
 }
-/* «Ahora» goes native with the vinyl or the cover at the top; with a visualizer there (phase 3), the screen of always */
-const homeCan = () => NUI.homeOk && state.heroMode !== 'viz';
+/* «Ahora» goes native with the vinyl, the cover or (4.9, if Android draws the visualizers) the visualizer at the top */
+const homeCan = () => NUI.homeOk && (state.heroMode !== 'viz' || NUI.vizOk);
 const nuiActive = () => NUI.on && (state.view === 'biblioteca' || (state.view === 'inicio' && NUI.homeOk) || pgCan(state.view) || !$('#chat').hidden || (NUI.winOk && (winOpen() || W.on.length > 0)));
 /* a screen of the new ones can go native: the plugin knows how (the mirrored ones need the 4.7 one) and it hasn't failed in this version */
 const pgCan = v => !!PAGES[v] && NUI.pgOk && (!PAGES[v].mirror || (NUI.mirOk && !mirBad(v)));
@@ -6095,6 +6095,7 @@ function nuiLoop() {
   const step = () => {
     NUI.raf = 0;
     try { winTick(); } catch (e) { diag('ventanas nativas: ' + (e && e.message || e)); }
+    try { vizNatTick(); } catch (e) { diag('visualizador nativo: ' + (e && e.message || e)); }
     const scr = nuiWant();
     if (scr) {
       const el = scr === 'chat' ? $('#chat') : $('#main'), r = el.getBoundingClientRect(), o = { x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 };
@@ -6237,7 +6238,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6245,7 +6246,7 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas y la conversación con Nova los dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores y la conversación con Nova los dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagaron solas porque algo falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarlas.'
     : 'Apagadas: todo se ve con las pantallas de siempre.';
 }
@@ -6686,6 +6687,7 @@ function mWalk(el, ctx, out) {
     out.push(n); return;
   }
   if (tag === 'IMG') { const u = el.currentSrc || el.src || ''; if (u && r.width && r.height) { n.e = 'img'; n.u = u; out.push(n); } else if (mPaints(n)) out.push(n); return; }
+  if (tag === 'CANVAS' && NUI.vizOk && VIZ_IDS.has(el.id)) { n.e = 'viz'; n.v = el.id; out.push(n); return; }
   if (tag === 'IFRAME' || tag === 'VIDEO' || tag === 'CANVAS' || tag === 'OBJECT') { n.e = 'hole'; out.push(n); return; }
   const cl = el.classList;
   if (cl.contains('cover-ph') || cl.contains('art-ph')) { const hue = parseFloat(el.style.getPropertyValue('--h')); n.e = 'ph'; n.i = hTxt(el).slice(0, 2) || '♪'; n.hu = Number.isFinite(hue) ? hue : 280; n.fs = mF(parseFloat(cs.fontSize) || 16.8); delete n.g; delete n.bg; out.push(n); return; }
@@ -6853,7 +6855,8 @@ const WIN = {
   sleep: { el: '#sleepOverlay' },
   news: { el: '#newsOverlay' },
   ly: { el: '#lyOverlay' },
-  edit: { el: '#editOverlay' }
+  edit: { el: '#editOverlay' },
+  viz: { el: '#vizFull', viz: true }
 };
 /* windows that go as always (and, while one of them is up, every window does) */
 const WIN_WEB = ['#ytOverlay', '#vizFull', '#recap', '#onb', '#alarmScr'];
@@ -6865,19 +6868,20 @@ function winGone(why) { W.held = false; W.sent = {}; wLog({ hide: why }); try { 
 const winIsOpen = el => !!el && !el.hidden && getComputedStyle(el).display !== 'none';
 /* can it be drawn natively now? */
 function winReady(id, el) {
-  for (const x of el.querySelectorAll('iframe, video, canvas, object, embed')) if (x.getClientRects().length && x.offsetWidth > 2 && x.offsetHeight > 2) return false;
-  if (WIN[id].player) return !(NPM.on || NPM.closing || NPM.p < 0.999 || W.drag || el.classList.contains('ly-open') || el.classList.contains('viz-open') || el.classList.contains('yt-on'));
+  for (const x of el.querySelectorAll('iframe, video, canvas, object, embed')) if (x.getClientRects().length && x.offsetWidth > 2 && x.offsetHeight > 2 && !(NUI.vizOk && x.tagName === 'CANVAS' && VIZ_IDS.has(x.id))) return false;
+  if (WIN[id].viz) { const p = $('#vfPanel'); return !(p && !p.hidden && p.scrollHeight > p.clientHeight + 1); }
+  if (WIN[id].player) return !(NPM.on || NPM.closing || NPM.p < 0.999 || W.drag || el.classList.contains('ly-open') || (el.classList.contains('viz-open') && !NUI.vizOk) || el.classList.contains('yt-on'));
   const m = el.querySelector('.modal'); return !(m && m.scrollHeight > m.clientHeight + 1);
 }
 /* the windows that are up, from the one below to the one on top ([] = none; null = one that goes as always) */
 function winStack() {
   if (!NUI.on || !NUI.winOk || NUI.classic || innerWidth > 760 || root.classList.contains('booting') || !state.ready) return [];
-  for (const s of WIN_WEB) if (winIsOpen($(s))) return null;
+  for (const s of WIN_WEB) if (!(s === '#vizFull' && NUI.vizOk) && winIsOpen($(s))) return null;
   const up = [];
-  for (const id in WIN) { const el = $(WIN[id].el); if (winIsOpen(el)) { if (!winReady(id, el)) return null; up.push([id, +getComputedStyle(el).zIndex || 0]); } }
+  for (const id in WIN) { if (WIN[id].viz && !NUI.vizOk) continue; const el = $(WIN[id].el); if (winIsOpen(el)) { if (!winReady(id, el)) return null; up.push([id, +getComputedStyle(el).zIndex || 0]); } }
   return up.sort((a, b) => a[1] - b[1]).map(x => x[0]);
 }
-const winOpen = () => Object.values(WIN).some(d => winIsOpen($(d.el)));
+const winOpen = () => Object.values(WIN).some(d => (!d.viz || NUI.vizOk) && winIsOpen($(d.el)));
 /* once per frame (from the loop of the native screens) */
 function winTick() {
   if (!NUI_PLUGIN || !NUI.winOk) return;
@@ -7021,6 +7025,41 @@ function pgTick(name) {
   const S = pgOf(name), now = performance.now();
   if (now - S.poll > 3000) { S.poll = now; if (PAGES[name].mirror) S.dirty.add('*'); else for (const p in PAGES[name].parts) S.dirty.add(p); }
   if (S.dirty.size && !S.t) S.t = requestAnimationFrame(() => pgSync(name, false));
+}
+
+/* ================== 4.9 · Phase 3, step 2: the visualizers, drawn by Android ==================
+   The same seven looks with the same drawings for the graphics chip, but Android draws them and hears the music
+   straight from the Kotlin player. Here: which canvas is seen now, the look and its settings, the colours, the cover
+   and how the song goes (the web's own canvas then rests). If it closed the app, in this version, the one of always. */
+const VIZ_IDS = new Set(['vizHero', 'vizNP', 'vizFS']);
+/* which one Android draws now ('' = none: the web's, if one is up) */
+function vizNatWhich() {
+  if (!NUI.vizOk) return '';
+  if (W.on.includes('viz')) return 'vizFS';
+  if (W.on.includes('np') && VZ.np && $('#vizFull').hidden) return 'vizNP';
+  if (NUI.shown && NUI.screen === 'inicio' && state.heroMode === 'viz' && $('#np').hidden && $('#vizFull').hidden) return 'vizHero';
+  return '';
+}
+(() => { try { if (LS.get('vizOpen', '')) { LS.set('vizOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.viz = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('visualizador nativo: la app se cerró con él a la vista → en esta versión, el de siempre'); } } catch {} })();
+function vizOpenMark(on) { clearTimeout(NUI.vizOpenT); if (!on) { LS.set('vizOpen', ''); return; } if (NUI.vizSure) return; LS.set('vizOpen', '1'); NUI.vizOpenT = setTimeout(() => { LS.set('vizOpen', ''); NUI.vizSure = true; }, 8000); }
+const vizHSpec = new Uint8Array(8);
+function vizNatTick() {
+  const which = vizNatWhich();
+  if (which !== NUI.vizAct) { NUI.vizAct = which; VIZ_NAT = which; vizOpenMark(!!which); vizKick(); }
+  if (!NUI.vizOk) return;
+  const now = performance.now();
+  if (now - (NUI.vizAt || 0) < 250 && NUI.vizSent === which) return;
+  NUI.vizAt = now;
+  const t = current(), d = act(), playing = !!t && !d.paused, o = vizOpts(VZ.scene), img = t && coverImg(t);
+  const an = t && !t.net && anaCache.get(t.id), watching = which === 'vizFS' || which === 'vizNP', lite = state.anim === 'lite' || root.classList.contains('lite');
+  const pal = glColors(o, t, img);
+  const v = { active: which, scene: VZ.scene, detail: o.detail, speed: o.speed, sens: o.sens, pal: pal.map(c => c.map(x => +(+x).toFixed(4))),
+    bpm: an && an.bpm && an.conf >= 2 ? an.bpm : 0, art: (t && coverUrl(t, 'full')) || '', play: playing, own: playing && A < 2,
+    gl: !lite, lite, slow: lite || (!watching && idleSlow()) || !t || d.paused, hue, sat, gen: VIZ_GEN, camGen: VIZ_CAM };
+  const k = JSON.stringify(v);
+  if (k !== NUI.vizKey) { NUI.vizKey = k; NUI.vizSent = which; NUI_PLUGIN.viz(v).catch(e => diag('visualizador nativo: ' + (e && e.message || e))); }
+  // (the engine keeps «listening»: what it hears goes to Android's visualizer directly)
+  if (which && playing && A < 2 && analyser) { try { analyser.getByteFrequencyData(vizHSpec); } catch {} }
 }
 
 /* ---------- Delegated actions ---------- */
@@ -7236,6 +7275,7 @@ const PL = { on: LS.get('lights', true), savg: 0.3, snAt: 0, k: 0, s: 0, l: 0, s
 const plOK = () => PL.on && mo();
 /* what is playing now, by instruments (0…1). From the engine when it plays; otherwise estimated from the spectrum */
 function plRead(ts) {
+  if (VZ_FREEZE) return;
   if (ts - PL.t < 8) return;
   const dt = Math.min(0.06, PL.t ? (ts - PL.t) / 1000 : 0.016); PL.t = ts;
   const d = act(), playing = !!current() && !d.paused && A < 2;
@@ -7383,8 +7423,13 @@ function draw(ts) {
 /* ---------- Dynamic visualizer: reacts to the frequencies, the beat and the volume in real time ----------
    Three looks: «Órbita» (planet, spectrum ring, orbiting particles, shock waves on each beat),
    «Ondas» (layered waveforms) and «Galaxia» (a spiral of stars that spins with the tempo). */
+/* 4.9 · the canvas Android draws now (the web's own one rests), what makes the points be made again, the camera reset,
+   and (tests) everything still and known, to compare with Android pixel by pixel */
+var VIZ_NAT = '', VIZ_GEN = 0, VIZ_CAM = 0, VZ_FREEZE = null;
+/* random numbers, but always the same ones (Android has the same): the stars of the galaxy come out the same in both */
+function vzRng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const VIZ_SCENES = [['orbita', 'Órbita'], ['galaxia', 'Galaxia'], ['ondas', 'Ondas'], ['montanas', 'Montañas'], ['aurora', 'Aurora'], ['tunel', 'Túnel'], ['particulas', 'Partículas']];
-const VZ = { scene: LS.get('vizScene', 'orbita'), np: LS.get('vizNP', false), bass: 0, mid: 0, high: 0, level: 0, avgBass: 0.2, lastBeat: 0, beatK: 0, phase: 0, lastPhase: 0, waves: [], parts: [], stars: [], wave: null, spec: new Float32Array(96), t: 0, last: 0, rot: 0, raf: 0 };
+const VZ = { rngP: vzRng(4), rngS: vzRng(5), scene: LS.get('vizScene', 'orbita'), np: LS.get('vizNP', false), bass: 0, mid: 0, high: 0, level: 0, avgBass: 0.2, lastBeat: 0, beatK: 0, phase: 0, lastPhase: 0, waves: [], parts: [], stars: [], wave: null, spec: new Float32Array(96), t: 0, last: 0, rot: 0, raf: 0 };
 function vizCanvases() {
   const out = [];
   if (!$('#vizFull').hidden) out.push($('#vizFS'));
@@ -7392,7 +7437,7 @@ function vizCanvases() {
     if (!$('#np').hidden && VZ.np) out.push($('#vizNP'));
     if ($('#np').hidden && state.view === 'inicio' && state.heroMode === 'viz') out.push($('#vizHero'));
   }
-  return out;
+  return VIZ_NAT ? out.filter(c => c.id !== VIZ_NAT) : out;
 }
 function vizSize(cv) {
   const r = cv.getBoundingClientRect(), dpr = Math.min(state.anim === 'lite' ? 1.25 : 2, window.devicePixelRatio || 1);
@@ -7401,7 +7446,18 @@ function vizSize(cv) {
   return [w, h];
 }
 let vizTD = null;
+function vizFrozen() {
+  const z = VZ_FREEZE;
+  for (let i = 0; i < 96; i++) VZ.spec[i] = z.spec[i];
+  VZ.bass = z.bass; VZ.mid = z.mid; VZ.high = z.high; VZ.level = z.level; VZ.beatK = z.beatK; VZ.t = z.t; VZ.wave = null; VZ.bpm = 0;
+  PL.k = z.k; PL.s = z.s; GLV.rot = z.rot; GLV.travel = z.travel;
+  GLV.cam.yaw = z.yaw; GLV.cam.pitch = z.pitch; GLV.cam.zoom = z.zoom; GLV.cam.dx = z.dx; GLV.cam.dy = z.dy;
+  if (z.wave) for (let i = 0; i < 256; i++) GLV.wave[i] = z.wave[i];
+  if (VZ.scene === 'montanas') { const o = vizOpts(); GLV.hist = []; GLV.histT = z.histT || 0; for (let r = 0; r < 41; r++) { const row = new Float32Array(64); for (let i = 0; i < 64; i++) row[i] = Math.min(1, VZ.spec[Math.floor(i * 1.45)] * o.sens); GLV.hist.push(row); } }
+  return { dt: 0, playing: !!current() && !act().paused, beat: false };
+}
 function vizRead(ts) {
+  if (VZ_FREEZE) return vizFrozen();
   const d = act(), t = current(), playing = !!t && !d.paused, dt = Math.min(0.05, (ts - VZ.last) / 1000 || 0.016); VZ.last = ts; VZ.t += dt;
   const real = playing && A < 2 && analyser && freq;
   let bass = 0, mid = 0, high = 0, level = 0;
@@ -7462,7 +7518,7 @@ function vizOrbita(g, W, H, f, img) {
   }
   /* orbiting particles */
   const want = state.anim === 'lite' ? 40 : 90;
-  while (VZ.parts.length < want) VZ.parts.push({ a: Math.random() * Math.PI * 2, d: 0.55 + Math.random() * 0.45, s: 0.4 + Math.random() * 0.8, z: Math.random() });
+  while (VZ.parts.length < want) { const R = VZ.rngP; VZ.parts.push({ a: R() * Math.PI * 2, d: 0.55 + R() * 0.45, s: 0.4 + R() * 0.8, z: R() }); }
   g.globalCompositeOperation = 'lighter';
   for (const p of VZ.parts) {
     p.a += f.dt * p.s * (0.25 + VZ.level * 1.4) * (p.z > 0.5 ? 1 : -0.6);
@@ -7508,7 +7564,7 @@ function vizGalaxia(g, W, H, f) {
   const cx = W / 2, cy = H / 2, R = Math.max(W, H) * 0.62;
   g.fillStyle = 'rgba(6,5,11,0.3)'; g.fillRect(0, 0, W, H);
   const want = state.anim === 'lite' ? 220 : 520;
-  while (VZ.stars.length < want) { const arm = Math.floor(Math.random() * 3); VZ.stars.push({ d: Math.pow(Math.random(), 0.7), arm, j: (Math.random() - 0.5) * 0.5, b: Math.random(), k: Math.floor(Math.random() * 96) }); }
+  while (VZ.stars.length < want) { const R = VZ.rngS, arm = Math.floor(R() * 3); VZ.stars.push({ d: Math.pow(R(), 0.7), arm, j: (R() - 0.5) * 0.5, b: R(), k: Math.floor(R() * 96) }); }
   VZ.rot += f.dt * (0.08 + VZ.level * 0.5 + (VZ.bpm ? VZ.bpm / 900 : 0));
   g.globalCompositeOperation = 'lighter';
   const core = g.createRadialGradient(cx, cy, 0, cx, cy, Math.min(W, H) * 0.16 * (1 + VZ.bass * 0.5));
@@ -7535,8 +7591,8 @@ function vizOpts(sc) {
   if (!o) { o = Object.assign({}, VIZ_OPTS_DEF, vizOptsStore()[sc] || {}); vizOptsMemo.set(sc, o); }
   return o;
 }
-function resetVizOpts() { const all = vizOptsStore(); delete all[VZ.scene]; LS.set('vizOpts', all); vizOptsMemo.clear(); GLV.palKey = ''; GLV.rebuild = true; }
-function setVizOpt(k, v) { vizOptsMemo.clear(); const all = vizOptsStore(); const sc = VZ.scene; all[sc] = Object.assign({}, all[sc] || {}, { [k]: v }); LS.set('vizOpts', all); GLV.palKey = ''; GLV.rebuild = true; }
+function resetVizOpts() { const all = vizOptsStore(); delete all[VZ.scene]; LS.set('vizOpts', all); vizOptsMemo.clear(); GLV.palKey = ''; GLV.rebuild = true; VIZ_GEN++; }
+function setVizOpt(k, v) { vizOptsMemo.clear(); const all = vizOptsStore(); const sc = VZ.scene; all[sc] = Object.assign({}, all[sc] || {}, { [k]: v }); LS.set('vizOpts', all); GLV.palKey = ''; GLV.rebuild = true; VIZ_GEN++; }
 const VIZ_2D = { orbita: 'orbita', galaxia: 'galaxia', ondas: 'ondas', montanas: 'ondas', aurora: 'ondas', tunel: 'orbita', particulas: 'orbita' };
 function glWanted() {
   if (state.anim === 'lite' || root.classList.contains('lite')) return false;
@@ -7717,7 +7773,7 @@ function glInit(cv) {
 }
 /* the points of each look (built once per look and detail) */
 function glBuild(S, scene, o) {
-  const gl = S.gl, mult = o.detail === 'bajo' ? 0.4 : o.detail === 'alto' ? 1.8 : 1, R = Math.random;
+  const gl = S.gl, mult = o.detail === 'bajo' ? 0.4 : o.detail === 'alto' ? 1.8 : 1, R = vzRng(scene === 'galaxia' ? 1 : scene === 'orbita' ? 2 : 3);
   const mk = (name, arr) => { if (!S.buf[name]) S.buf[name] = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, S.buf[name]); gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW); S.n[name] = arr.length / 8; };
   if (scene === 'galaxia') {
     const n = Math.round(16000 * mult), a = new Float32Array(n * 8);
@@ -7785,6 +7841,7 @@ function glColors(o, t, img) {
    fewer pixels (down to half); when it goes well for a while, it goes back up. Barely visible, and no more jerks. */
 const useGLnow = () => glWanted() && GLV.ok !== false;
 function glAdapt(ts, slow) {
+  if (VZ_FREEZE) { GLV.scale = 1; return; }   // (tests: the whole resolution, to compare)
   const dt = ts - (GLV.lastTs || ts); GLV.lastTs = ts;
   if (slow || dt <= 0 || dt > 250) { GLV.win = 0; GLV.acc = 0; return; }
   GLV.acc = (GLV.acc || 0) + dt; GLV.win = (GLV.win || 0) + 1;
@@ -7818,7 +7875,7 @@ function glDraw(cv, f, ts) {
   /* the wave (for Ondas) */
   if (sc === 'ondas') {
     const w = VZ.wave;
-    for (let i = 0; i < 256; i++) { const v = w ? w[Math.floor(i * w.length / 256)] : 128 + 70 * Math.sin(i * 0.12 + VZ.t * 3) * VZ.level; GLV.wave[i] += (Math.max(0, Math.min(255, 128 + (v - 128) * k)) - GLV.wave[i]) * 0.5; }
+    if (!VZ_FREEZE) for (let i = 0; i < 256; i++) { const v = w ? w[Math.floor(i * w.length / 256)] : 128 + 70 * Math.sin(i * 0.12 + VZ.t * 3) * VZ.level; GLV.wave[i] += (Math.max(0, Math.min(255, 128 + (v - 128) * k)) - GLV.wave[i]) * 0.5; }
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, S.tex.wave); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.LUMINANCE, gl.UNSIGNED_BYTE, GLV.wave);
   }
   /* the cover (planet) */
@@ -7899,6 +7956,7 @@ function glDraw(cv, f, ts) {
 }
 /* once per frame (not per canvas): turning, travelling, the landscape's rows, the camera */
 function glTick(f, ts) {
+  if (VZ_FREEZE) return;
   const o = vizOpts(), sp = o.speed, dt = f.dt;
   GLV.rot += dt * sp * (0.12 + VZ.level * 0.6 + (VZ.bpm ? VZ.bpm / 700 : 0));
   GLV.travel += dt * sp * (0.35 + VZ.level * 1.6 + (PL.k || 0) * 0.8 + (VZ.bpm ? VZ.bpm / 160 : 0));
@@ -7961,7 +8019,7 @@ function setVizNP(on) {
 }
 function vizSetScene(sc) {
   const it = VIZ_SCENES.find(s => s[0] === sc) || VIZ_SCENES[0];
-  VZ.scene = it[0]; LS.set('vizScene', VZ.scene); VZ.parts = []; VZ.stars = []; GLV.hist = []; GLV.palKey = '';
+  VZ.scene = it[0]; LS.set('vizScene', VZ.scene); VZ.parts = []; VZ.stars = []; VZ.rngP = vzRng(4); VZ.rngS = vzRng(5); GLV.hist = []; GLV.palKey = '';
   $$('[data-viz-scene-label]').forEach(e => { e.textContent = it[1]; });
   renderVizPanel();
 }
@@ -8005,7 +8063,7 @@ $('#vizFull').addEventListener('click', e => {
     if (x.dataset.vzScene) vizSetScene(x.dataset.vzScene);
     else if (x.dataset.vzDetail) { setVizOpt('detail', x.dataset.vzDetail); renderVizPanel(); }
     else if (x.dataset.vzColor) { setVizOpt('color', x.dataset.vzColor); renderVizPanel(); }
-    else if (x.dataset.act === 'vf-reset') { resetVizOpts(); GLV.cam.zoom = 1; GLV.cam.pitch = 0.5; renderVizPanel(); }
+    else if (x.dataset.act === 'vf-reset') { resetVizOpts(); GLV.cam.zoom = 1; GLV.cam.pitch = 0.5; VIZ_CAM++; renderVizPanel(); }
     return;
   }
   if (!$('#vfPanel').hidden) { $('#vfPanel').hidden = true; return; }
@@ -8018,6 +8076,11 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '4.9': [
+    '<b>Los visualizadores los dibuja Android</b> (los siete: Órbita, Galaxia, Ondas, Montañas, Aurora, Túnel y Partículas), en «Ahora», en el reproductor y a pantalla completa. Oyen la música directamente del reproductor, sin pasar por la parte web.',
+    'Es el paso 2 de la fase 3 (Nova y los visualizadores). A pantalla completa se siguen girando arrastrando y acercando con dos dedos.',
+    'Si algo no se ve bien, en Ajustes › Sonido y mezclas apaga «Pantallas nativas» y vuelven los de siempre.'
+  ],
   '4.8': [
     '<b>El reproductor a pantalla completa y las ventanas ya son nativos</b> (temporizador, novedades, editar canción y letra): los dibuja Android y se ven igual que siempre.',
     'Con esto termina la fase 2: todas las pantallas las dibuja Android. Lo que se mueve con la música (el visualizador, la letra sincronizada, los vídeos) sigue como siempre hasta la fase 3.',
@@ -9996,7 +10059,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }

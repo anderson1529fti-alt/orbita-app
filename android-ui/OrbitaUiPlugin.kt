@@ -289,7 +289,7 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 7)
+        r.put("available", true); r.put("v", 8)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
@@ -298,6 +298,9 @@ class OrbitaUiPlugin : Plugin() {
             r.put("wins", UiState.wins.joinToString(",") { it.id }); r.put("winShown", winHost?.visibility == View.VISIBLE)
             // (para las pruebas: el último envío de la web que se ha puesto y lo que dice cada ventana, de arriba abajo)
             r.put("winSeq", UiState.winSeq); r.put("winTexts", JSArray(winTexts(40)))
+            // 4.9 · los visualizadores: cuál se ve, cuántos fotogramas lleva y cómo (para las pruebas y el diagnóstico)
+            r.put("vizActive", Viz.active); r.put("vizFrames", Viz.frames); r.put("vizDrawn", Viz.drawn); r.put("vizErr", Viz.err); r.put("vizTwo", Viz.two)
+            r.put("vizCover", Viz.coverOk); r.put("vizYaw", Viz.yaw.toDouble()); r.put("vizPitch", Viz.pitch.toDouble()); r.put("vizZoom", Viz.zoom.toDouble())
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }
             r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
         } catch (ignored: Throwable) { }
@@ -539,6 +542,13 @@ class OrbitaUiPlugin : Plugin() {
     }
 
     /** La web ha movido lo que se desliza en una ventana (o lo pide una prueba): la nativa va a la misma altura. */
+    /** 4.9 · Los visualizadores: qué lienzo se ve, el estilo y sus ajustes, los colores y la portada (los dibuja Android). */
+    @PluginMethod
+    fun viz(call: PluginCall) {
+        try { Viz.set(call.data) } catch (t: Throwable) { Viz.err = "ajustes: " + t.toString().take(120) }
+        call.resolve()
+    }
+
     @PluginMethod
     fun winScroll(call: PluginCall) {
         val id = call.getString("id", "") ?: ""

@@ -1,3 +1,13 @@
+Órbita 4.9: los visualizadores los dibuja Android.
+
+Fase 3, paso 2
+- Los siete visualizadores (Órbita, Galaxia, Ondas, Montañas, Aurora, Túnel y Partículas) los dibuja ahora Android, con los mismos dibujos de siempre, y oyen la música directamente del reproductor, sin pasar por la parte web. Se ven en «Ahora» (si eliges el visualizador en lugar del vinilo), en el reproductor (botón «Visual») y a pantalla completa.
+- A pantalla completa se siguen girando arrastrando con el dedo y acercando con dos dedos; un toque enseña o esconde el título, y sus ajustes (estilo, detalle, velocidad, sensibilidad y color) funcionan igual.
+- «Ahora» con el visualizador arriba ya es también nativa (hasta ahora volvía a la de siempre).
+- Con animaciones «Ligeras», los tres clásicos, como siempre.
+- Arreglos de la 4.8: la luna de «Dormir» en el reproductor nativo salía como un punto; al cerrar el reproductor bajándolo con el dedo, Android se quedaba con él guardado; y cambiar de tema con «Ajustes» a la vista iba a tirones.
+- Siguen en la fase 3: la letra sincronizada, el videoclip, la voz de Nova y lo que Nova entiende y decide.
+
 Órbita 4.8: termina la fase 2. Todas las pantallas, el reproductor a pantalla completa y las ventanas los dibuja Android.
 
 Fase 2, últimos pasos
