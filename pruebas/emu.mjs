@@ -323,7 +323,14 @@ try {
     check('sin cierres por error con las ventanas y el reproductor nativos', alive() && crashes() === 0, crashText().slice(0, 2500));
     await goView('inicio'); await sleep(1200);
     };
-  if (SOLO) { await ventanas48(); saveLogs(); finish('prueba rápida: solo las ventanas'); }
+  if (SOLO) {
+    // (como en la prueba entera: las pantallas nativas se encienden con su interruptor de Ajustes)
+    await goView('ajustes'); await sleep(1000);
+    const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
+    check('prueba rápida: las pantallas nativas, encendidas', t0 === 'true', t0);
+    await goView('inicio'); await sleep(3000);
+    await ventanas48(); saveLogs(); finish('prueba rápida: solo las ventanas');
+  }
 
   // ================= FASE 2 · «Mi música» nativa (Compose) =================
   // --- la pantalla de siempre: captura y medidas exactas de cada cosa (para que la nativa sea igual)
