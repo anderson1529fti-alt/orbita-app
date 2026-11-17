@@ -2763,7 +2763,7 @@ function renderEngine() {
     : 'Apagado: suena con el motor de siempre (el del WebView). Con el de Android, los botones del aviso y el paso de canción en segundo plano van mejor.';
 }
 $('#tNui').onclick = () => {
-  NUI.on = !NUI.on; LS.set('nativeUi', NUI.on); LS.set('nativeUiBroken', false); NUI.err = '';
+  NUI.on = !NUI.on; LS.set('nativeUi', NUI.on); LS.set('nativeUiBroken', false); LS.set('nuiBad', {}); NUI.err = '';
   if (NUI.on) { NUI.trKey = ''; NUI.boxKey = ''; NUI.lookKey = ''; NUI.chatKey = ''; NUI.hKeys = {}; for (const k in NUI.pg) NUI.pg[k].keys = {}; NUI.nowId = null; } else nuiHide();
   renderNui();
 };
@@ -4125,7 +4125,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + ' (Kotlin y Compose)' + (NUI.homeOk && state.heroMode === 'viz' ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + ' (Kotlin y Compose)' + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -6050,6 +6050,8 @@ function renderLists() {
    4.5 · Phase 2, step 2: «Ahora» (the home screen) is native too. Everything it shows is read from the screen of always
    (which stays underneath, invisible, and keeps doing all the work), and what the user touches there is «clicked» here.
    4.6 · Phase 2, step 3: «Mis listas» and «Tú» are native too, with the same mechanism, now shared by every new screen (PAGES).
+   4.7 · Phase 2, steps 4 and 5: «Buscar» and «Ajustes» are native too: read whole from the screen of always and drawn as they are (MIR).
+   4.8 · Phase 2, last step: the windows and the full player, with the same reading, in a layer of their own (WIN).
    The first one is «Mi música». Android draws it on top of the content area of the app as it was (which keeps drawing
    the background, the player at the bottom and the tabs), and tells the app what the user touched. The screen of always
    stays underneath, rendered as before but invisible: if anything covers the content area (a dialog, the full player…)
@@ -6064,13 +6066,14 @@ function nuiBroken(e) {
 /* Is the content area free? (a dialog, a sheet or the full player on top of it → the native screen steps aside) */
 function nuiFree() {
   const m = $('#main'), r = m.getBoundingClientRect(); if (r.width < 50 || r.height < 50) return false;
+  if (W.on.includes('np')) return false;   // (the player, drawn natively, covers everything)
   // things that float over a part of the content area: the import progress, a notice of the app that is already up, the docked video
   for (const id of ['importProg', 'toast', 'ytDock']) { const el = document.getElementById(id); if (el && !el.hidden) return false; }
   for (const [fx, fy] of [[0.5, 0.2], [0.5, 0.55], [0.15, 0.9], [0.85, 0.08]]) { const el = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!el || !m.contains(el)) return false; }
   return true;
 }
 function nuiHide() {
-  if (!NUI.shown) return; NUI.shown = false; NUI.screen = ''; root.classList.remove('nui-lib', 'nui-chat', 'nui-home'); for (const k in PAGES) root.classList.remove('nui-pg-' + k); try { NUI_PLUGIN.hide().catch(() => {}); } catch {}
+  if (!NUI.shown) return; NUI.shown = false; NUI.screen = ''; root.classList.remove('nui-lib', 'nui-chat', 'nui-home'); for (const k in PAGES) root.classList.remove('nui-pg-' + k); mirOpen(''); try { NUI_PLUGIN.hide().catch(() => {}); } catch {}
   // a notice that was up on the native screen goes on in the app for the time it had left
   const tt = NUI.toast; NUI.toast = null; if (tt && tt.until - Date.now() > 500) toast(tt.msg, tt.until - Date.now());
 }
@@ -6079,16 +6082,19 @@ function nuiWant() {
   if (!NUI.on || !state.ready || NUI.classic || innerWidth > 760 || root.classList.contains('booting')) return '';
   if (!$('#chat').hidden) return NUI.chatOk && ncFree() ? 'chat' : '';
   if (state.view === 'inicio') return homeCan() && nuiFree() ? 'inicio' : '';
-  if (PAGES[state.view]) return NUI.pgOk && nuiFree() ? state.view : '';
+  if (PAGES[state.view]) return pgCan(state.view) && nuiFree() && !mirHole(state.view) ? state.view : '';
   return state.view === 'biblioteca' && nuiFree() ? 'biblioteca' : '';
 }
 /* «Ahora» goes native with the vinyl or the cover at the top; with a visualizer there (phase 3), the screen of always */
 const homeCan = () => NUI.homeOk && state.heroMode !== 'viz';
-const nuiActive = () => NUI.on && (state.view === 'biblioteca' || (state.view === 'inicio' && NUI.homeOk) || (NUI.pgOk && !!PAGES[state.view]) || !$('#chat').hidden);
+const nuiActive = () => NUI.on && (state.view === 'biblioteca' || (state.view === 'inicio' && NUI.homeOk) || pgCan(state.view) || !$('#chat').hidden || (NUI.winOk && (winOpen() || W.on.length > 0)));
+/* a screen of the new ones can go native: the plugin knows how (the mirrored ones need the 4.7 one) and it hasn't failed in this version */
+const pgCan = v => !!PAGES[v] && NUI.pgOk && (!PAGES[v].mirror || (NUI.mirOk && !mirBad(v)));
 function nuiLoop() {
   if (NUI.raf || !NUI.on) return;
   const step = () => {
     NUI.raf = 0;
+    try { winTick(); } catch (e) { diag('ventanas nativas: ' + (e && e.message || e)); }
     const scr = nuiWant();
     if (scr) {
       const el = scr === 'chat' ? $('#chat') : $('#main'), r = el.getBoundingClientRect(), o = { x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 };
@@ -6100,6 +6106,7 @@ function nuiLoop() {
         const ae = document.activeElement; if (ae && ae !== document.body && el.contains(ae)) { try { ae.blur(); } catch {} }
         root.classList.toggle('nui-lib', scr === 'biblioteca'); root.classList.toggle('nui-chat', scr === 'chat'); root.classList.toggle('nui-home', scr === 'inicio');
         for (const k in PAGES) root.classList.toggle('nui-pg-' + k, scr === k);
+        mirOpen(PAGES[scr] && PAGES[scr].mirror ? scr : '');
         if (scr === 'chat') ncSync(true); else if (scr === 'inicio') homeSync(true); else if (PAGES[scr]) pgSync(scr, true); else nuiSync();
         const top = scr === 'biblioteca' ? NUI.top : scr === 'inicio' ? NUI.htop : PAGES[scr] ? NUI.ptop[scr] : false;
         NUI_PLUGIN.show({ screen: scr, top: !!top, ...o }).catch(nuiBroken); if (scr === 'biblioteca') NUI.top = false; if (scr === 'inicio') NUI.htop = false; if (PAGES[scr]) NUI.ptop[scr] = false;
@@ -6207,7 +6214,13 @@ function nuiEvent(e) {
   else if (e.type === 'chatClear') { LS.set('chat', []); renderChat(); }
   else if (e.type === 'chatClose') closeChat();
   else if (e.type === 'chatFocus') brainWarm();
-  else if (e.type === 'hTap') { const el = typeof e.k === 'string' ? $(e.k) : NUI.hEls.get(e.k); if (el && el.isConnected && !el.disabled) el.click(); homeAfter(); if (PAGES[NUI.screen]) pgAfter(NUI.screen); }
+  else if (e.type === 'hTap') { const el = typeof e.k === 'string' ? $(e.k) : NUI.hEls.get(e.k); if (el && el.isConnected && !el.disabled) { if (!(((PAGES[NUI.screen] && PAGES[NUI.screen].mirror) || winOf(el)) && mirTap(el))) el.click(); } homeAfter(); if (W.on.length) winAfter(); if (PAGES[NUI.screen]) pgAfter(NUI.screen); }
+  else if (e.type === 'mIn' || e.type === 'mGo' || e.type === 'mRg' || e.type === 'mSel' || e.type === 'mDr') mirEvent(e);
+  else if (e.type === 'mAt') mirAt(e);
+  else if (e.type === 'mY') mirY(e);
+  else if (e.type === 'wY') winY(e);
+  else if (e.type === 'mSwipe') winSwipe(e);
+  else if (e.type === 'npDrag') winDrag(e);
   else if (e.type === 'hSel') { const el = $(e.sel); if (el && el.tagName === 'SELECT' && [...el.options].some(x => x.value === e.v)) { el.value = e.v; el.dispatchEvent(new Event('change', { bubbles: true })); } homeAfter(); }
   else if (e.type === 'hAsk') { const v = String(e.text || '').trim().slice(0, 200); $('#djInput').value = v; if (v) novaCommand(v); homeAfter(); }
   else if (e.type === 'hFocus') brainWarm();
@@ -6224,7 +6237,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; if (NUI.pgOk) for (const k in PAGES) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6232,9 +6245,9 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activadas: «Ahora», «Mi música», «Mis listas», «Tú» y la conversación con Nova las dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas y la conversación con Nova los dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagaron solas porque algo falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarlas.'
-    : 'Apagadas: «Ahora», «Mi música», «Mis listas», «Tú» y la conversación se ven con las pantallas de siempre.';
+    : 'Apagadas: todo se ve con las pantallas de siempre.';
 }
 
 /* ---------- 4.5 · «Ahora», native ----------
@@ -6424,6 +6437,8 @@ const tuBlock = el => {
   return { e: 'text', t: hTxt(el) };
 };
 const PAGES = {
+  buscar: { view: '#view-buscar', mirror: true, parts: {} },
+  ajustes: { view: '#view-ajustes', mirror: true, parts: {} },
   tu: {
     view: '#view-tu',
     where: el => el.closest('#tuOut') ? 'out' : el.closest('.head') ? 'head' : el.closest('.tu-links') ? 'links' : 'mem',
@@ -6448,10 +6463,538 @@ const PAGES = {
     }
   }
 };
+/* ---------- 4.7 · Phase 2, steps 4 and 5: «Buscar» and «Ajustes», native ----------
+   These screens are long and made of many different pieces (boxes, switches, sliders, lists that the app writes on the
+   go). Instead of a hand-made reader for each piece, the screen of always (which stays underneath, invisible, doing all
+   the work) is read whole: every box with its place, its colours and its letters, piece by piece («parts»: each panel
+   of the screen). Android draws exactly that and scrolls it; what the user touches there is «clicked» (or typed, or
+   dragged) here. When the web part is removed (phase 4) these same pieces will be placed by Android itself. */
+const MIR = { range: document.createRange(), svg: new WeakMap(), br: new WeakMap(), col: new Map(), grad: new Map(), els: {}, anim: new WeakSet() };
+const mF = v => Math.round(v * 100) / 100;
+/* a colour of CSS as a number (0xAARRGGBB); 0 = nothing to paint */
+function mCol(s) {
+  let v = MIR.col.get(s); if (v !== undefined) return v;
+  v = 0;
+  let m = /^rgba?\(([^)]+)\)/.exec(s), p = null, a = 1;
+  if (m) { p = m[1].split(/[,\s\/]+/).filter(Boolean).map(Number); if (p.length > 3) a = p[3]; }
+  else if ((m = /^color\(srgb ([^)]+)\)/.exec(s))) { const q = m[1].split(/[\s\/]+/).filter(Boolean).map(Number); p = [q[0] * 255, q[1] * 255, q[2] * 255]; if (q.length > 3) a = q[3]; }
+  if (p && a > 0.004) v = (Math.round(Math.min(1, a) * 255) * 16777216) + (Math.round(Math.min(255, Math.max(0, p[0]))) << 16) + (Math.round(Math.min(255, Math.max(0, p[1]))) << 8) + Math.round(Math.min(255, Math.max(0, p[2])));
+  if (MIR.col.size > 4000) MIR.col.clear();
+  MIR.col.set(s, v); return v;
+}
+/* «a, b(c, d), e» → the three pieces */
+function mSplit(s) { const out = []; let d = 0, a = 0; for (let i = 0; i < s.length; i++) { const c = s[i]; if (c === '(') d++; else if (c === ')') d--; else if (c === ',' && !d) { out.push(s.slice(a, i).trim()); a = i + 1; } } out.push(s.slice(a).trim()); return out; }
+const M_TO = { top: 0, right: 90, bottom: 180, left: 270, 'top right': 45, 'right top': 45, 'bottom right': 135, 'right bottom': 135, 'bottom left': 225, 'left bottom': 225, 'top left': 315, 'left top': 315 };
+/* the gradients of a background, one per layer (the first is the one on top): t = l(inear) | c(onic) | x (anything else) */
+function mGrad(s) {
+  if (!s || s === 'none') return null;
+  let v = MIR.grad.get(s); if (v !== undefined) return v;
+  v = mSplit(s).map(L => {
+    const u = /^url\("?([^")]*)"?\)$/.exec(L); if (u) return { t: 'u', u: u[1] };
+    const rg = /^radial-gradient\(([\s\S]*)\)$/.exec(L);
+    if (rg) {
+      // «60% 50% at 30% 20%»: how big the ellipse is and where its centre is (in % of the box); anything else, from the middle to the far corner
+      const ps = mSplit(rg[1]); let rx = -1, ry = -1, cx = 0.5, cy = 0.5, i = 0;
+      const sz = /^(?:(?:ellipse|circle)\s*)?(?:(-?[\d.]+)%\s+(-?[\d.]+)%)?\s*(?:at\s+(-?[\d.]+)%\s+(-?[\d.]+)%)?$/.exec(ps[0].trim());
+      if (sz && /%|at|ellipse|circle/.test(ps[0])) { if (sz[1] != null) { rx = +sz[1] / 100; ry = +sz[2] / 100; } if (sz[3] != null) { cx = +sz[3] / 100; cy = +sz[4] / 100; } i = 1; }
+      const st = ps.slice(i).map(p => { const q = /^(.*?\)|\S+)(?:\s+(-?[\d.]+)(%|px)?)?/.exec(p.trim()); return q ? [mCol(q[1]), q[2] == null || q[3] !== '%' ? -1 : +q[2] / 100] : [0, -1]; });
+      return { t: 'r', rx: mF(rx), ry: mF(ry), cx: mF(cx), cy: mF(cy), s: st };
+    }
+    const m = /^(linear|conic)-gradient\(([\s\S]*)\)$/.exec(L); if (!m) return { t: 'x' };
+    const ps = mSplit(m[2]); let a = m[1] === 'linear' ? 180 : 0, i = 0;
+    const p0 = ps[0].replace(/\s*\bat\s.*$/, '').trim(), atOnly = /^at\s/.test(ps[0]);
+    const d = /^(?:from )?(-?[\d.]+)(deg|turn|rad)$/.exec(p0), to = /^to (.+)$/.exec(p0);
+    if (atOnly) i = 1;
+    if (d) { a = +d[1] * (d[2] === 'turn' ? 360 : d[2] === 'rad' ? 180 / Math.PI : 1); i = 1; } else if (to) { a = M_TO[to[1]] ?? 180; i = 1; }
+    // (a stop is a colour and, maybe, where it goes: in % it is kept; in px, it is shared out like one without place)
+    const st = ps.slice(i).map(p => { const q = /^(.*?\)|\S+)(?:\s+(-?[\d.]+)(%|px)?)?/.exec(p.trim()); return q ? [mCol(q[1]), q[2] == null || q[3] !== '%' ? -1 : +q[2] / 100] : [0, -1]; });
+    return { t: m[1][0], a: mF(a), s: st };
+  });
+  if (MIR.grad.size > 600) MIR.grad.clear();
+  MIR.grad.set(s, v); return v;
+}
+/* the look of a box: background, gradients, border, corners, shadow, see-through, cut */
+function mBox(n, cs) {
+  const bg = mCol(cs.backgroundColor); if (bg) n.bg = bg;
+  if (cs.backgroundImage !== 'none' && !/text/.test(cs.webkitBackgroundClip || '')) {
+    let g = mGrad(cs.backgroundImage);
+    if (g && g.some(x => x.t === 'u')) { const sz = mSplit(cs.backgroundSize || 'auto'); g = g.map((x, i) => x.t === 'u' ? { t: 'u', u: x.u, sz: (sz[i] || sz[0] || 'auto').trim() } : x); }
+    if (g && g.some(x => x.t !== 'x')) { n.g = g; const gc = (cs.backgroundClip || '').split(',').map(x => x.trim()[0] || 'b').join(''); if (/[^b]/.test(gc)) n.gc = gc; }
+  }
+  // (blur, colour and light of a box: the background of the player)
+  if (cs.filter && cs.filter !== 'none') {
+    const f = cs.filter, b = /blur\(([\d.]+)px\)/.exec(f), sa = /saturate\(([\d.]+)\)/.exec(f), br = /brightness\(([\d.]+)\)/.exec(f);
+    if (b || sa || br) n.fx = [b ? mF(+b[1]) : 0, sa ? mF(+sa[1]) : 1, br ? mF(+br[1]) : 1];
+  }
+  const bw = [cs.borderTopWidth, cs.borderRightWidth, cs.borderBottomWidth, cs.borderLeftWidth].map(v => parseFloat(v) || 0);
+  if (bw[0] || bw[1] || bw[2] || bw[3]) {
+    const i = bw.findIndex(v => v > 0), side = ['Top', 'Right', 'Bottom', 'Left'][i], bc = mCol(cs['border' + side + 'Color']);
+    if (bc) { n.bw = bw[0] === bw[1] && bw[1] === bw[2] && bw[2] === bw[3] ? bw[0] : bw; n.bc = bc; if (cs['border' + side + 'Style'] === 'dashed') n.bs = 1; }
+    n.bi = bw;   // (even when it isn't painted: the layers of the background that stop at the padding need it)
+  }
+  const rr = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].map(v => /%/.test(v) ? 9999 : (parseFloat(v) || 0));
+  if (rr[0] || rr[1] || rr[2] || rr[3]) n.r = rr[0] === rr[1] && rr[1] === rr[2] && rr[2] === rr[3] ? mF(rr[0]) : rr.map(mF);
+  if (cs.boxShadow !== 'none') {
+    const sh = [];
+    for (const L of mSplit(cs.boxShadow)) { if (/inset/.test(L)) continue; const c = /(rgba?\([^)]*\)|color\([^)]*\))/.exec(L), q = L.replace(/(rgba?\([^)]*\)|color\([^)]*\))/, '').trim().split(/\s+/).map(parseFloat); const col = c ? mCol(c[1]) : 0; if (col) sh.push([col, q[0] || 0, q[1] || 0, q[2] || 0, q[3] || 0]); }
+    if (sh.length) n.sh = sh;
+  }
+  if (+cs.opacity < 1) n.o = mF(+cs.opacity);
+  if (cs.overflowX === 'hidden' || cs.overflowY === 'hidden' || cs.overflowX === 'clip') n.cl = 1;
+}
+const mPaints = n => n.bg || n.g || n.bw || n.sh || n.o != null || n.cl;
+/* how the letters of an element look, as an entry of the table of the part */
+function mStyle(cs, ctx) {
+  const fam = (cs.fontFamily || '').split(',')[0], ff = /Unbounded/i.test(fam) ? 'd' : /Mono/i.test(fam) ? 'm' : 'b';
+  const sw = parseFloat(cs.webkitTextStrokeWidth) || 0, fill = cs.webkitTextFillColor || cs.color;
+  const fl = (cs.fontStyle === 'italic' ? 1 : 0) + (/underline/.test(cs.textDecorationLine) ? 2 : 0) + (/line-through/.test(cs.textDecorationLine) ? 4 : 0);
+  const a = [mF(parseFloat(cs.fontSize) || 15), +cs.fontWeight || 400, ff, sw && !mCol(fill) ? mCol(cs.webkitTextStrokeColor) : mCol(fill) || mCol(cs.color), mF(parseFloat(cs.letterSpacing) || 0), fl, sw && !mCol(fill) ? mF(sw) : 0];
+  const k = a.join('|'); let i = ctx.sk.get(k); if (i === undefined) { i = ctx.st.length; ctx.st.push(a); ctx.sk.set(k, i); }
+  return i;
+}
+/* arcs written the short way («A8 8 0 019.5 4»: the two flags stuck to each other and to the next number), written
+   in full, with spaces: that is how Android reads them (the moon of «Dormir» came out as a dot) */
+function mArcFix(d) {
+  if (!/[Aa]/.test(d)) return d;
+  const out = [], n = d.length; let i = 0, cmd = '', k = 0;
+  const sp = () => { while (i < n && /[\s,]/.test(d[i])) i++; };
+  const num = () => { sp(); const m = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/.exec(d.slice(i, i + 40)); if (!m) return null; i += m[0].length; return m[0]; };
+  for (;;) {
+    sp(); if (i >= n) break;
+    const ch = d[i];
+    if (/[MmZzLlHhVvCcSsQqTtAa]/.test(ch)) { cmd = ch; k = 0; out.push(ch); i++; continue; }
+    let v;
+    if ((cmd === 'A' || cmd === 'a') && (k % 7 === 3 || k % 7 === 4)) { if (d[i] !== '0' && d[i] !== '1') return d; v = d[i]; i++; }
+    else { v = num(); if (v === null) return d; }
+    out.push(v); k++;
+  }
+  return out.join(' ');
+}
+/* a drawing (svg) as a list of paths with their colours */
+function mSvg(el, cs) {
+  const sig = el.childElementCount + '|' + (el.innerHTML || '').length + '|' + cs.color;
+  let c = MIR.svg.get(el); if (c && c.sig === sig) return c.v;
+  const vb = (el.getAttribute('viewBox') || `0 0 ${parseFloat(el.getAttribute('width')) || 24} ${parseFloat(el.getAttribute('height')) || 24}`).split(/[\s,]+/).map(Number), ps = [];
+  const num = (e, a) => parseFloat(e.getAttribute(a)) || 0;
+  const walk = node => {
+    for (const ch of node.children) {
+      const t = ch.tagName.toLowerCase(); if (t === 'g') { walk(ch); continue; }
+      let d = '';
+      if (t === 'path') d = mArcFix(ch.getAttribute('d') || '');
+      else if (t === 'circle' || t === 'ellipse') { const cx = num(ch, 'cx'), cy = num(ch, 'cy'), rx = t === 'circle' ? num(ch, 'r') : num(ch, 'rx'), ry = t === 'circle' ? rx : num(ch, 'ry'); d = `M${cx - rx} ${cy}a${rx} ${ry} 0 1 0 ${2 * rx} 0a${rx} ${ry} 0 1 0 ${-2 * rx} 0z`; }
+      else if (t === 'rect') { const x = num(ch, 'x'), y = num(ch, 'y'), w = num(ch, 'width'), h = num(ch, 'height'), r = Math.min(num(ch, 'rx') || num(ch, 'ry'), w / 2, h / 2); d = r ? `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - 2 * r)}a${r} ${r} 0 0 1 ${-r} ${-r}v${-(h - 2 * r)}a${r} ${r} 0 0 1 ${r} ${-r}z` : `M${x} ${y}h${w}v${h}h${-w}z`; }
+      else if (t === 'line') d = `M${num(ch, 'x1')} ${num(ch, 'y1')}L${num(ch, 'x2')} ${num(ch, 'y2')}`;
+      else if (t === 'polyline' || t === 'polygon') { const p = (ch.getAttribute('points') || '').trim().split(/[\s,]+/).map(Number); for (let i = 0; i + 1 < p.length; i += 2) d += (i ? 'L' : 'M') + p[i] + ' ' + p[i + 1]; if (t === 'polygon') d += 'z'; }
+      if (!d) continue;
+      const st = getComputedStyle(ch); if (st.display === 'none') continue;
+      const o = (+st.opacity < 1 ? +st.opacity : 1), f = st.fill === 'none' ? 0 : mCol(st.fill), s = st.stroke === 'none' ? 0 : mCol(st.stroke);
+      const e = { d }; if (f) e.f = f; if (s) { e.s = s; e.w = mF(parseFloat(st.strokeWidth) || 1); if (st.strokeLinecap === 'round') e.c = 1; if (st.strokeLinejoin === 'round') e.j = 1; } if (o < 1) e.o = mF(o); if (+st.fillOpacity < 1) e.fo = mF(+st.fillOpacity);
+      if (f || s) ps.push(e);
+    }
+  };
+  walk(el);
+  c = { sig, v: { vb, p: ps } }; MIR.svg.set(el, c); return c.v;
+}
+/* the letters of one text node: one piece per line (so that Android writes each line where the web broke it) */
+function mText(node, el, cs, ctx, kids) {
+  const raw = node.textContent; if (!raw.trim()) return;
+  const g = MIR.range, pre = /^pre/.test(cs.whiteSpace), tt = cs.textTransform;
+  let a = 0, b = raw.length;
+  if (!pre) {
+    while (a < b && /\s/.test(raw[a])) a++; while (b > a && /\s/.test(raw[b - 1])) b--;
+  }
+  g.setStart(node, a); g.setEnd(node, b);
+  const rs = g.getClientRects(); if (!rs.length) return;
+  const fi = mStyle(cs, ctx);
+  const piece = (i, j) => {
+    g.setStart(node, i); g.setEnd(node, j); const r = g.getBoundingClientRect(); if (!r.width || !r.height) return;
+    let s = raw.slice(i, j); if (!pre) s = s.replace(/\s+/g, ' '); if (tt === 'uppercase') s = s.toUpperCase(); else if (tt === 'lowercase') s = s.toLowerCase(); else if (tt === 'capitalize') s = s.replace(/(^|\s)(\S)/g, (m, p, c) => p + c.toUpperCase());
+    const t = { e: 't', x: mF(r.left - ctx.ox), y: mF(r.top - ctx.oy), w: mF(r.width), h: mF(r.height), s, f: fi };
+    if (ctx.tg) { t.tg = ctx.tg; t.tb = [mF(ctx.tgr.left - r.left), mF(ctx.tgr.top - r.top), mF(ctx.tgr.width), mF(ctx.tgr.height)]; }
+    if (r.right > ctx.clipR + 0.75) { t.mw = mF(Math.max(1, ctx.clipR - r.left)); if (ctx.ell) t.el = 1; }
+    kids.push(t);
+  };
+  if (rs.length === 1 || pre) { piece(a, b); return; }
+  // several lines: where each one starts (kept while the text and the width don't change)
+  const key = raw.length + '|' + a + '|' + b + '|' + rs.length + '|' + mF(rs[0].width) + '|' + cs.fontSize;
+  let c = MIR.br.get(node);
+  if (!c || c.key !== key || c.raw !== raw) {
+    const cuts = []; let from = a, top = null, last = a; const re = /\S+/g; re.lastIndex = a; let m;
+    while ((m = re.exec(raw)) && m.index < b) {
+      const i = m.index, j = Math.min(b, i + m[0].length);
+      g.setStart(node, i); g.setEnd(node, Math.min(j, i + 1)); const t = g.getBoundingClientRect().top;
+      if (top !== null && Math.abs(t - top) > 3) { cuts.push([from, last]); from = i; }
+      top = t; last = j;
+    }
+    cuts.push([from, last]);
+    c = { key, raw, cuts }; MIR.br.set(node, c);
+  }
+  for (const [i, j] of c.cuts) piece(i, j);
+}
+/* the «::before / ::after» of an element when it is a little box placed by hand (the knob of a switch) */
+function mPseudo(el, cs, r, which, ctx, kids) {
+  const q = getComputedStyle(el, which); if (!q.content || q.content === 'none' || q.content === 'normal' || q.display === 'none' || q.position !== 'absolute' || cs.position === 'static') return;
+  const w = parseFloat(q.width), h = parseFloat(q.height); if (!(w > 0) || !(h > 0)) return;
+  const bl = parseFloat(cs.borderLeftWidth) || 0, bt = parseFloat(cs.borderTopWidth) || 0, br = parseFloat(cs.borderRightWidth) || 0, bb = parseFloat(cs.borderBottomWidth) || 0;
+  let left = parseFloat(q.left), top = parseFloat(q.top);
+  if (isNaN(left)) { const x = parseFloat(q.right); left = isNaN(x) ? 0 : r.width - bl - br - x - w; }
+  if (isNaN(top)) { const y = parseFloat(q.bottom); top = isNaN(y) ? 0 : r.height - bt - bb - y - h; }
+  const m = /matrix\(([^)]+)\)/.exec(q.transform); if (m) { const p = m[1].split(',').map(Number); left += p[4] || 0; top += p[5] || 0; }
+  const n = { x: mF(r.left + bl + left - ctx.ox), y: mF(r.top + bt + top - ctx.oy), w: mF(w), h: mF(h) }; mBox(n, q);
+  if (mPaints(n)) kids.push(n);
+}
+const M_TEXT_IN = { text: 1, search: 1, password: 1, email: 1, url: 1, tel: 1, number: 1 };
+/* one element (and what is inside it) → the pieces to draw, added to «out» */
+function mWalk(el, ctx, out) {
+  const tag = el.tagName;
+  if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEMPLATE' || tag === 'OPTION' || tag === 'BR') return;
+  if (ctx.skip && el === ctx.skip) return;
+  const cs = getComputedStyle(el);
+  if (cs.display === 'none' || (el.style && el.style.visibility === 'hidden')) return;
+  const r = el.getBoundingClientRect();
+  const n = { x: mF(r.left - ctx.ox), y: mF(r.top - ctx.oy), w: mF(r.width), h: mF(r.height) };
+  // the light behind the cover of the player: Android moves it with the music on its own
+  if (el.id === 'npHalo') { mBox(n, cs); delete n.o; n.e = 'halo'; n.lt = PL.on && plOK() ? 1 : 0; if (n.lt || +cs.opacity > 0) out.push(n); return; }
+  if (+cs.opacity === 0) return;
+  const isSvg = tag === 'svg' || tag === 'SVG';
+  if (cs.display !== 'contents' && !isSvg) mBox(n, cs);
+  const lab = el.getAttribute('aria-label'); 
+  if (isSvg) { if (r.width && r.height) { n.e = 'svg'; n.v = mSvg(el, cs); out.push(n); } return; }
+  if (tag === 'INPUT') {
+    const ty = (el.type || 'text').toLowerCase();
+    if (ty === 'range') { n.e = 'rg'; n.k = hKey(el); n.v = +el.value || 0; n.mn = +el.min || 0; n.mx = el.max === '' ? 100 : +el.max; n.sp = +el.step || 1; if (el.classList.contains('hue')) n.hue = 1; if (el.disabled || cs.pointerEvents === 'none') n.d = 1; if (lab) n.l = lab; if (ctx.vals) ctx.vals.set(el, el.value); out.push(n); }
+    else if (M_TEXT_IN[ty]) {
+      const phc = getComputedStyle(el, '::placeholder').color;
+      n.e = 'in'; n.k = hKey(el); n.v = el.value || ''; n.ph = el.placeholder || ''; n.pc = mCol(phc && phc !== cs.color ? phc : 'rgb(117, 117, 117)'); n.f = mStyle(cs, ctx);
+      n.p = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map((v, i) => mF((parseFloat(v) || 0) + (parseFloat(cs[['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth'][i]]) || 0)));
+      if (ty === 'search' && cs.appearance !== 'none') n.p[1] = mF(n.p[1] + (parseFloat(cs.fontSize) || 15) + 1);   // (Chrome keeps that much on the right for its little «x»)
+      if (ty === 'password') n.pw = 1; n.go = 1;
+      if (ty === 'search' || el.enterKeyHint === 'search' || /busca|search/i.test((el.placeholder || '') + ' ' + el.id + ' ' + (el.form ? el.form.id + ' ' + (el.form.getAttribute('role') || '') : ''))) n.sr = 1; if (el.maxLength > 0) n.ml = el.maxLength; if (el.disabled) n.d = 1; if (lab) n.l = lab;
+      out.push(n);
+    }
+    return;
+  }
+  if (tag === 'SELECT') {
+    n.e = 'sel'; n.k = hKey(el); n.v = el.value; n.opts = [...el.options].map(x => [x.value, x.textContent]); n.f = mStyle(cs, ctx); if (el.disabled) n.d = 1; if (lab) n.l = lab;
+    out.push(n); return;
+  }
+  if (tag === 'TEXTAREA') {
+    const phc = getComputedStyle(el, '::placeholder').color;
+    n.e = 'ta'; n.k = hKey(el); n.v = el.value || ''; n.ph = el.placeholder || ''; n.pc = mCol(phc && phc !== cs.color ? phc : 'rgb(117, 117, 117)'); n.f = mStyle(cs, ctx);
+    n.p = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map((v, i) => mF((parseFloat(v) || 0) + (parseFloat(cs[['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth'][i]]) || 0)));
+    if (el.maxLength > 0) n.ml = el.maxLength; if (el.disabled) n.d = 1; if (lab) n.l = lab;
+    out.push(n); return;
+  }
+  if (tag === 'IMG') { const u = el.currentSrc || el.src || ''; if (u && r.width && r.height) { n.e = 'img'; n.u = u; out.push(n); } else if (mPaints(n)) out.push(n); return; }
+  if (tag === 'IFRAME' || tag === 'VIDEO' || tag === 'CANVAS' || tag === 'OBJECT') { n.e = 'hole'; out.push(n); return; }
+  const cl = el.classList;
+  if (cl.contains('cover-ph') || cl.contains('art-ph')) { const hue = parseFloat(el.style.getPropertyValue('--h')); n.e = 'ph'; n.i = hTxt(el).slice(0, 2) || '♪'; n.hu = Number.isFinite(hue) ? hue : 280; n.fs = mF(parseFloat(cs.fontSize) || 16.8); delete n.g; delete n.bg; out.push(n); return; }
+  if (cl.contains('eq') && tag === 'DIV' && el.firstElementChild && el.firstElementChild.tagName === 'I') { n.e = 'eqa'; out.push(n); return; }
+  // what can be touched: the buttons and links of always, and anything the app marks with the hand cursor
+  const role = el.getAttribute('role');
+  const fileIn = tag === 'LABEL' ? (el.htmlFor ? document.getElementById(el.htmlFor) : el.querySelector('input[type=file]')) : null;
+  if (role === 'slider' && cl.contains('eqtrack')) { n.e = 'dr'; n.k = hKey(el); if (lab) n.l = lab; }
+  else if (tag === 'BUTTON' || (tag === 'A' && el.hasAttribute('href')) || tag === 'SUMMARY' || role === 'button' || (tag === 'LABEL' && (fileIn || el.control)) || (cs.cursor === 'pointer' && !ctx.hand)) {
+    if (el.disabled) n.d = 1; else n.k = hKey(el);
+    if (lab) n.l = lab;
+  }
+  if (el.id === 'npArt') n.sw = hKey(el);   // (the cover of the player: swiped to the sides, the next song or the one before)
+  const kids = [];
+  let c2 = ctx;
+  const next = () => { if (c2 === ctx) c2 = Object.assign({}, ctx); return c2; };
+  if (cs.cursor === 'pointer' && !ctx.hand) next().hand = true;
+  if (cs.overflowX !== 'visible') { const x = next(); x.clipR = Math.min(ctx.clipR, r.right - (parseFloat(cs.borderRightWidth) || 0) - (parseFloat(cs.paddingRight) || 0)); x.ell = cs.textOverflow === 'ellipsis'; }
+  if (cs.backgroundImage !== 'none' && /text/.test(cs.webkitBackgroundClip || '')) { const g = mGrad(cs.backgroundImage); if (g && g[0] && g[0].t === 'l') { const x = next(); x.tg = g[0]; x.tgr = r; } }
+  mPseudo(el, cs, r, '::before', ctx, kids);
+  const open = tag !== 'DETAILS' || el.open;
+  for (const ch of el.childNodes) {
+    if (ch.nodeType === 3) mText(ch, el, cs, c2, kids);
+    else if (ch.nodeType === 1 && (open || ch.tagName === 'SUMMARY')) mWalk(ch, c2, kids);
+  }
+  mPseudo(el, cs, r, '::after', ctx, kids);
+  if (tag === 'SUMMARY' && cs.listStyleType !== 'none') { const mk = hMark(el); if (mk) { n.mk = mk; n.mc = mCol(cs.color); if (el.parentElement && el.parentElement.open) n.mo = 1; } }
+  // a wrapper that paints nothing and can't be touched: only what is inside it counts
+  if (!mPaints(n) && !n.k && !n.e && !n.mk && !n.d) { for (const k of kids) out.push(k); return; }
+  if (kids.length) n.c = kids;
+  out.push(n);
+}
+/* the parts of a screen: its panels, one under the other (a wrapper that only piles things up counts as its children) */
+function mParts(root, list) {
+  for (const ch of root.children) {
+    const cs = getComputedStyle(ch); if (cs.display === 'none') continue;
+    const r = ch.getBoundingClientRect(); if (!r.width && !r.height) continue;
+    const pile = (cs.display === 'flex' && /^column/.test(cs.flexDirection)) || cs.display === 'block';
+    const plain = pile && ch.childElementCount > 1 && ch.tagName !== 'DETAILS' && !ch.matches('ul, ol, form, label, button, a, .panel, .empty, .infobox') && cs.backgroundColor === 'rgba(0, 0, 0, 0)' && cs.backgroundImage === 'none' && !(parseFloat(cs.borderTopWidth) > 0) && cs.boxShadow === 'none' && +cs.opacity === 1 && cs.overflowX === 'visible'
+      && ![...ch.childNodes].some(x => x.nodeType === 3 && x.textContent.trim()) && [...ch.children].every(x => { const d = getComputedStyle(x).display; return d === 'none' || !/^inline/.test(d); });
+    if (plain) mParts(ch, list); else list.push([ch, r]);
+  }
+}
+/* everything that changed in a mirrored screen, sent to Android */
+function mirSync(name, force) {
+  const P = PAGES[name], S = pgOf(name);
+  const view = $(P.view), main = $('#main'); if (!view || view.hidden) return;
+  mFinish(view);
+  // (the screen comes in moving a little: where it is going to be is what counts)
+  let tx = 0, ty = 0; try { const t = getComputedStyle(view).transform; if (t && t !== 'none') { const m = new DOMMatrix(t); tx = m.m41; ty = m.m42; } } catch {}
+  const mr = main.getBoundingClientRect(), ox = mr.left + tx, oy = mr.top - main.scrollTop + ty;
+  const vr = view.getBoundingClientRect(), list = []; mParts(view, list);
+  const all = force || S.dirty.has('*'), dirty = S.dirty; S.dirty = new Set();
+  if (force) S.keys = {};
+  const els = new Map(), order = [], parts = {}; let n = 0;
+  // (rows that sit side by side would break the pile: then the whole screen goes as one part)
+  for (let i = 1; i < list.length; i++) if (list[i][1].top < list[i - 1][1].bottom - 1) { list.length = 0; list.push([view, vr]); break; }
+  for (const [el, r] of list) {
+    const k = hKey(el); els.set(el, k); order.push([k, mF(r.left - ox), mF(r.top - oy), mF(r.width), mF(r.height)]);
+    if (!all && !dirty.has(k) && S.keys[k]) continue;
+    const ctx = { ox: r.left, oy: r.top, st: [], sk: new Map(), clipR: 1e9, ell: false, hand: false, tg: null, tgr: null }, c = [];
+    try { if (el === view) { for (const ch of view.children) mWalk(ch, ctx, c); } else mWalk(el, ctx, c); } catch (e) { diag('pantalla nativa «' + name + '»: ' + (e && e.message || e)); continue; }
+    const v = { st: ctx.st, c }, js = JSON.stringify(v);
+    if (js === S.keys[k]) continue; S.keys[k] = js; parts[k] = v; n++;
+  }
+  for (const k of Object.keys(S.keys)) if (!order.some(o => String(o[0]) === k)) delete S.keys[k];
+  MIR.els[name] = els;
+  // what is still moving (a switch going to its side, the screen coming in) is read again when it stops
+  try {
+    for (const a of view.getAnimations({ subtree: true })) {
+      if (MIR.anim.has(a)) continue; const t = a.effect && a.effect.getTiming(); if (!t || t.iterations === Infinity) continue;
+      MIR.anim.add(a); const el = a.effect.target;
+      a.finished.then(() => pgMark(name, el === view ? '*' : mirWhere(name, el)), () => {});
+    }
+  } catch {}
+  const total = mF(Math.max(main.scrollHeight, vr.bottom - oy)), ok = JSON.stringify(order) + '|' + total;
+  if (NUI.hEls.size > 2500) for (const [k, el] of NUI.hEls) if (!el.isConnected) NUI.hEls.delete(k);
+  if (n || ok !== S.order) { S.order = ok; NUI_PLUGIN.mirror({ name, order, h: total, parts }).catch(nuiBroken); }
+}
+/* which part an element belongs to ('*' = can't tell: read everything) */
+function mirWhere(name, el) { const els = MIR.els[name]; if (!els) return '*'; for (let x = el; x && x.id !== 'main'; x = x.parentElement) { const k = els.get(x); if (k) return k; } return '*'; }
+/* a screen that closed the app while it was up doesn't go native again (the one of always is always there) */
+const mirBad = name => { const b = LS.get('nuiBad', null); return !!b && typeof b === 'object' && b[name] === String(APP_CFG.version || ''); };
+(() => { try { const was = LS.get('nuiOpen', ''); if (was) { LS.set('nuiOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad[was] = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('pantalla nativa «' + was + '»: la app se cerró con ella abierta → en esta versión vuelve la de siempre'); } } catch {} })();
+function mirOpen(name) { clearTimeout(MIR.openT); if (!name) { LS.set('nuiOpen', ''); return; } if (MIR.sure && MIR.sure[name]) return; LS.set('nuiOpen', name); MIR.openT = setTimeout(() => { LS.set('nuiOpen', ''); (MIR.sure = MIR.sure || {})[name] = 1; }, 6000); }
+/* what the user does on a mirrored screen, done here on the control of always */
+function mirEvent(e) {
+  const el = NUI.hEls.get(e.k); if (!el || !el.isConnected) return;
+  const fire = t => el.dispatchEvent(new Event(t, { bubbles: true }));
+  if (e.type === 'mIn') { if (el.value !== e.v) { el.value = String(e.v || ''); fire('input'); } if (e.fin) fire('change'); }
+  else if (e.type === 'mGo') {
+    if (el.form) el.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    else { const o = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }; el.dispatchEvent(new KeyboardEvent('keydown', o)); el.dispatchEvent(new KeyboardEvent('keyup', o)); fire('change'); }
+  }
+  else if (e.type === 'mRg') { el.value = String(e.v); fire('input'); if (e.fin) fire('change'); }
+  else if (e.type === 'mSel') { if ([...el.options].some(x => x.value === e.v)) { el.value = e.v; fire('change'); } }
+  else if (e.type === 'mDr') { if (el.classList.contains('eqtrack')) eqSetBand(el, e.dbl ? 0 : 12 - Math.max(0, Math.min(1, +e.f || 0)) * 24); }
+  if (winMarkEl(el)) { clearTimeout(MIR.evW); MIR.evW = setTimeout(winAfter, e.fin || e.type === 'mGo' || e.type === 'mSel' ? 0 : 500); return; }
+  const name = NUI.screen; if (!PAGES[name] || !PAGES[name].mirror) return;
+  // (while something is being dragged or typed, only its part is read again, at once; the rest, when it stops)
+  pgMark(name, mirWhere(name, el));
+  clearTimeout(MIR.evT); MIR.evT = setTimeout(() => pgAfter(name), e.fin || e.type === 'mGo' || e.type === 'mSel' ? 0 : 500);
+}
+/* a touch on a mirrored screen outside its buttons: the deepest thing at that point gets the «click», as with a finger */
+function mirAt(e) {
+  const part = NUI.hEls.get(e.k); if (!part || !part.isConnected) return;
+  const r = part.getBoundingClientRect(), x = r.left + (+e.x || 0), y = r.top + (+e.y || 0);
+  let hit = part;
+  const walk = el => {
+    const ks = el.children;
+    for (let i = ks.length - 1; i >= 0; i--) {
+      const ch = ks[i], cs = getComputedStyle(ch);
+      if (cs.display === 'none' || cs.pointerEvents === 'none') continue;
+      if (cs.display === 'contents') { if (walk(ch)) return true; continue; }
+      const q = ch.getBoundingClientRect();
+      if (x >= q.left && x <= q.right && y >= q.top && y <= q.bottom) { hit = ch; walk(ch); return true; }
+    }
+    return false;
+  };
+  walk(part);
+  for (let x2 = hit; x2 && x2 !== part.parentElement; x2 = x2.parentElement) if (x2.disabled) return;
+  if (typeof hit.click === 'function') hit.click(); else hit.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+  if (PAGES[NUI.screen]) pgAfter(NUI.screen);
+  if (W.on.length) winAfter();
+}
+/* where the native one has been left (when the finger lets go): the web goes there too, so that whatever comes on top
+   of it (a dialog, a video) finds it in the same place */
+function mirY(e) {
+  if (!NUI.shown || NUI.screen !== e.name || !PAGES[e.name] || !PAGES[e.name].mirror) return;
+  const m = $('#main'); MIR.sy = Math.max(0, +e.y || 0); if (Math.abs(m.scrollTop - MIR.sy) >= 1) { m.scrollTop = MIR.sy; MIR.sy = m.scrollTop; }
+}
+/* something the native one can't draw (a video, an animation of the web) → while it is there, the screen of always */
+function mirHole(name) {
+  const v = PAGES[name] && PAGES[name].mirror && $(PAGES[name].view); if (!v) return false;
+  for (const el of v.querySelectorAll('iframe, video, canvas, object, embed')) if (el.getClientRects().length && el.offsetWidth > 2 && el.offsetHeight > 2) return true;
+  return false;
+}
+/* a button of a mirrored screen that the web could not open by itself without a real finger on it */
+function mirTap(el) {
+  if (el.id === 'alarmTimeBtn' || el.id === 'alarmTimeEdit') {
+    const inp = $('#alarmTime'), p = String(inp.value || '07:30').split(':').map(Number);
+    NUI_PLUGIN.time({ h: p[0] || 0, m: p[1] || 0 }).then(r => { if (!r || r.h == null) return; inp.value = String(r.h).padStart(2, '0') + ':' + String(r.m).padStart(2, '0'); inp.dispatchEvent(new Event('change', { bubbles: true })); pgAfter(NUI.screen); }).catch(() => {});
+    return true;
+  }
+  const fi = el.tagName === 'LABEL' ? (el.htmlFor ? document.getElementById(el.htmlFor) : el.querySelector('input[type=file]')) : null;
+  if (fi && fi.type === 'file') {
+    const acc = (fi.accept || '').split(',').map(x => x.trim()).filter(x => /\//.test(x));
+    NUI_PLUGIN.pick({ mime: acc.length ? acc : ['*/*'], one: !fi.multiple }).then(async r => {
+      const fs = [];
+      for (const f of (r && r.files) || []) { try { const res = await fetch(Capacitor.convertFileSrc(f.uri)); if (!res.ok) throw new Error('HTTP ' + res.status); const blob = await res.blob(); fs.push(new File([blob], f.name || 'archivo', { type: f.type || blob.type || '' })); } catch (err) { diag('pantalla nativa: no pude leer ' + (f.name || 'un archivo') + ' (' + (err && err.message || err) + ')'); } }
+      if (!fs.length) return;
+      const dt = new DataTransfer(); for (const f of fs) dt.items.add(f); fi.files = dt.files; fi.dispatchEvent(new Event('change', { bubbles: true })); pgAfter(NUI.screen);
+    }).catch(err => { diag('pantalla nativa: no pude abrir el selector de archivos (' + (err && err.message || err) + ')'); toast('No he podido abrir el selector de archivos.'); });
+    return true;
+  }
+  return false;
+}
+/* ---------- 4.8 · Phase 2, last step: the windows (and the full player) are native too ----------
+   Each window is read whole, like «Buscar» and «Ajustes», and drawn by Android in a layer of its own over everything
+   (the screen underneath stays as it is: native or of always). The player is a window too: while it moves (opening,
+   closing, dragged down) the one of always is the one that moves; when it is still, the native one is up. What can't be
+   drawn natively yet (a video, the visualizer, the lyrics that go with the music, the stories) goes as always. */
+const WIN = {
+  np: { el: '#np', player: true, scroller: '.np-inner' },
+  sleep: { el: '#sleepOverlay' },
+  news: { el: '#newsOverlay' },
+  ly: { el: '#lyOverlay' },
+  edit: { el: '#editOverlay' }
+};
+/* windows that go as always (and, while one of them is up, every window does) */
+const WIN_WEB = ['#ytOverlay', '#vizFull', '#recap', '#onb', '#alarmScr'];
+const W = { on: [], key: '', keys: {}, dirty: {}, t: 0, poll: 0, els: {}, obs: {}, sy: {}, drag: false, vals: new Map(), sent: {}, held: false, seq: 0, log: [] };
+/* what was sent to Android and when (the last few: the tests read it) */
+function wLog(o) { o.t = Math.round(performance.now()); W.log.push(o); if (W.log.length > 40) W.log.shift(); }
+/* Android takes its layer of windows away and forgets them (also after closing the player with the finger) */
+function winGone(why) { W.held = false; W.sent = {}; wLog({ hide: why }); try { NUI_PLUGIN.winHide().catch(() => {}); } catch {} }
+const winIsOpen = el => !!el && !el.hidden && getComputedStyle(el).display !== 'none';
+/* can it be drawn natively now? */
+function winReady(id, el) {
+  for (const x of el.querySelectorAll('iframe, video, canvas, object, embed')) if (x.getClientRects().length && x.offsetWidth > 2 && x.offsetHeight > 2) return false;
+  if (WIN[id].player) return !(NPM.on || NPM.closing || NPM.p < 0.999 || W.drag || el.classList.contains('ly-open') || el.classList.contains('viz-open') || el.classList.contains('yt-on'));
+  const m = el.querySelector('.modal'); return !(m && m.scrollHeight > m.clientHeight + 1);
+}
+/* the windows that are up, from the one below to the one on top ([] = none; null = one that goes as always) */
+function winStack() {
+  if (!NUI.on || !NUI.winOk || NUI.classic || innerWidth > 760 || root.classList.contains('booting') || !state.ready) return [];
+  for (const s of WIN_WEB) if (winIsOpen($(s))) return null;
+  const up = [];
+  for (const id in WIN) { const el = $(WIN[id].el); if (winIsOpen(el)) { if (!winReady(id, el)) return null; up.push([id, +getComputedStyle(el).zIndex || 0]); } }
+  return up.sort((a, b) => a[1] - b[1]).map(x => x[0]);
+}
+const winOpen = () => Object.values(WIN).some(d => winIsOpen($(d.el)));
+/* once per frame (from the loop of the native screens) */
+function winTick() {
+  if (!NUI_PLUGIN || !NUI.winOk) return;
+  const st = winStack(), ids = st || [], key = st === null ? '-' : ids.join(',');
+  for (const id in WIN) root.classList.toggle('nui-win-' + id, ids.includes(id));
+  if (key !== W.key) {
+    const was = W.on; W.key = key; W.on = ids.slice();
+    for (const id of ids) { winWatch(id); if (!was.includes(id)) W.dirty[id] = new Set(['*']); }
+    if (!ids.length) { W.sent = {}; if (!W.drag && (was.length || W.held)) winGone(key === '-' ? 'como siempre' : 'ninguna'); }
+    else winSync(true);
+    return;
+  }
+  // (closed with the finger: while the finger was on it, Android kept it, see-through; now it goes)
+  if (!ids.length) { if (W.held && !W.drag) winGone('tras el dedo'); return; }
+  const now = performance.now();
+  if (now - W.poll > 3000) { W.poll = now; for (const id of ids) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); }
+  // (values that change with nothing changing in the page: the bar of the song while it plays)
+  for (const [el, v] of W.vals) { if (!el.isConnected) { W.vals.delete(el); continue; } if (el.value !== v) { W.vals.set(el, el.value); winMarkEl(el); } }
+  if (!W.t && ids.some(id => W.dirty[id] && W.dirty[id].size)) W.t = requestAnimationFrame(() => { W.t = 0; winSync(false); });
+}
+/* which window (and which part of it) something belongs to */
+function winOf(el) { for (const id of W.on) { const w = $(WIN[id].el); if (w && w.contains(el)) return id; } return ''; }
+function winMarkEl(el) {
+  const id = winOf(el); if (!id) return false;
+  const els = W.els[id]; let k = '*';
+  if (els) for (let x = el; x && x !== document.body; x = x.parentElement) { const v = els.get(x); if (v) { k = v; break; } }
+  (W.dirty[id] = W.dirty[id] || new Set()).add(k);
+  return true;
+}
+function winAfter() { for (const ms of [30, 400, 1500]) setTimeout(() => { for (const id of W.on) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); }, ms); }
+/* what changes in a window that is up is read again (the lights of the player, that move with the music, are drawn by Android on its own) */
+function winWatch(id) {
+  if (W.obs[id]) return;
+  const el = $(WIN[id].el); if (!el) return;
+  try {
+    W.obs[id] = new MutationObserver(list => {
+      if (!W.on.includes(id)) return;
+      for (const m of list) {
+        const t = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (!t) continue;
+        if (m.type === 'attributes' && m.attributeName === 'style' && (t.id === 'npHalo' || t.id === 'npBg')) continue;
+        winMarkEl(t);
+      }
+    });
+    W.obs[id].observe(el, { subtree: true, childList: true, characterData: true, attributes: true });
+  } catch {}
+  const sc = WIN[id].scroller && el.querySelector(WIN[id].scroller);
+  if (sc) sc.addEventListener('scroll', () => { if (!W.on.includes(id)) return; const y = sc.scrollTop; if (Math.abs(y - (W.sy[id] || 0)) < 1) return; W.sy[id] = y; NUI_PLUGIN.winScroll({ id, y }).catch(() => {}); }, { passive: true });
+}
+/* the animations of what is about to be read are finished at once: nobody sees them (the native one is on top), and so
+   what is read is where things end up */
+function mFinish(rootEl) { try { for (const a of rootEl.getAnimations({ subtree: true })) { const t = a.effect && a.effect.getTiming(); if (t && t.iterations !== Infinity && a.playState === 'running') a.finish(); } } catch {} }
+/* everything that changed in the windows that are up, sent to Android */
+function winSync(force) {
+  const wins = {}; let changed = false;
+  for (const id of W.on) {
+    const def = WIN[id], el = $(def.el); if (!el) continue;
+    const dirty = W.dirty[id] || new Set(); W.dirty[id] = new Set();
+    const all = force || dirty.has('*');
+    if (force || !W.keys[id]) W.keys[id] = {};
+    const K = W.keys[id];
+    mFinish(el);
+    const els = new Map(), parts = {}, sEl = def.scroller ? el.querySelector(def.scroller) : null;
+    const read = (part, r, skip) => {
+      const k = hKey(part); els.set(part, k);
+      if (!all && !dirty.has(k) && K[k]) return k;
+      const ctx = { ox: r.left, oy: r.top, st: [], sk: new Map(), clipR: 1e9, ell: false, hand: false, tg: null, tgr: null, skip, vals: W.vals }, c = [];
+      try { mWalk(part, ctx, c); } catch (e) { diag('ventana nativa «' + id + '»: ' + (e && e.message || e)); return k; }
+      const v = { st: ctx.st, c }, js = JSON.stringify(v);
+      if (js !== K[k]) { K[k] = js; parts[k] = v; }
+      return k;
+    };
+    const r0 = el.getBoundingClientRect(), fixed = [[read(el, r0, sEl), mF(r0.left), mF(r0.top), mF(r0.width), mF(r0.height)]];
+    let sc = null;
+    if (sEl) {
+      // the part that scrolls, piece by piece, measured from the top of what it holds
+      const r = sEl.getBoundingClientRect(), ox = r.left, oy = r.top - sEl.scrollTop, list = []; mParts(sEl, list);
+      for (let i = 1; i < list.length; i++) if (list[i][1].top < list[i - 1][1].bottom - 1) { list.length = 0; for (const ch of sEl.children) { const q = ch.getBoundingClientRect(); if (getComputedStyle(ch).display !== 'none') list.push([ch, q]); } break; }
+      const order = list.map(([p, q]) => [read(p, q), mF(q.left - ox), mF(q.top - oy), mF(q.width), mF(q.height)]);
+      sc = { k: hKey(sEl), x: mF(r.left), y: mF(r.top), w: mF(r.width), h: mF(r.height), total: mF(sEl.scrollHeight), order, y0: mF(sEl.scrollTop) };
+      W.sy[id] = sEl.scrollTop;
+    }
+    W.els[id] = els;
+    for (const k of Object.keys(K)) if (![...els.values()].some(v => String(v) === k)) delete K[k];
+    const shape = JSON.stringify([fixed, sc && [sc.x, sc.y, sc.w, sc.h, sc.total, sc.order]]);
+    if (force || Object.keys(parts).length || shape !== W.sent[id]) { W.sent[id] = shape; wins[id] = { fixed, sc, parts }; changed = true; }
+  }
+  if (NUI.hEls.size > 2500) for (const [k, el] of NUI.hEls) if (!el.isConnected) NUI.hEls.delete(k);
+  if (changed || force) W.held = true;
+  if (changed || force) { const seq = ++W.seq, np = wins.np && Object.values(wins.np.parts).flatMap(v => mTexts(v.c)).slice(0, 4); wLog({ seq, list: W.on.join(), force: !!force, n: Object.values(wins).reduce((a, w) => a + Object.keys(w.parts).length, 0), title: W.on.includes('np') ? $('#npTitle').textContent : undefined, np }); }
+  if (changed || force) NUI_PLUGIN.win({ list: W.on.slice(), wins, w: innerWidth, h: innerHeight, force: !!force, seq: W.seq }).catch(e => { diag('ventanas nativas: ' + (e && e.message || e)); NUI.winOk = false; for (const id in WIN) root.classList.remove('nui-win-' + id); W.on = []; W.key = ''; });
+}
+/* the texts of some pieces, in order (for the log) */
+function mTexts(c, out = []) { for (const n of c || []) { if (n.e === 't' && n.s && n.s.trim()) out.push(n.s); mTexts(n.c, out); } return out; }
+/* the web changes size (the keyboard comes up, the phone turns): the windows are read again, where they are now */
+addEventListener('resize', () => { for (const id of W.on) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); });
+/* the native window has been left somewhere (scrolling): the one of always goes there too */
+function winY(e) { const def = WIN[e.id], el = def && $(def.el), sc = el && def.scroller && el.querySelector(def.scroller); if (!sc) return; W.sy[e.id] = Math.max(0, +e.y || 0); if (Math.abs(sc.scrollTop - W.sy[e.id]) >= 1) { sc.scrollTop = W.sy[e.id]; W.sy[e.id] = sc.scrollTop; } }
+/* the cover of the player swiped to a side: the next song or the one before (as with the finger on the one of always) */
+function winSwipe(e) { const el = NUI.hEls.get(e.k); if (!el || el.id !== 'npArt') return; const dx = +e.dx || 0; if (Math.abs(dx) > 70) { if (dx < 0) next(false); else prev(); haptic(8); } winAfter(); }
+/* the player dragged down on the native one: the one of always moves with the finger (and it decides, as always, whether it closes) */
+function winDrag(e) {
+  const np = $('#np'); if (np.hidden) { W.drag = false; return; }
+  if (e.ph === 's') { if (NPM.closing) return; W.drag = true; for (const id in WIN) root.classList.remove('nui-win-' + id); cancelAnimationFrame(NPM.raf); npStart(null); npPaint(1); }
+  else if (e.ph === 'm') { if (W.drag) npDragTo(1 - Math.max(0, +e.dy || 0) / (NPM.top || innerHeight)); }
+  else if (e.ph === 'e') {
+    if (!W.drag) return; W.drag = false; npDragFlush();
+    const v = +e.v || 0;
+    if ((NPM.p < 0.7 && v > -0.3) || v > 0.5) { NPM.flingMs = npFlingMs(0, v); closeNP(); } else npAnimate(1, npOpened, npFlingMs(1, v));
+  }
+}
+/* when the app itself moves the screen (it opens a section and takes you there), the native one follows */
+$('#main').addEventListener('scroll', () => { if (!NUI.shown || !PAGES[NUI.screen] || !PAGES[NUI.screen].mirror) return; const y = $('#main').scrollTop; if (Math.abs(y - (MIR.sy || 0)) < 1) return; MIR.sy = y; NUI_PLUGIN.scroll({ y }).catch(() => {}); }, { passive: true });
 const pgOf = name => NUI.pg[name] || (NUI.pg[name] = { keys: {}, dirty: new Set(), t: 0, poll: 0, obs: null });
 function pgSync(name, force) {
   const P = PAGES[name], S = pgOf(name); S.t = 0;
   if (!P || !NUI.on || !NUI.pgOk || !state.ready) return;
+  if (P.mirror) { if (force) S.order = ''; if (NUI.mirOk) mirSync(name, force); return; }
   const parts = force ? Object.keys(P.parts) : [...S.dirty]; S.dirty.clear();
   if (force) S.keys = {};
   const o = {}; let n = 0;
@@ -6464,18 +7007,19 @@ function pgSync(name, force) {
   if (n) NUI_PLUGIN.page({ name, parts: o }).catch(nuiBroken);
 }
 function pgMark(name, part) { const S = pgOf(name); if (!NUI.on || !NUI.pgOk) return; S.dirty.add(part); if (!S.t && NUI.shown && NUI.screen === name) S.t = requestAnimationFrame(() => pgSync(name, false)); }
-function pgAfter(name) { for (const ms of [30, 400, 1500]) setTimeout(() => { for (const p in PAGES[name].parts) pgMark(name, p); }, ms); }
+function pgAfter(name) { for (const ms of [30, 400, 1500]) setTimeout(() => { const P = PAGES[name]; if (!P) return; if (P.mirror) pgMark(name, '*'); else for (const p in P.parts) pgMark(name, p); }, ms); }
 function pgWatch(name) {
   const P = PAGES[name], S = pgOf(name); if (S.obs) return;
   try {
-    S.obs = new MutationObserver(list => { for (const m of list) { const el = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (el) pgMark(name, P.where(el)); } });
-    S.obs.observe($(P.view), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'class', 'aria-pressed', 'disabled', 'src', 'placeholder', 'open'] });
+    S.obs = new MutationObserver(list => { for (const m of list) { const el = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (el) pgMark(name, P.mirror ? mirWhere(name, el) : P.where(el)); } });
+    // (a mirrored screen is drawn from everything it has: any attribute may change how it looks)
+    S.obs.observe($(P.view), P.mirror ? { subtree: true, childList: true, characterData: true, attributes: true } : { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'class', 'aria-pressed', 'disabled', 'src', 'placeholder', 'open'] });
   } catch (e) { diag('pantalla nativa «' + name + '»: no puedo seguir los cambios (' + (e && e.message || e) + ')'); delete PAGES[name]; }
 }
 /* once per frame while the screen is the native one: what changes in silence, every few seconds */
 function pgTick(name) {
   const S = pgOf(name), now = performance.now();
-  if (now - S.poll > 3000) { S.poll = now; for (const p in PAGES[name].parts) S.dirty.add(p); }
+  if (now - S.poll > 3000) { S.poll = now; if (PAGES[name].mirror) S.dirty.add('*'); else for (const p in PAGES[name].parts) S.dirty.add(p); }
   if (S.dirty.size && !S.t) S.t = requestAnimationFrame(() => pgSync(name, false));
 }
 
@@ -6627,7 +7171,7 @@ document.addEventListener('keydown', e => {
 });
 
 let toastTimer = null;
-function toast(msg, ms = 2600) { if (NUI.shown) { try { NUI_PLUGIN.toast({ text: String(msg), ms }).catch(() => {}); NUI.toast = { msg: String(msg), until: Date.now() + ms }; return; } catch {} } const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms); }
+function toast(msg, ms = 2600) { if (NUI.shown || W.on.length) { try { NUI_PLUGIN.toast({ text: String(msg), ms }).catch(() => {}); NUI.toast = { msg: String(msg), until: Date.now() + ms }; return; } catch {} } const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms); }
 
 /* ---------- Moment, ticker ---------- */
 function renderMoment() {
@@ -7474,6 +8018,16 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '4.8': [
+    '<b>El reproductor a pantalla completa y las ventanas ya son nativos</b> (temporizador, novedades, editar canción y letra): los dibuja Android y se ven igual que siempre.',
+    'Con esto termina la fase 2: todas las pantallas las dibuja Android. Lo que se mueve con la música (el visualizador, la letra sincronizada, los vídeos) sigue como siempre hasta la fase 3.',
+    'Como siempre, en Ajustes › Sonido y mezclas puedes apagar «Pantallas nativas» y vuelven las de antes.'
+  ],
+  '4.7': [
+    '<b>«Buscar» y «Ajustes» ya son nativas</b>: las dibuja y las mueve Android, como el resto. Se ven y funcionan igual que siempre.',
+    'Con esto, las seis pantallas de las pestañas son nativas. Quedan el reproductor a pantalla completa y las ventanas.',
+    'Como siempre, en Ajustes › Sonido y mezclas puedes apagar «Pantallas nativas» y vuelven las de antes.'
+  ],
   '4.6': [
     '<b>«Mis listas» y «Tú» ya son nativas</b>: las dibuja Android, como «Ahora» y «Mi música». Se ven y funcionan igual que siempre.',
     'Como siempre, en Ajustes › Sonido y mezclas puedes apagar «Pantallas nativas» y vuelven las de antes.'
@@ -9442,7 +9996,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }

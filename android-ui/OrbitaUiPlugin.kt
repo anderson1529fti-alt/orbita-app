@@ -100,6 +100,49 @@ object UiState {
     val pages = mutableStateMapOf<String, JSONObject>()
     private val pageScrolls = HashMap<String, ScrollState>()
     fun pageScroll(name: String): ScrollState = pageScrolls.getOrPut(name) { ScrollState(0) }
+    // ---- 4.7 · «Buscar» y «Ajustes»: la pantalla entera, tal como la dibuja la web (MirrorScreen.kt)
+    val MIRROR = setOf("buscar", "ajustes")
+    /** Dónde va cada parte de cada una, y lo que mide la pantalla entera (en «px» de la web). */
+    internal val mirOrder = mutableStateMapOf<String, List<MPos>>()
+    internal val mirTotal = mutableStateMapOf<String, Float>()
+    /** Las piezas de cada parte, con la clave «pantalla.parte». */
+    internal val mirParts = mutableStateMapOf<String, List<MNode>>()
+    private val mirLists = HashMap<String, LazyListState>()
+    fun mirList(name: String): LazyListState = mirLists.getOrPut(name) { LazyListState() }
+    /** Dónde empieza la fila «i» de una pantalla copiada (la primera, arriba del todo). */
+    fun mirTop(name: String, i: Int): Float { val o = mirOrder[name] ?: return 0f; return if (i <= 0 || i >= o.size) 0f else o[i].y }
+    /** Por dónde va (en «px» de la web, contados como la web: desde arriba del todo). */
+    fun mirY(name: String, dpr: Float): Float { val ls = mirList(name); return mirTop(name, ls.firstVisibleItemIndex) + ls.firstVisibleItemScrollOffset / maxOf(0.5f, dpr) }
+    /** Llevarla a una altura (la que diga la web). */
+    fun mirGo(name: String, y: Float, dpr: Float) {
+        val o = mirOrder[name] ?: return
+        if (o.isEmpty()) return
+        var i = 0
+        while (i + 1 < o.size && o[i + 1].y <= y) i++
+        mirList(name).requestScrollToItem(i, ((y - mirTop(name, i)) * dpr).roundToInt().coerceAtLeast(0))
+    }
+    // ---- 4.8 · las ventanas y el reproductor a pantalla completa (WindowsScreen.kt), en su propia capa
+    internal var wins by mutableStateOf<List<WDef>>(emptyList())
+    /** Las piezas de cada parte de cada ventana, con la clave «ventana.parte». */
+    internal val winParts = mutableStateMapOf<String, List<MNode>>()
+    private val winLists = HashMap<String, LazyListState>()
+    fun winList(id: String): LazyListState = winLists.getOrPut(id) { LazyListState() }
+    /** Transparente mientras se baja el reproductor con el dedo (la web lo mueve, debajo). */
+    var winAlpha by mutableStateOf(1f)
+    /** (Para las pruebas) el número del último envío de la web que se ha puesto. */
+    @Volatile var winSeq = 0
+    /** Quitar la capa de las ventanas (la pone el plugin). */
+    var winGone: () -> Unit = {}
+    private fun winOrder(id: String): List<MPos>? = wins.firstOrNull { it.id == id }?.sc?.order
+    fun winTop(id: String, i: Int): Float { val o = winOrder(id) ?: return 0f; return if (i <= 0 || i >= o.size) 0f else o[i].y }
+    fun winY(id: String, dpr: Float): Float { val ls = winList(id); return winTop(id, ls.firstVisibleItemIndex) + ls.firstVisibleItemScrollOffset / maxOf(0.5f, dpr) }
+    fun winGo(id: String, y: Float, dpr: Float) {
+        val o = winOrder(id) ?: return
+        if (o.isEmpty()) return
+        var i = 0
+        while (i + 1 < o.size && o[i + 1].y <= y) i++
+        winList(id).requestScrollToItem(i, ((y - winTop(id, i)) * dpr).roundToInt().coerceAtLeast(0))
+    }
     /** Cada vez que la pantalla nativa se aparta (para que no se quede a la vista nada suyo: una lista desplegada). */
     var hideN by mutableStateOf(0)
     val homeList = LazyListState()
@@ -198,6 +241,42 @@ class OrbitaUiPlugin : Plugin() {
         v.y = wv.y + y * dpr
     }
 
+    // ---- 4.8 · la capa de las ventanas: encima de todo, del tamaño de la web entera
+    private var winHost: ComposeView? = null
+    private fun ensureWinHost() {
+        if (winHost != null) return
+        val v = ComposeView(activity)
+        v.setContent { OrbitaWindows() }
+        v.visibility = View.GONE
+        v.translationZ = 40f   // (siempre por encima de la pantalla nativa, aunque se cree antes que ella)
+        val wv = bridge.webView
+        (wv.parent as ViewGroup).addView(v, ViewGroup.LayoutParams(maxOf(1, wv.width), maxOf(1, wv.height)))
+        winHost = v
+        placeWin()
+        // (cuando la web cambia de tamaño, por ejemplo al salir el teclado, la capa también)
+        wv.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> try { placeWin() } catch (ignored: Throwable) { } }
+        UiState.winGone = { activity.runOnUiThread { hideWin(false) } }
+    }
+    private fun placeWin() {
+        val v = winHost ?: return
+        val wv = bridge.webView
+        val lp = v.layoutParams
+        if (lp.width != wv.width || lp.height != wv.height) { lp.width = maxOf(1, wv.width); lp.height = maxOf(1, wv.height); v.layoutParams = lp }
+        v.x = wv.x; v.y = wv.y
+    }
+    private fun hideWin(clear: Boolean) {
+        val v = winHost ?: return
+        if (v.visibility != View.GONE) {
+            v.visibility = View.GONE
+            try {
+                v.clearFocus()
+                (activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+            } catch (ignored: Throwable) { }
+        }
+        UiState.winAlpha = 1f
+        if (clear) { UiState.wins = emptyList(); UiState.winParts.clear() }
+    }
+
     private fun ensureHost() {
         if (host != null) return
         val v = ComposeView(activity)
@@ -210,11 +289,16 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 5)
+        r.put("available", true); r.put("v", 7)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
-            r.put("pages", UiState.pages.size); r.put("y", if (UiState.screen in UiState.PAGES) UiState.pageScroll(UiState.screen).value else 0)
+            r.put("pages", UiState.pages.size); r.put("y", (if (UiState.screen in UiState.PAGES) UiState.pageScroll(UiState.screen).value.toFloat() else if (UiState.screen in UiState.MIRROR) UiState.mirY(UiState.screen, dpr) else 0f).toDouble())
+            r.put("mirror", UiState.mirParts.size)
+            r.put("wins", UiState.wins.joinToString(",") { it.id }); r.put("winShown", winHost?.visibility == View.VISIBLE)
+            // (para las pruebas: el último envío de la web que se ha puesto y lo que dice cada ventana, de arriba abajo)
+            r.put("winSeq", UiState.winSeq); r.put("winTexts", JSArray(winTexts(40)))
+            UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }
             r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
         } catch (ignored: Throwable) { }
         call.resolve(r)
@@ -226,7 +310,7 @@ class OrbitaUiPlugin : Plugin() {
         readRect(call)
         val top = call.getBoolean("top", false) == true
         val asked = call.getString("screen", "biblioteca") ?: "biblioteca"
-        val screen = if (asked == "chat" || asked == "inicio" || asked in UiState.PAGES) asked else "biblioteca"
+        val screen = if (asked == "chat" || asked == "inicio" || asked in UiState.PAGES || asked in UiState.MIRROR) asked else "biblioteca"
         val pad = readPad(call)
         activity.runOnUiThread {
             try {
@@ -242,6 +326,7 @@ class OrbitaUiPlugin : Plugin() {
                     if (screen == "inicio") UiState.homeList.requestScrollToItem(0)
                     else if (screen == "biblioteca") UiState.list.requestScrollToItem(0)
                     else if (screen in UiState.PAGES) UiState.pageScroll(screen).dispatchRawDelta(-1.0e7f)
+                    else if (screen in UiState.MIRROR) UiState.mirList(screen).requestScrollToItem(0)
                 }
                 host?.visibility = View.VISIBLE
                 call.resolve()
@@ -339,6 +424,129 @@ class OrbitaUiPlugin : Plugin() {
         call.resolve()
     }
 
+    /**
+     * 4.7 · «Buscar» y «Ajustes»: lo que ha cambiado de la pantalla de siempre (dónde va cada parte y las piezas de las
+     * partes nuevas o cambiadas). Se lee aquí, fuera de la pantalla, y se enseña de una vez.
+     */
+    @PluginMethod
+    fun mirror(call: PluginCall) {
+        val name = call.getString("name", "") ?: ""
+        if (name !in UiState.MIRROR) { call.resolve(); return }
+        try {
+            val oa = call.getArray("order")
+            val order = ArrayList<MPos>()
+            if (oa != null) for (i in 0 until oa.length()) {
+                val a = oa.optJSONArray(i) ?: continue
+                order.add(MPos(a.optInt(0), a.optDouble(1, 0.0).toFloat(), a.optDouble(2, 0.0).toFloat(), a.optDouble(3, 0.0).toFloat(), a.optDouble(4, 0.0).toFloat()))
+            }
+            val total = num(call, "h", 0f)
+            val parts = call.getObject("parts")
+            val parsed = HashMap<String, List<MNode>>()
+            if (parts != null) {
+                val it = parts.keys()
+                while (it.hasNext()) { val k = it.next(); val o = parts.optJSONObject(k) ?: continue; parsed["$name.$k"] = mParsePart(o) }
+            }
+            activity.runOnUiThread {
+                try {
+                    for ((k, v) in parsed) UiState.mirParts[k] = v
+                    if (oa != null && UiState.mirOrder[name] != order) {
+                        UiState.mirOrder[name] = order
+                        val keep = HashSet<String>()
+                        for (p in order) keep.add("$name.${p.k}")
+                        val gone = UiState.mirParts.keys.filter { it.startsWith("$name.") && it !in keep }
+                        for (k in gone) UiState.mirParts.remove(k)
+                    }
+                    if (total > 0f && UiState.mirTotal[name] != total) UiState.mirTotal[name] = total
+                } catch (ignored: Throwable) { }
+            }
+            call.resolve()
+        } catch (t: Throwable) {
+            call.reject("No he podido leer la pantalla: " + t.message, "UI")
+        }
+    }
+
+    /** 4.7 · «Cambiar la hora» del despertador: el reloj de Android. Devuelve la hora elegida (o nada si se cancela). */
+    @PluginMethod
+    fun time(call: PluginCall) {
+        val h = (call.getInt("h", 7) ?: 7).coerceIn(0, 23)
+        val m = (call.getInt("m", 30) ?: 30).coerceIn(0, 59)
+        activity.runOnUiThread {
+            try {
+                var done = false
+                val d = android.app.TimePickerDialog(activity, { _, hh, mm ->
+                    if (!done) { done = true; val r = JSObject(); r.put("h", hh); r.put("m", mm); call.resolve(r) }
+                }, h, m, true)
+                d.setOnDismissListener { if (!done) { done = true; call.resolve(JSObject()) } }
+                d.show()
+            } catch (t: Throwable) {
+                call.reject("No he podido abrir el reloj: " + t.message, "TIME")
+            }
+        }
+    }
+
+    /**
+     * 4.8 · Las ventanas que hay a la vista (de abajo arriba) y lo que ha cambiado de cada una: dónde va cada parte y las
+     * piezas de las partes nuevas o cambiadas. Se lee aquí, fuera de la pantalla, y se enseña de una vez.
+     */
+    @PluginMethod
+    fun win(call: PluginCall) {
+        try {
+            val ids = call.getArray("list")
+            val list = ArrayList<String>()
+            if (ids != null) for (i in 0 until ids.length()) list.add(ids.optString(i))
+            val wins = call.getObject("wins")
+            val defs = HashMap<String, WDef>()
+            val parts = HashMap<String, List<MNode>>()
+            if (wins != null) {
+                val it = wins.keys()
+                while (it.hasNext()) {
+                    val id = it.next(); val o = wins.optJSONObject(id) ?: continue
+                    defs[id] = wDef(id, o)
+                    val ps = o.optJSONObject("parts")
+                    if (ps != null) { val pk = ps.keys(); while (pk.hasNext()) { val k = pk.next(); val po = ps.optJSONObject(k) ?: continue; parts["$id.$k"] = mParsePart(po) } }
+                }
+            }
+            val force = call.getBoolean("force", false) == true
+            val seq = call.getInt("seq", 0) ?: 0
+            activity.runOnUiThread {
+                try {
+                    ensureWinHost(); placeWin()
+                    for ((k, v) in parts) UiState.winParts[k] = v
+                    UiState.winSeq = seq
+                    val cur = UiState.wins.associateBy { it.id }
+                    val next = list.mapNotNull { defs[it] ?: cur[it] }
+                    if (next != UiState.wins) UiState.wins = next
+                    val keep = HashSet<String>()
+                    for (w in next) { for (f in w.fixed) keep.add("${w.id}.${f.k}"); w.sc?.order?.forEach { keep.add("${w.id}.${it.k}") } }
+                    for (k in UiState.winParts.keys.filter { it !in keep }) UiState.winParts.remove(k)
+                    // una ventana que sale: por donde la tiene la web
+                    for (w in next) { val sc = w.sc; if (sc != null && (force || cur[w.id] == null)) UiState.winGo(w.id, sc.y0, dpr) }
+                    UiState.winAlpha = 1f
+                    if (next.isEmpty()) hideWin(true) else winHost?.let { v -> if (v.visibility != View.VISIBLE) { v.visibility = View.VISIBLE; v.invalidate() } }
+                } catch (t: Throwable) { android.util.Log.w("OrbitaUi", "ventanas: " + t) }
+            }
+            call.resolve()
+        } catch (t: Throwable) {
+            android.util.Log.w("OrbitaUi", "ventanas, al leer: " + t)
+            call.reject("No he podido leer la ventana: " + t.message, "UI")
+        }
+    }
+
+    @PluginMethod
+    fun winHide(call: PluginCall) {
+        activity.runOnUiThread { try { hideWin(true) } catch (ignored: Throwable) { } }
+        call.resolve()
+    }
+
+    /** La web ha movido lo que se desliza en una ventana (o lo pide una prueba): la nativa va a la misma altura. */
+    @PluginMethod
+    fun winScroll(call: PluginCall) {
+        val id = call.getString("id", "") ?: ""
+        val y = num(call, "y", 0f)
+        activity.runOnUiThread { try { UiState.winGo(id, y, dpr) } catch (ignored: Throwable) { } }
+        call.resolve()
+    }
+
     /** 4.5 · El disco de «Ahora»: qué suena, si suena y por dónde va. */
     @PluginMethod
     fun vinyl(call: PluginCall) {
@@ -355,6 +563,13 @@ class OrbitaUiPlugin : Plugin() {
         val y = num(call, "y", -1f)
         activity.runOnUiThread {
             try {
+                if (UiState.screen in UiState.MIRROR) {
+                    val n = UiState.screen
+                    if (y >= 0f) UiState.mirGo(n, y, dpr)
+                    else if (end) UiState.mirList(n).requestScrollToItem(maxOf(0, (UiState.mirOrder[n]?.size ?: 1) - 1), 1 shl 28)
+                    else UiState.mirList(n).requestScrollToItem(0)
+                    return@runOnUiThread
+                }
                 val pg = UiState.screen in UiState.PAGES
                 val st: androidx.compose.foundation.gestures.ScrollableState = if (pg) UiState.pageScroll(UiState.screen) else if (UiState.screen == "inicio") UiState.homeList else UiState.list
                 if (y >= 0f) {
@@ -479,8 +694,13 @@ class OrbitaUiPlugin : Plugin() {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
             i.addCategory(Intent.CATEGORY_OPENABLE)
             i.type = "*/*"
-            i.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "image/*"))
-            i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            // (4.7: quien llama puede decir qué tipos y si es uno solo; si no, canciones e imágenes, varias)
+            val ask = call.getArray("mime")
+            val types = ArrayList<String>()
+            if (ask != null) for (k in 0 until ask.length()) { val t = ask.optString(k, ""); if (t.contains('/')) types.add(t) }
+            if (types.isEmpty()) { types.add("audio/*"); types.add("image/*") }
+            if (!(types.size == 1 && types[0] == "*/*")) i.putExtra(Intent.EXTRA_MIME_TYPES, types.toTypedArray())
+            i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, call.getBoolean("one", false) != true)
             startActivityForResult(call, i, "picked")
         } catch (t: Throwable) {
             call.reject("No he podido abrir el selector: " + t.message, "PICK")
