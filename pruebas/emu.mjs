@@ -9,7 +9,9 @@ const VER = JSON.parse(fs.readFileSync('package.json', 'utf8')).version.split('.
 const res = [], log = (...a) => { const s = a.join(' '); console.log(s); fs.appendFileSync(`${OUT}/pasos.txt`, s + '\n'); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // si la prueba se atasca (el emulador de GitHub a veces se queda colgado), se guarda lo que haya y se termina
+let logsSaved = false;
 function finish(why) {
+  if (!logsSaved) { try { saveLogs(); } catch {} }
   try {
     if (why) log('\nLA PRUEBA SE CORTÓ: ' + why);
     fs.writeFileSync(`${OUT}/resultado.json`, JSON.stringify(res, null, 1));
@@ -44,6 +46,7 @@ const vdiff = (A, B, box) => {
   return { px: +(s / n).toFixed(2), blk: +(sb / nb).toFixed(2), luzA: +(la / n).toFixed(1), luzB: +(lb / n).toFixed(1) };
 };
 function saveLogs() {
+  logsSaved = true;
   fs.writeFileSync(`${OUT}/logcat.txt`, adb('logcat -d -v time *:W').split('\n').slice(-6000).join('\n'));
   fs.writeFileSync(`${OUT}/logcat-app.txt`, adb('logcat -d -v time').split('\n').filter(l => /orbita|Orbita|Nova|Media3|MediaSess|AndroidRuntime|Capacitor\/Console|chromium/i.test(l)).slice(-4000).join('\n'));
   fs.writeFileSync(`${OUT}/cierres.txt`, adb('logcat -d -b crash'));
@@ -89,6 +92,9 @@ async function js(expr, retry = true) {
   try { r = await cdp('Runtime.evaluate', { expression: `(async () => { ${expr} })()`, awaitPromise: true, returnByValue: true }); } catch (e) { r = { error: { message: String(e && e.message || e) } }; }
   if (r.error && retry) {
     log('  (el WebView no contesta: ' + r.error.message + '; reconecto)');
+    if ((js.dumps = (js.dumps || 0) + 1) <= 2) {
+      try { const pid = sh(`pidof ${PKG}`).trim().split(/\s+/)[0]; if (pid) fs.writeFileSync(`${OUT}/hilos-${js.dumps}.txt`, adb(`shell debuggerd -j ${pid}`).slice(0, 400000)); } catch {}
+    }
     if (!(await cdpConnect())) {
       const gone = /not found|no devices|offline|ERR/.test(adb('get-state'));
       if (gone) { check('el emulador sigue encendido (se cerró él solo; la app no se había cerrado)', false, crashText().slice(0, 1500)); finish('el emulador se cerró'); }
@@ -387,7 +393,8 @@ try {
     if (hn) { tap(...center(hn)); await sleep(1500); }
     await until(`${O} return W.on.join() === 'np';`);
     await sleep(800);
-    const nv = ui().find(n => !n.web && n.text === 'Visual');
+    let nv = null;
+    for (let k = 0; k < 3 && !nv; k++) { nv = ui().find(n => !n.web && n.text === 'Visual'); if (!nv) await sleep(900); }
     if (nv) tap(...center(nv)); else await js(`document.querySelector('#npVizBtn').click(); return 1;`);
     await until(`return (await Capacitor.Plugins.OrbitaUi.status()).vizActive === 'vizNP';`, 6000); await sleep(800);
     const n1 = await moving(1500);
