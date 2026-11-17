@@ -37,6 +37,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -88,6 +89,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
@@ -165,7 +168,9 @@ internal data class MNode(
     val mk: Float, val mc: Int, val mo: Boolean,
     // 4.8 · el filtro (desenfoque, color, luz), la portada que se desliza (su clave) y la luz que va con la música
     val fx: List<Float>, val sw: Int, val lt: Boolean,
-    val kids: List<MNode>
+    val kids: List<MNode>,
+    // 5.0 · la letra: de qué vez es (gn), y de cada verso, si es un hueco (gap) y su offsetTop de la web (ot)
+    val gap: Boolean = false, val ot: Float = 0f, val gn: Int = 0
 )
 
 private val NO_F = emptyList<Float>()
@@ -262,7 +267,8 @@ private fun mNode(o: JSONObject, st: List<MStyle>, depth: Int): MNode {
         opts, vb, paths,
         o.f("mk"), o.c("mc"), o.optInt("mo") == 1,
         o.optJSONArray("fx").let { a -> if (a != null && a.length() == 3) List(3) { a.optDouble(it, if (it == 0) 0.0 else 1.0).toFloat() } else NO_F }, o.optInt("sw", 0), o.optInt("lt") == 1,
-        mKids(o.optJSONArray("c"), st, depth + 1)
+        mKids(o.optJSONArray("c"), st, depth + 1),
+        gap = o.optInt("gp") == 1, ot = o.f("ot"), gn = o.optInt("gn", 0)
     )
 }
 
@@ -382,6 +388,10 @@ private fun MAny(c: MNode) {
         "hole" -> Spacer(Modifier)
         // 4.9 · un visualizador: lo dibuja Android (en pantalla completa, además, se gira y se acerca con los dedos)
         "viz" -> VizBox(c.v, Modifier.mDecor(c), gestures = c.v == "vizFS")
+        // 5.0 · la letra que va con la música (se desliza, se enciende y se llena aquí)
+        "ly" -> LyBox(c, Modifier.mDecor(c))
+        // 5.0 · el sitio del vídeo: su caja, y un hueco por el que se ve (y se toca) el vídeo de la web
+        "vhole" -> VHole(c)
         else -> MBoxNode(c)
     }
 }
@@ -600,6 +610,17 @@ private fun mShape(c: MNode): RoundedCornerShape = if (c.r.size == 4) RoundedCor
 
 private fun mSend(type: String, k: Int, fill: (com.getcapacitor.JSObject) -> Unit = {}) { if (k > 0) UiState.send(type) { it.put("k", k); fill(it) } }
 
+/**
+ * 5.0 · El sitio del vídeo en el reproductor: la caja del vídeo de siempre (negra, con sus esquinas y su sombra) y, en
+ * ella, un hueco (lo abre la capa de las ventanas) por el que se ve y se toca el reproductor de YouTube de la web.
+ */
+@Composable
+private fun VHole(c: MNode) {
+    val d = LocalDensity.current.density
+    DisposableEffect(Unit) { onDispose { UiState.ytSlot = null } }
+    Box(Modifier.mDecor(c).onGloballyPositioned { lc -> UiState.ytSlotR = (if (c.r.size == 4) c.r[0] else 0f) * d; UiState.ytSlot = lc.boundsInRoot() })
+}
+
 @Composable
 private fun MBoxNode(c: MNode) {
     var m: Modifier = Modifier
@@ -671,7 +692,7 @@ private fun MBoxNode(c: MNode) {
 
 // ---------------------------------------------------------------- letras
 @Composable
-private fun mStyleOf(st: MStyle, brush: Brush? = null, color: Color = Color(st.col)): androidx.compose.ui.text.TextStyle {
+internal fun mStyleOf(st: MStyle, brush: Brush? = null, color: Color = Color(st.col)): androidx.compose.ui.text.TextStyle {
     val fam = when (st.ff) { "d" -> Display; "m" -> Mono; else -> Body }
     var ts = style(st.fs, color, fam, FontWeight(st.fw.coerceIn(100, 900)), 1.25f, if (st.fs > 0f) st.ls / st.fs else 0f, TextAlign.Start, brush)
     if ((st.fl and 1) != 0) ts = ts.copy(fontStyle = FontStyle.Italic)

@@ -4125,7 +4125,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -4506,7 +4506,7 @@ async function showLyrics(t) {
   renderLyrics(t, r);
 }
 function renderLyrics(t, r) {
-  const box = $('#npLyrics'); LY.rec = r; LY.idx = -2;
+  const box = $('#npLyrics'); LY.rec = r; LY.idx = -2; LY.lg = (LY.lg || 0) + 1;
   const tools = `<div class="ly-tools">${r && !r.none ? `<span class="note">${esc(lyricsSource(r))}</span>` : ''}<span class="spacer"></span>${r && r.synced ? `<button class="link" data-act="ly-shift" data-d="-0.5" aria-label="Adelantar la letra medio segundo">−0,5 s</button><button class="link" data-act="ly-shift" data-d="0.5" aria-label="Retrasar la letra medio segundo">+0,5 s</button>` : ''}<button class="link" data-act="ly-edit">${r && !r.none ? 'Editar' : 'Añadir letra'}</button></div>`;
   if (!r || r.none) {
     box.innerHTML = `<div class="ly-empty"><p>No he encontrado la letra de «${esc(t.title)}».</p><p class="note">${ONLINE ? 'Puedes pegarla tú: si lleva tiempos como [00:12.30] irá sincronizada con la música.' : 'En la app de Android la busco en internet. Aquí puedes pegarla tú.'}</p><button class="btn small" data-act="ly-edit">Añadir letra</button>${ONLINE ? '<button class="link" data-act="ly-retry">Buscar otra vez</button>' : ''}</div>`;
@@ -4532,13 +4532,14 @@ function lyricsTick(time, force) {
   sc.querySelectorAll('.ly-line.on').forEach(p => p.classList.remove('on', 'fill', 'go'));
   sc.querySelectorAll('.ly-line').forEach(p => p.classList.toggle('sung', +p.dataset.i < idx));   // also after a jump
   const el = idx >= 0 ? sc.querySelector(`.ly-line[data-i="${idx}"]`) : null;
-  if (!el) return;
-  el.classList.add('on');
+  if (!el) { if (typeof lyNatTick === 'function') lyNatTick(idx, 0); return; }
+  el.classList.add('on'); let lyFillD = 0;
   if (plOK() && !el.classList.contains('gap') && !act().paused) {
-    const nx = ls.find((l, j) => j > idx && l.t > ls[idx].t), dur = Math.max(0.6, Math.min(12, (nx ? nx.t : ls[idx].t + 4) - time));
+    const nx = ls.find((l, j) => j > idx && l.t > ls[idx].t), dur = Math.max(0.6, Math.min(12, (nx ? nx.t : ls[idx].t + 4) - time)); lyFillD = dur;
     el.style.setProperty('--lyd', dur.toFixed(2) + 's'); el.classList.add('fill');
     requestAnimationFrame(() => requestAnimationFrame(() => { if (el.classList.contains('on')) el.classList.add('go'); }));
   }
+  if (typeof lyNatTick === 'function') lyNatTick(idx, lyFillD);
   if (Date.now() - LY.userScroll > 3500) sc.scrollTo({ top: el.offsetTop - sc.clientHeight * 0.42, behavior: reduceMotion || force ? 'auto' : 'smooth' });
 }
 function onTrackLyrics(t) { if (LY.on && !$('#np').hidden) showLyrics(t); else { LY.id = null; LY.lines = null; } }
@@ -5277,7 +5278,7 @@ function ytLayout() {
   clearTimeout(ytClearT);
   /* once the music has taken over (after its short fade), YouTube's player leaves the page */
   if (!on && ytEl.src && A !== 3) ytClearT = setTimeout(() => { if (A !== 3 && ytEl.src) ytEl.src = ''; }, 3000);
-  if (!on) return;
+  if (!on) { if (typeof ytNatPlace === 'function') ytNatPlace(null); return; }
   const t = current();
   dock.classList.toggle('big', npOpen); dock.classList.toggle('mini', !npOpen);
   $('#ytDockTitle').textContent = t ? t.title : 'YouTube';
@@ -5291,6 +5292,7 @@ function ytPlace() {
     if (dock.classList.contains('big')) {
       const r = $('#npVideo').getBoundingClientRect();
       Object.assign(dock.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', bottom: 'auto' });
+      if (typeof ytNatPlace === 'function') ytNatPlace(r);
     } else {
       const pl = $('.player').getBoundingClientRect(), w = Math.min(window.innerWidth - 16, 520);
       Object.assign(dock.style, { left: Math.max(8, window.innerWidth - w - 8) + 'px', width: w + 'px', top: 'auto', height: 'auto', bottom: Math.max(8, window.innerHeight - pl.top + 8) + 'px' });
@@ -6096,6 +6098,8 @@ function nuiLoop() {
     NUI.raf = 0;
     try { winTick(); } catch (e) { diag('ventanas nativas: ' + (e && e.message || e)); }
     try { vizNatTick(); } catch (e) { diag('visualizador nativo: ' + (e && e.message || e)); }
+    try { lyNatLoop(); } catch (e) { diag('letra nativa: ' + (e && e.message || e)); }
+    try { ytNatLoop(); } catch (e) { diag('videoclip nativo: ' + (e && e.message || e)); }
     const scr = nuiWant();
     if (scr) {
       const el = scr === 'chat' ? $('#chat') : $('#main'), r = el.getBoundingClientRect(), o = { x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 };
@@ -6220,6 +6224,7 @@ function nuiEvent(e) {
   else if (e.type === 'mAt') mirAt(e);
   else if (e.type === 'mY') mirY(e);
   else if (e.type === 'wY') winY(e);
+  else if (e.type === 'lyTap') lyTap(e);
   else if (e.type === 'mSwipe') winSwipe(e);
   else if (e.type === 'npDrag') winDrag(e);
   else if (e.type === 'hSel') { const el = $(e.sel); if (el && el.tagName === 'SELECT' && [...el.options].some(x => x.value === e.v)) { el.value = e.v; el.dispatchEvent(new Event('change', { bubbles: true })); } homeAfter(); }
@@ -6238,7 +6243,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6246,7 +6251,7 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores y la conversación con Nova los dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagaron solas porque algo falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarlas.'
     : 'Apagadas: todo se ve con las pantallas de siempre.';
 }
@@ -6688,6 +6693,10 @@ function mWalk(el, ctx, out) {
   }
   if (tag === 'IMG') { const u = el.currentSrc || el.src || ''; if (u && r.width && r.height) { n.e = 'img'; n.u = u; out.push(n); } else if (mPaints(n)) out.push(n); return; }
   if (tag === 'CANVAS' && NUI.vizOk && VIZ_IDS.has(el.id)) { n.e = 'viz'; n.v = el.id; out.push(n); return; }
+  if (el.id === 'lyScroll' && NUI.lyOk) { mLy(el, r, n, ctx, out); return; }
+  // the place of the video in the player: Android paints it as the video's own box (black, its corners, its shadow) and
+  // leaves a hole there, through which the video of always (YouTube's player, in the web) is seen and touched
+  if (el.id === 'npVideo' && NUI.ytOk) { const dk = $('#ytDock'), m = { x: n.x, y: n.y, w: n.w, h: n.h, e: 'vhole' }; mBox(m, dk && !dk.hidden ? getComputedStyle(dk) : cs); out.push(m); return; }
   if (tag === 'IFRAME' || tag === 'VIDEO' || tag === 'CANVAS' || tag === 'OBJECT') { n.e = 'hole'; out.push(n); return; }
   const cl = el.classList;
   if (cl.contains('cover-ph') || cl.contains('art-ph')) { const hue = parseFloat(el.style.getPropertyValue('--h')); n.e = 'ph'; n.i = hTxt(el).slice(0, 2) || '♪'; n.hu = Number.isFinite(hue) ? hue : 280; n.fs = mF(parseFloat(cs.fontSize) || 16.8); delete n.g; delete n.bg; out.push(n); return; }
@@ -6870,7 +6879,7 @@ const winIsOpen = el => !!el && !el.hidden && getComputedStyle(el).display !== '
 function winReady(id, el) {
   for (const x of el.querySelectorAll('iframe, video, canvas, object, embed')) if (x.getClientRects().length && x.offsetWidth > 2 && x.offsetHeight > 2 && !(NUI.vizOk && x.tagName === 'CANVAS' && VIZ_IDS.has(x.id))) return false;
   if (WIN[id].viz) { const p = $('#vfPanel'); return !(p && !p.hidden && p.scrollHeight > p.clientHeight + 1); }
-  if (WIN[id].player) return !(NPM.on || NPM.closing || NPM.p < 0.999 || W.drag || el.classList.contains('ly-open') || (el.classList.contains('viz-open') && !NUI.vizOk) || el.classList.contains('yt-on'));
+  if (WIN[id].player) return !(NPM.on || NPM.closing || NPM.p < 0.999 || W.drag || (el.classList.contains('ly-open') && !NUI.lyOk) || (el.classList.contains('viz-open') && !NUI.vizOk) || (el.classList.contains('yt-on') && !NUI.ytOk));
   const m = el.querySelector('.modal'); return !(m && m.scrollHeight > m.clientHeight + 1);
 }
 /* the windows that are up, from the one below to the one on top ([] = none; null = one that goes as always) */
@@ -6922,6 +6931,7 @@ function winWatch(id) {
       for (const m of list) {
         const t = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (!t) continue;
         if (m.type === 'attributes' && m.attributeName === 'style' && (t.id === 'npHalo' || t.id === 'npBg')) continue;
+        if (m.type === 'attributes' && NUI.lyOk && t.closest && t.closest('#lyScroll')) continue;
         winMarkEl(t);
       }
     });
@@ -7060,6 +7070,76 @@ function vizNatTick() {
   if (k !== NUI.vizKey) { NUI.vizKey = k; NUI.vizSent = which; NUI_PLUGIN.viz(v).catch(e => diag('visualizador nativo: ' + (e && e.message || e))); }
   // (the engine keeps «listening»: what it hears goes to Android's visualizer directly)
   if (which && playing && A < 2 && analyser) { try { analyser.getByteFrequencyData(vizHSpec); } catch {} }
+}
+
+/* ---------- 5.0 · Phase 3, step 3: the lyrics that go with the music, drawn by Android ----------
+   The box of the lyrics is read whole once (each line: where it is and where the web broke it into rows, untouched by
+   the «sung» effects); which line is sung, and for how long, goes on its own, and Android scrolls to it, lights it and
+   fills it (like karaoke) by itself. A line touched there takes the song to it, as here. */
+function mLy(sc, r, n, ctx, out) {
+  n.e = 'ly'; n.v = sc.classList.contains('plain') ? 'p' : 's'; n.mx = mF(sc.scrollHeight); n.gn = LY.lg || 0;
+  // (where everything is, from the top of what scrolls: the same wherever the web's own one has scrolled to)
+  const c2 = Object.assign({}, ctx, { ox: r.left, oy: r.top - sc.scrollTop, clipR: Infinity, ell: false, tg: null, hand: true });
+  let base = null;
+  const lines = [];
+  for (const p of sc.children) {
+    if (!p.classList.contains('ly-line')) continue;
+    const lr = p.getBoundingClientRect(), ln = { e: 'lyl', x: mF(lr.left - c2.ox), y: mF(lr.top - c2.oy), w: mF(lr.width), h: mF(lr.height), v: p.dataset.i || '', ot: mF(p.offsetTop) };
+    if (p.classList.contains('gap')) ln.gp = 1;
+    // (the synced ones are read with a table of styles of their own: what each line looks like now, sung or not, doesn't
+    // go into the part, so the part stays the same while the song goes on)
+    const got = []; mWalk(p, n.v === 's' ? Object.assign({}, c2, { st: [], sk: new Map() }) : c2, got);
+    const rows = []; (function flat(list) { for (const k of list) { if (k.e === 't') rows.push(k); else if (k.c) flat(k.c); } })(got);
+    if (n.v === 's') {
+      // (the letters of the synced ones always with the same style: Android gives them their colour for each moment)
+      if (base === null) { const cs = getComputedStyle(p); base = mStyle({ fontFamily: cs.fontFamily, webkitTextStrokeWidth: '0px', webkitTextFillColor: '', color: 'rgb(255, 255, 255)', fontStyle: cs.fontStyle, textDecorationLine: 'none', fontSize: cs.fontSize, fontWeight: cs.fontWeight, letterSpacing: cs.letterSpacing }, ctx); }
+      for (const t of rows) { t.f = base; delete t.tg; delete t.tb; delete t.mw; delete t.el; }
+    }
+    if (rows.length) ln.c = rows;
+    lines.push(ln);
+  }
+  n.c = lines; out.push(n);
+}
+/* which line is sung now (-1: none yet) and for how long its fill goes (0 = it doesn't fill: paused, or a gap) */
+var LY_NAT = null;
+function lyNatTick(idx, dur) {
+  if (!NUI_PLUGIN || !NUI.lyOk) return;
+  LY_NAT = { g: LY.lg || 0, i: idx, d: +(+dur || 0).toFixed(2), rm: reduceMotion ? 1 : 0, t: Date.now() };
+  if (lyNatShown()) NUI_PLUGIN.ly(LY_NAT).catch(() => {});
+}
+const lyNatShown = () => NUI.lyOk && W.on.includes('np') && $('#np').classList.contains('ly-open');
+function lyTap(e) { const p = $('#lyScroll .ly-line[data-i="' + (parseInt(e.i, 10) || 0) + '"]'); if (p && p.isConnected) p.click(); }
+/* (if the native lyrics ever closed the app, next time they go as always in this version) */
+(() => { try { if (LS.get('lyOpen', '')) { LS.set('lyOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.ly = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('letra nativa: la app se cerró con ella a la vista → esta versión la deja como siempre'); } } catch {} })();
+function lyOpenMark(on) { clearTimeout(NUI.lyOpenT); if (!on) { LS.set('lyOpen', ''); return; } if (NUI.lySure) return; LS.set('lyOpen', '1'); NUI.lyOpenT = setTimeout(() => { LS.set('lyOpen', ''); NUI.lySure = true; }, 8000); }
+/* once per frame: when the native lyrics come up, Android gets the line that is sung (and since when) */
+function lyNatLoop() {
+  const on = lyNatShown();
+  if (on === !!NUI.lyShown) return;
+  NUI.lyShown = on; lyOpenMark(on);
+  if (on && LY_NAT && NUI_PLUGIN) NUI_PLUGIN.ly(LY_NAT).catch(() => {});
+}
+
+/* ---------- 5.0 · Phase 3, step 3: the videoclip in the native player ----------
+   YouTube's player stays in the web (it can't be anywhere else): Android draws the player around it and leaves a hole
+   where the video is, and what is touched in the hole goes to the video. The web tells Android where its video is each
+   time it places it (also while the player is slid: the native one tells the web where it goes, as it goes). */
+var YT_NAT = '';
+function ytNatPlace(r) {
+  if (!NUI_PLUGIN || !NUI.ytOk) return;
+  const on = !!r && W.on.includes('np') && $('#np').classList.contains('yt-on');
+  const v = on ? { on: 1, x: mF(r.left), y: mF(r.top), w: mF(r.width), h: mF(r.height) } : { on: 0 };
+  const k = JSON.stringify(v); if (k === YT_NAT) return; YT_NAT = k;
+  NUI_PLUGIN.yt(v).catch(() => {});
+}
+(() => { try { if (LS.get('ytOpen', '')) { LS.set('ytOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.yt = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('videoclip nativo: la app se cerró con él a la vista → esta versión lo deja como siempre'); } } catch {} })();
+function ytOpenMark(on) { clearTimeout(NUI.ytOpenT); if (!on) { LS.set('ytOpen', ''); return; } if (NUI.ytSure) return; LS.set('ytOpen', '1'); NUI.ytOpenT = setTimeout(() => { LS.set('ytOpen', ''); NUI.ytSure = true; }, 8000); }
+/* once per frame: the video in the native player comes up (Android gets where it is) or goes (the hole closes) */
+function ytNatLoop() {
+  const on = !!NUI.ytOk && W.on.includes('np') && $('#np').classList.contains('yt-on');
+  if (on === !!NUI.ytShown) return;
+  NUI.ytShown = on; ytOpenMark(on);
+  if (on) { YT_NAT = ''; ytPlace(); } else ytNatPlace(null);
 }
 
 /* ---------- Delegated actions ---------- */
@@ -8076,6 +8156,12 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '5.0': [
+    '<b>La letra que va con la música la dibuja Android</b>: en el reproductor, el verso que suena se enciende, se va llenando como en un karaoke y la letra lo sigue sola (si la mueves con el dedo, espera un poco antes de volver). Tocar un verso lleva la canción allí, como siempre.',
+    '<b>El videoclip, también en el reproductor de Android</b>: el vídeo se ve en su sitio, se toca como siempre y, si deslizas el reproductor, va con él.',
+    'Es el paso 3 de la fase 3 (Nova, los visualizadores, la letra y el videoclip).',
+    'Si algo no se ve bien, en Ajustes › Sonido y mezclas apaga «Pantallas nativas» y vuelve la de siempre.'
+  ],
   '4.9': [
     '<b>Los visualizadores los dibuja Android</b> (los siete: Órbita, Galaxia, Ondas, Montañas, Aurora, Túnel y Partículas), en «Ahora», en el reproductor y a pantalla completa. Oyen la música directamente del reproductor, sin pasar por la parte web.',
     'Es el paso 2 de la fase 3 (Nova y los visualizadores). A pantalla completa se siguen girando arrastrando y acercando con dos dedos.',
@@ -10059,7 +10145,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }
