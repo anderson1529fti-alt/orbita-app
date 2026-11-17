@@ -274,9 +274,9 @@ try {
     // (cuando la nativa se para, le dice a la web dónde se ha quedado: se espera a que llegue, hasta 6 s)
     sh('input swipe 540 1700 540 700 400'); await sleep(1800);
     let sc1 = null;
-    for (let k = 0; k < 9; k++) { sc1 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, st: await Capacitor.Plugins.OrbitaUi.status() };`); if (sc1 && sc1.st && Math.abs(sc1.web - sc1.st.winY) < 3) break; await sleep(700); }
+    for (let k = 0; k < 9; k++) { sc1 = await js(`${O} const sc = document.querySelector('#np .np-inner'); return { web: sc.scrollTop, max: sc.scrollHeight - sc.clientHeight, st: await Capacitor.Plugins.OrbitaUi.status() };`); if (sc1 && sc1.st && Math.abs(sc1.web - sc1.st.winY) < 3) break; await sleep(700); }
     pn = ui(); shot('reproductor-abajo');
-    check('dentro del reproductor nativo se baja con el dedo (y el de siempre se pone a la misma altura)', !!sc1 && sc1.web > 100 && Math.abs(sc1.web - sc1.st.winY) < 3 && sc1.st.wins === 'np', JSON.stringify(sc1));
+    check('dentro del reproductor nativo se baja con el dedo (y el de siempre se pone a la misma altura)', !!sc1 && sc1.web > Math.min(100, sc1.max - 3) && sc1.web > 20 && Math.abs(sc1.web - sc1.st.winY) < 3 && sc1.st.wins === 'np', JSON.stringify(sc1));
     // (a mitad de gesto, al llegar arriba, no se cierra: solo si el dedo empieza arriba del todo, como en el de siempre)
     sh('input swipe 540 700 540 1900 400'); await sleep(1600);
     const sc2 = await js(`${O} return { web: document.querySelector('#np .np-inner').scrollTop, np: !document.querySelector('#np').hidden, on: W.on.join() };`);
