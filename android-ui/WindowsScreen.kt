@@ -14,7 +14,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -87,7 +92,16 @@ fun OrbitaWindows() {
     val sk = rememberMirrorSkin()
     val list = UiState.wins
     CompositionLocalProvider(LocalMSkin provides sk) {
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = UiState.winAlpha }) {
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            alpha = UiState.winAlpha
+            // 5.0 · con el videoclip, la capa se pinta aparte: así se le puede abrir el hueco por el que se ve el vídeo
+            compositingStrategy = if (UiState.ytHole() != null) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+        }.drawWithContent {
+            drawContent()
+            val h = UiState.ytHole() ?: return@drawWithContent
+            val r = UiState.ytSlotR
+            drawRoundRect(Color.Black, topLeft = h.topLeft, size = h.size, cornerRadius = CornerRadius(r, r), blendMode = BlendMode.Clear)
+        }) {
             for (w in list) key(w.id) { WinView(w) }
             ToastHost(sk, Modifier.align(Alignment.BottomCenter))
         }
@@ -126,9 +140,10 @@ private fun WinView(w: WDef) {
 private fun WinScroller(id: String, sc: WScroll) {
     val ls = UiState.winList(id)
     val dens = LocalDensity.current.density
-    // cuando el dedo la suelta, la de siempre se pone a la misma altura
+    // cuando el dedo la suelta, la de siempre se pone a la misma altura (5.0 · con un vídeo en el reproductor, mientras
+    // se desliza también: el vídeo de la web va con su sitio)
     LaunchedEffect(id, ls) {
-        snapshotFlow { if (ls.isScrollInProgress) -1f else UiState.winY(id, dens) }.collect { y ->
+        snapshotFlow { if (ls.isScrollInProgress && UiState.ytDock == null) -1f else UiState.winY(id, dens) }.collect { y ->
             if (y >= 0f) UiState.send("wY") { it.put("id", id); it.put("y", (Math.round(y * 100.0) / 100.0)) }
         }
     }

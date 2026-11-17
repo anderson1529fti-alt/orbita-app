@@ -37,6 +37,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -88,6 +89,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
@@ -387,6 +390,8 @@ private fun MAny(c: MNode) {
         "viz" -> VizBox(c.v, Modifier.mDecor(c), gestures = c.v == "vizFS")
         // 5.0 · la letra que va con la música (se desliza, se enciende y se llena aquí)
         "ly" -> LyBox(c, Modifier.mDecor(c))
+        // 5.0 · el sitio del vídeo: su caja, y un hueco por el que se ve (y se toca) el vídeo de la web
+        "vhole" -> VHole(c)
         else -> MBoxNode(c)
     }
 }
@@ -604,6 +609,17 @@ private fun Modifier.mDecor(c: MNode): Modifier {
 private fun mShape(c: MNode): RoundedCornerShape = if (c.r.size == 4) RoundedCornerShape(c.r[0].coerceIn(0f, 4000f).dp, c.r[1].coerceIn(0f, 4000f).dp, c.r[2].coerceIn(0f, 4000f).dp, c.r[3].coerceIn(0f, 4000f).dp) else RoundedCornerShape(0.dp)
 
 private fun mSend(type: String, k: Int, fill: (com.getcapacitor.JSObject) -> Unit = {}) { if (k > 0) UiState.send(type) { it.put("k", k); fill(it) } }
+
+/**
+ * 5.0 · El sitio del vídeo en el reproductor: la caja del vídeo de siempre (negra, con sus esquinas y su sombra) y, en
+ * ella, un hueco (lo abre la capa de las ventanas) por el que se ve y se toca el reproductor de YouTube de la web.
+ */
+@Composable
+private fun VHole(c: MNode) {
+    val d = LocalDensity.current.density
+    DisposableEffect(Unit) { onDispose { UiState.ytSlot = null } }
+    Box(Modifier.mDecor(c).onGloballyPositioned { lc -> UiState.ytSlotR = (if (c.r.size == 4) c.r[0] else 0f) * d; UiState.ytSlot = lc.boundsInRoot() })
+}
 
 @Composable
 private fun MBoxNode(c: MNode) {

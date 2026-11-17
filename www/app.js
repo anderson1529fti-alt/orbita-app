@@ -4125,7 +4125,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -5278,7 +5278,7 @@ function ytLayout() {
   clearTimeout(ytClearT);
   /* once the music has taken over (after its short fade), YouTube's player leaves the page */
   if (!on && ytEl.src && A !== 3) ytClearT = setTimeout(() => { if (A !== 3 && ytEl.src) ytEl.src = ''; }, 3000);
-  if (!on) return;
+  if (!on) { if (typeof ytNatPlace === 'function') ytNatPlace(null); return; }
   const t = current();
   dock.classList.toggle('big', npOpen); dock.classList.toggle('mini', !npOpen);
   $('#ytDockTitle').textContent = t ? t.title : 'YouTube';
@@ -5292,6 +5292,7 @@ function ytPlace() {
     if (dock.classList.contains('big')) {
       const r = $('#npVideo').getBoundingClientRect();
       Object.assign(dock.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', bottom: 'auto' });
+      if (typeof ytNatPlace === 'function') ytNatPlace(r);
     } else {
       const pl = $('.player').getBoundingClientRect(), w = Math.min(window.innerWidth - 16, 520);
       Object.assign(dock.style, { left: Math.max(8, window.innerWidth - w - 8) + 'px', width: w + 'px', top: 'auto', height: 'auto', bottom: Math.max(8, window.innerHeight - pl.top + 8) + 'px' });
@@ -6098,6 +6099,7 @@ function nuiLoop() {
     try { winTick(); } catch (e) { diag('ventanas nativas: ' + (e && e.message || e)); }
     try { vizNatTick(); } catch (e) { diag('visualizador nativo: ' + (e && e.message || e)); }
     try { lyNatLoop(); } catch (e) { diag('letra nativa: ' + (e && e.message || e)); }
+    try { ytNatLoop(); } catch (e) { diag('videoclip nativo: ' + (e && e.message || e)); }
     const scr = nuiWant();
     if (scr) {
       const el = scr === 'chat' ? $('#chat') : $('#main'), r = el.getBoundingClientRect(), o = { x: r.left, y: r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 };
@@ -6241,7 +6243,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6692,6 +6694,9 @@ function mWalk(el, ctx, out) {
   if (tag === 'IMG') { const u = el.currentSrc || el.src || ''; if (u && r.width && r.height) { n.e = 'img'; n.u = u; out.push(n); } else if (mPaints(n)) out.push(n); return; }
   if (tag === 'CANVAS' && NUI.vizOk && VIZ_IDS.has(el.id)) { n.e = 'viz'; n.v = el.id; out.push(n); return; }
   if (el.id === 'lyScroll' && NUI.lyOk) { mLy(el, r, n, ctx, out); return; }
+  // the place of the video in the player: Android paints it as the video's own box (black, its corners, its shadow) and
+  // leaves a hole there, through which the video of always (YouTube's player, in the web) is seen and touched
+  if (el.id === 'npVideo' && NUI.ytOk) { const dk = $('#ytDock'), m = { x: n.x, y: n.y, w: n.w, h: n.h, e: 'vhole' }; mBox(m, dk && !dk.hidden ? getComputedStyle(dk) : cs); out.push(m); return; }
   if (tag === 'IFRAME' || tag === 'VIDEO' || tag === 'CANVAS' || tag === 'OBJECT') { n.e = 'hole'; out.push(n); return; }
   const cl = el.classList;
   if (cl.contains('cover-ph') || cl.contains('art-ph')) { const hue = parseFloat(el.style.getPropertyValue('--h')); n.e = 'ph'; n.i = hTxt(el).slice(0, 2) || '♪'; n.hu = Number.isFinite(hue) ? hue : 280; n.fs = mF(parseFloat(cs.fontSize) || 16.8); delete n.g; delete n.bg; out.push(n); return; }
@@ -6874,7 +6879,7 @@ const winIsOpen = el => !!el && !el.hidden && getComputedStyle(el).display !== '
 function winReady(id, el) {
   for (const x of el.querySelectorAll('iframe, video, canvas, object, embed')) if (x.getClientRects().length && x.offsetWidth > 2 && x.offsetHeight > 2 && !(NUI.vizOk && x.tagName === 'CANVAS' && VIZ_IDS.has(x.id))) return false;
   if (WIN[id].viz) { const p = $('#vfPanel'); return !(p && !p.hidden && p.scrollHeight > p.clientHeight + 1); }
-  if (WIN[id].player) return !(NPM.on || NPM.closing || NPM.p < 0.999 || W.drag || (el.classList.contains('ly-open') && !NUI.lyOk) || (el.classList.contains('viz-open') && !NUI.vizOk) || el.classList.contains('yt-on'));
+  if (WIN[id].player) return !(NPM.on || NPM.closing || NPM.p < 0.999 || W.drag || (el.classList.contains('ly-open') && !NUI.lyOk) || (el.classList.contains('viz-open') && !NUI.vizOk) || (el.classList.contains('yt-on') && !NUI.ytOk));
   const m = el.querySelector('.modal'); return !(m && m.scrollHeight > m.clientHeight + 1);
 }
 /* the windows that are up, from the one below to the one on top ([] = none; null = one that goes as always) */
@@ -7113,6 +7118,28 @@ function lyNatLoop() {
   if (on === !!NUI.lyShown) return;
   NUI.lyShown = on; lyOpenMark(on);
   if (on && LY_NAT && NUI_PLUGIN) NUI_PLUGIN.ly(LY_NAT).catch(() => {});
+}
+
+/* ---------- 5.0 · Phase 3, step 3: the videoclip in the native player ----------
+   YouTube's player stays in the web (it can't be anywhere else): Android draws the player around it and leaves a hole
+   where the video is, and what is touched in the hole goes to the video. The web tells Android where its video is each
+   time it places it (also while the player is slid: the native one tells the web where it goes, as it goes). */
+var YT_NAT = '';
+function ytNatPlace(r) {
+  if (!NUI_PLUGIN || !NUI.ytOk) return;
+  const on = !!r && W.on.includes('np') && $('#np').classList.contains('yt-on');
+  const v = on ? { on: 1, x: mF(r.left), y: mF(r.top), w: mF(r.width), h: mF(r.height) } : { on: 0 };
+  const k = JSON.stringify(v); if (k === YT_NAT) return; YT_NAT = k;
+  NUI_PLUGIN.yt(v).catch(() => {});
+}
+(() => { try { if (LS.get('ytOpen', '')) { LS.set('ytOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.yt = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('videoclip nativo: la app se cerró con él a la vista → esta versión lo deja como siempre'); } } catch {} })();
+function ytOpenMark(on) { clearTimeout(NUI.ytOpenT); if (!on) { LS.set('ytOpen', ''); return; } if (NUI.ytSure) return; LS.set('ytOpen', '1'); NUI.ytOpenT = setTimeout(() => { LS.set('ytOpen', ''); NUI.ytSure = true; }, 8000); }
+/* once per frame: the video in the native player comes up (Android gets where it is) or goes (the hole closes) */
+function ytNatLoop() {
+  const on = !!NUI.ytOk && W.on.includes('np') && $('#np').classList.contains('yt-on');
+  if (on === !!NUI.ytShown) return;
+  NUI.ytShown = on; ytOpenMark(on);
+  if (on) { YT_NAT = ''; ytPlace(); } else ytNatPlace(null);
 }
 
 /* ---------- Delegated actions ---------- */
@@ -10117,7 +10144,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { lyNatShown, get lyNat() { return LY_NAT; }, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }

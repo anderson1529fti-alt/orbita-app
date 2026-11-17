@@ -51,10 +51,47 @@ class UiLook(val h: Float = 276f, val s: Float = 1f, val glowK: Float = 1f, val 
 /** Un mensaje de la conversación: de quien usa la app, o de Nova. */
 class UiMsg(val me: Boolean, val text: String)
 
+/**
+ * 5.0 · El marco de la capa de las ventanas: lo que se toca en el hueco del vídeo (el videoclip del reproductor) no es
+ * de Android, es del vídeo de la web que se ve por él; ese toque, entero (de que baja el dedo a que sube), va a la web.
+ */
+internal class WinFrame(ctx: android.content.Context, private val web: () -> View?) : android.widget.FrameLayout(ctx) {
+    private var through = false
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+            val h = UiState.ytHole()
+            through = h != null && h.contains(androidx.compose.ui.geometry.Offset(ev.x, ev.y))
+            if (through) UiState.ytFwd++
+        }
+        if (!through) return super.dispatchTouchEvent(ev)
+        val wv = web()
+        if (wv != null) {
+            val e = android.view.MotionEvent.obtain(ev)
+            e.offsetLocation(x - wv.x, y - wv.y)
+            try { wv.dispatchTouchEvent(e) } catch (ignored: Throwable) { } finally { e.recycle() }
+        }
+        val a = ev.actionMasked
+        if (a == android.view.MotionEvent.ACTION_UP || a == android.view.MotionEvent.ACTION_CANCEL) through = false
+        return true
+    }
+}
+
 /** Lo que enseñan las pantallas nativas. Lo escribe la app (por el plugin) y lo lee Compose. */
 object UiState {
     /** 5.0 · el dedo empezó en la letra del reproductor: no baja el reproductor (como en la web: .np-lyrics se salta). */
     @Volatile var npNoDrag = false
+    // ---- 5.0 · el videoclip: dónde tiene la web su vídeo y dónde está su sitio en el reproductor nativo (px de la capa)
+    var ytDock by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    var ytSlot by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    @Volatile var ytSlotR = 0f
+    @Volatile var ytFwd = 0
+    /** El hueco por el que se ve (y se toca) el vídeo: donde coinciden su sitio en el reproductor y el vídeo de la web. */
+    fun ytHole(): androidx.compose.ui.geometry.Rect? {
+        val a = ytDock ?: return null
+        val b = ytSlot ?: return null
+        val r = a.intersect(b)
+        return if (r.width >= 2f && r.height >= 2f) r else null
+    }
     var look by mutableStateOf(UiLook())
     var tracks by mutableStateOf<List<UiTrack>>(emptyList())
     var filter by mutableStateOf("all")
@@ -244,11 +281,14 @@ class OrbitaUiPlugin : Plugin() {
     }
 
     // ---- 4.8 · la capa de las ventanas: encima de todo, del tamaño de la web entera
-    private var winHost: ComposeView? = null
+    private var winHost: View? = null
     private fun ensureWinHost() {
         if (winHost != null) return
-        val v = ComposeView(activity)
-        v.setContent { OrbitaWindows() }
+        val cv = ComposeView(activity)
+        cv.setContent { OrbitaWindows() }
+        // 5.0 · en un marco que pasa al vídeo de la web lo que se toca en su hueco
+        val v = WinFrame(activity) { bridge.webView }
+        v.addView(cv, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         v.visibility = View.GONE
         v.translationZ = 40f   // (siempre por encima de la pantalla nativa, aunque se cree antes que ella)
         val wv = bridge.webView
@@ -276,7 +316,7 @@ class OrbitaUiPlugin : Plugin() {
             } catch (ignored: Throwable) { }
         }
         UiState.winAlpha = 1f
-        if (clear) { UiState.wins = emptyList(); UiState.winParts.clear() }
+        if (clear) { UiState.wins = emptyList(); UiState.winParts.clear(); UiState.ytDock = null }
     }
 
     private fun ensureHost() {
@@ -304,6 +344,8 @@ class OrbitaUiPlugin : Plugin() {
             r.put("vizActive", Viz.active); r.put("vizFrames", Viz.frames); r.put("vizDrawn", Viz.drawn); r.put("vizErr", Viz.err); r.put("vizTwo", Viz.two)
             r.put("vizCover", Viz.coverOk); r.put("vizYaw", Viz.yaw.toDouble()); r.put("vizPitch", Viz.pitch.toDouble()); r.put("vizZoom", Viz.zoom.toDouble())
             // 5.0 · la letra: qué caja se ve, qué verso está encendido, por dónde va y cuánto lleva de relleno
+            UiState.ytHole().let { h -> r.put("ytHole", if (h == null) "" else "${h.left.roundToInt()},${h.top.roundToInt()},${h.width.roundToInt()}x${h.height.roundToInt()}") }
+            r.put("ytDock", UiState.ytDock != null); r.put("ytSlot", UiState.ytSlot != null); r.put("ytFwd", UiState.ytFwd)
             r.put("lyDrawn", Ly.drawn); r.put("lyIdx", Ly.shown); r.put("lyY", Ly.y.toDouble()); r.put("lyFill", Ly.fill.toDouble()); r.put("lyTaps", Ly.taps); r.put("lyGen", Ly.g); r.put("lyAt", Ly.i)
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }
             r.put("home", UiState.hTop != null && UiState.hDj != null); r.put("homeY", UiState.homeList.firstVisibleItemIndex * 100000 + UiState.homeList.firstVisibleItemScrollOffset)
@@ -546,6 +588,16 @@ class OrbitaUiPlugin : Plugin() {
     }
 
     /** La web ha movido lo que se desliza en una ventana (o lo pide una prueba): la nativa va a la misma altura. */
+    /** 5.0 · El videoclip: dónde está el vídeo de la web (en px de la web) o que ya no está. */
+    @PluginMethod
+    fun yt(call: PluginCall) {
+        val on = call.getInt("on", 0) == 1
+        val k = activity.resources.displayMetrics.density
+        val r = if (on) androidx.compose.ui.geometry.Rect(num(call, "x", 0f) * k, num(call, "y", 0f) * k, (num(call, "x", 0f) + num(call, "w", 0f)) * k, (num(call, "y", 0f) + num(call, "h", 0f)) * k) else null
+        activity.runOnUiThread { UiState.ytDock = r; winHost?.invalidate() }
+        call.resolve()
+    }
+
     /** 5.0 · La letra: qué verso se canta (de qué letra) y cuánto dura su relleno; Android la lleva, la enciende y la llena. */
     @PluginMethod
     fun ly(call: PluginCall) {
