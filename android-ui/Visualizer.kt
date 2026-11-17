@@ -1034,7 +1034,11 @@ private class VizThread(private val st: SurfaceTexture, private val cid: String,
     fun halt() {
         stopping = true
         val l = looper ?: return
-        Handler(l).post { release(); quitSafely() }
+        Handler(l).post {
+            try { Choreographer.getInstance().removeFrameCallback(cb) } catch (_: Throwable) {}
+            hnd?.removeCallbacks(wake)
+            release(); quitSafely()
+        }
     }
 
     override fun onLooperPrepared() {
@@ -1050,6 +1054,7 @@ private class VizThread(private val st: SurfaceTexture, private val cid: String,
             if (stopping) return
             var busy = false
             try { busy = frame(nanos / 1.0e6) } catch (t: Throwable) {
+                if (stopping) return // (la vista ya se iba: no es que el móvil no pueda)
                 Viz.err = (if (two) "2D: " else "3D: ") + t.toString().take(140)
                 if (!two) { release(); Viz.brokeGl(t.toString()); stopping = true; return }
             }
