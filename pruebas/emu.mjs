@@ -409,6 +409,12 @@ try {
     shot('viz-reproductor');
     const np1 = await js(`${O} return { np: !document.querySelector('#np').hidden, viz: o.VZ.np, on: W.on.join() };`);
     check('tocar el visualizador de «Ahora» abre el reproductor, y su «Visual» lo dibuja Android (el reproductor sigue nativo)', !!hn && !!np1 && np1.np && np1.viz && np1.on === 'np' && n1.st && n1.st.vizActive === 'vizNP' && n1.n >= 10 && /^vizNP:gl:/.test(n1.st.vizDrawn), JSON.stringify({ hn: !!hn, nv: !!nv, np1, n: n1.n, drawn: n1.st && n1.st.vizDrawn, err: n1.st && n1.st.vizErr }));
+    // --- la etiqueta del estilo (encima del visualizador del reproductor) cambia de estilo, como siempre
+    const sc0 = await js(`return window.__orbita.VZ.scene;`);
+    await tapWeb('#npViz [data-act="viz-scene"]', 300);
+    const scOk = await until(`return window.__orbita.VZ.scene !== ${JSON.stringify(String(sc0))};`, 4000); await sleep(1200);
+    const sc1 = await st(); const sc2 = await js(`return window.__orbita.VZ.scene;`);
+    check('la etiqueta del estilo, encima del visualizador del reproductor, cambia de estilo (y Android lo dibuja)', scOk && !!sc1 && sc1.vizActive === 'vizNP' && new RegExp('^vizNP:gl:' + sc2 + ':').test(sc1.vizDrawn), JSON.stringify({ de: sc0, a: sc2, drawn: sc1 && sc1.vizDrawn }));
     // --- a pantalla completa (tocando el del reproductor, como siempre)
     await tapWeb('#npViz', 1200);
     await until(`${O} return W.on.join() === 'np,viz';`, 6000); await sleep(800);
