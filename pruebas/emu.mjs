@@ -20,6 +20,29 @@ function finish(why) {
 setTimeout(() => finish('pasó de 44 minutos'), 44 * 60000).unref();
 // (si existe pruebas/solo-ventanas: una prueba rápida, solo de las ventanas y el reproductor a pantalla completa)
 const SOLO = fs.existsSync('pruebas/solo-ventanas');
+const SOLO_VIZ = fs.existsSync('pruebas/solo-viz');
+// la pantalla en crudo (sin PNG: así se puede comparar aquí mismo, píxel a píxel)
+const grab = () => {
+  const r = spawnSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64e6 }); const b = r.stdout;
+  if (!b || b.length < 16) return null;
+  const w = b.readUInt32LE(0), h = b.readUInt32LE(4), hdr = b.length - w * h * 4;
+  return hdr === 12 || hdr === 16 ? { w, h, d: b.subarray(hdr) } : null;
+};
+// cuánto se parecen dos pantallas en un recuadro (en fracciones): por píxel y en bloques de 12 (lo que se ve de lejos)
+const vdiff = (A, B, box) => {
+  if (!A || !B || A.w !== B.w || A.h !== B.h) return null;
+  const x0 = Math.round(box[0] * A.w), y0 = Math.round(box[1] * A.h), x1 = Math.round(box[2] * A.w), y1 = Math.round(box[3] * A.h), BS = 12;
+  let s = 0, n = 0, la = 0, lb = 0;
+  for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) { const i = (y * A.w + x) * 4; for (let c = 0; c < 3; c++) { s += Math.abs(A.d[i + c] - B.d[i + c]); la += A.d[i + c]; lb += B.d[i + c]; n++; } }
+  let sb = 0, nb = 0;
+  for (let by = y0; by + BS <= y1; by += BS) for (let bx = x0; bx + BS <= x1; bx += BS) {
+    const a = [0, 0, 0], b = [0, 0, 0];
+    for (let y = by; y < by + BS; y++) for (let x = bx; x < bx + BS; x++) { const i = (y * A.w + x) * 4; for (let c = 0; c < 3; c++) { a[c] += A.d[i + c]; b[c] += B.d[i + c]; } }
+    for (let c = 0; c < 3; c++) sb += Math.abs(a[c] - b[c]) / (BS * BS);
+    nb += 3;
+  }
+  return { px: +(s / n).toFixed(2), blk: +(sb / nb).toFixed(2), luzA: +(la / n).toFixed(1), luzB: +(lb / n).toFixed(1) };
+};
 function saveLogs() {
   fs.writeFileSync(`${OUT}/logcat.txt`, adb('logcat -d -v time *:W').split('\n').slice(-6000).join('\n'));
   fs.writeFileSync(`${OUT}/logcat-app.txt`, adb('logcat -d -v time').split('\n').filter(l => /orbita|Orbita|Nova|Media3|MediaSess|AndroidRuntime|Capacitor\/Console|chromium/i.test(l)).slice(-4000).join('\n'));
@@ -339,6 +362,92 @@ try {
     check('prueba rápida: las pantallas nativas, encendidas', t0 === 'true', t0);
     await goView('inicio'); await sleep(3000);
     await ventanas48(); saveLogs(); finish('prueba rápida: solo las ventanas');
+  }
+
+  // ================= FASE 3 · paso 2 (4.9): los visualizadores, dibujados por Android =================
+  const viz49 = async () => {
+    const O = `const o = window.__orbita, N = o.NUI, W = o.W;`;
+    const st = () => js(`return await Capacitor.Plugins.OrbitaUi.status();`);
+    const moving = async (ms = 1500) => { const a = await st(); await sleep(ms); const b = await st(); return { n: a && b ? b.vizFrames - a.vizFrames : -1, st: b }; };
+    const D9 = await js(`return devicePixelRatio;`);
+    let T9 = 0; { const wv = ui().find(n => n.cls === 'android.webkit.WebView'); T9 = wv ? wv.b[1] : 0; }
+    const tapWeb = async (sel, wait = 2200) => { const r = await js(`const e = document.querySelector('${sel}'); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];`); if (r) { tap(Math.round((r[0] + r[2]) / 2 * D9), Math.round(T9 + (r[1] + r[3]) / 2 * D9)); await sleep(wait); } return r; };
+    await goView('inicio'); await sleep(800);
+    await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(2500);
+    // --- «Ahora» con el visualizador arriba
+    await js(`document.querySelector('[data-hero="viz"]').click(); return 1;`); await sleep(3000);
+    const h1 = await moving(1500);
+    const hs = await js(`${O} return { shown: N.shown, screen: N.screen, which: o.vizNatWhich(), hero: o.state.heroMode };`);
+    shot('viz-ahora');
+    check('«Ahora» con el visualizador arriba es nativa y el visualizador lo dibuja Android (y se mueve)', !!hs && hs.shown && hs.screen === 'inicio' && hs.which === 'vizHero' && h1.st && h1.st.vizActive === 'vizHero' && h1.n >= 10 && /^vizHero:gl:/.test(h1.st.vizDrawn), JSON.stringify({ hs, n: h1.n, drawn: h1.st && h1.st.vizDrawn, err: h1.st && h1.st.vizErr }));
+    // tocarlo abre el reproductor (como siempre); allí, «Visual»
+    let hn = ui().find(n => !n.web && /Visualizador/.test(n.desc || ''));
+    if (hn) { tap(...center(hn)); await sleep(3000); }
+    const nv = ui().find(n => !n.web && n.text === 'Visual');
+    if (nv) { tap(...center(nv)); await sleep(2500); }
+    const n1 = await moving(1500);
+    shot('viz-reproductor');
+    const np1 = await js(`${O} return { np: !document.querySelector('#np').hidden, viz: o.VZ.np, on: W.on.join() };`);
+    check('tocar el visualizador de «Ahora» abre el reproductor, y su «Visual» lo dibuja Android (el reproductor sigue nativo)', !!hn && !!nv && !!np1 && np1.np && np1.viz && np1.on === 'np' && n1.st && n1.st.vizActive === 'vizNP' && n1.n >= 10 && /^vizNP:gl:/.test(n1.st.vizDrawn), JSON.stringify({ hn: !!hn, nv: !!nv, np1, n: n1.n, drawn: n1.st && n1.st.vizDrawn, err: n1.st && n1.st.vizErr }));
+    // --- a pantalla completa (tocando el del reproductor, como siempre)
+    await tapWeb('#npViz', 2800);
+    const f1 = await moving(1500);
+    shot('viz-pantalla-completa');
+    const fs1 = await js(`${O} return { full: !document.querySelector('#vizFull').hidden, on: W.on.join(), chrome: document.querySelector('#vizFull').classList.contains('chrome') };`);
+    check('a pantalla completa es una ventana nativa y el visualizador lo dibuja Android', !!fs1 && fs1.full && fs1.on === 'np,viz' && f1.st && f1.st.vizActive === 'vizFS' && f1.n >= 10 && /^vizFS:gl:/.test(f1.st.vizDrawn), JSON.stringify({ fs1, n: f1.n, drawn: f1.st && f1.st.vizDrawn }));
+    // arrastrar lo gira (y no cuenta como toque); un toque sin mover enseña o esconde el título
+    const y0 = f1.st ? f1.st.vizYaw : 0;
+    sh('input swipe 250 1100 850 1150 500'); await sleep(900);
+    const g1 = await st(); const c1 = await js(`return document.querySelector('#vizFull').classList.contains('chrome');`);
+    check('arrastrar el dedo gira el visualizador (y no esconde el título)', !!g1 && g1.vizYaw - y0 > 0.8 && c1 === fs1.chrome, JSON.stringify({ y0, y1: g1 && g1.vizYaw, chrome: [fs1.chrome, c1] }));
+    tap(540, 1000); await sleep(1500);
+    const c2 = await js(`return document.querySelector('#vizFull').classList.contains('chrome');`);
+    check('un toque sin mover esconde el título (como siempre)', c2 === !fs1.chrome, JSON.stringify([fs1.chrome, c2]));
+    if (c2 !== fs1.chrome) { tap(540, 1000); await sleep(1200); }
+    // --- cada estilo, quieto: Android y la web, píxel a píxel (lo mismo para la tarjeta gráfica, los mismos números)
+    const FZ = { t: 3.2, spec: Array.from({ length: 96 }, (_, i) => +(0.45 + 0.35 * Math.sin(i * 0.27) * Math.cos(i * 0.05)).toFixed(4)), bass: 0.55, mid: 0.4, high: 0.3, level: 0.5, beatK: 0.3, k: 0.4, s: 0,
+      rot: 1.3, travel: 2.1, yaw: 0.9, pitch: 0.55, zoom: 1, dx: 0.1, dy: -0.05, histT: 0.4, wave: Array.from({ length: 256 }, (_, i) => Math.round(128 + 90 * Math.sin(i * 0.11) * Math.sin(i * 0.023))) };
+    const scenes = ['orbita', 'galaxia', 'ondas', 'montanas', 'aurora', 'tunel', 'particulas'], par = {};
+    await js(`document.querySelector('#vizFull').classList.add('chrome'); return 1;`); await sleep(600);   // (sin el título encima)
+    for (const sc of scenes) {
+      await js(`${O} o.vizSetScene('${sc}'); o.vizFreeze(${JSON.stringify(FZ)}); return 1;`); await sleep(1800);
+      const nat = grab(); shot(`viz-${sc}-nativa`);
+      const sn = await st();
+      await js(`${O} N.classic = true; return 1;`); await sleep(1800);
+      const web = grab(); shot(`viz-${sc}-web`);
+      await js(`${O} N.classic = false; return 1;`); await sleep(1500);
+      par[sc] = { ...vdiff(nat, web, [0.04, 0.1, 0.96, 0.72]), drawn: sn && sn.vizDrawn };
+    }
+    await js(`${O} o.vizFreeze(null); return 1;`);
+    // (lo distintas que son dos estilos entre sí: así se sabe que la comparación distingue)
+    fs.writeFileSync(`${OUT}/paridad-visualizadores.json`, JSON.stringify(par, null, 1));
+    const badV = Object.entries(par).filter(([, v]) => !v || v.blk == null || v.blk > 6 || v.luzA < 3);
+    check('cada estilo, quieto, igual en Android que en la web (en bloques, ±6 de 255)', badV.length === 0, Object.entries(par).map(([k, v]) => `${k} ${v ? v.blk + '/' + v.px + ' (' + v.luzA + '·' + v.luzB + ')' : '?'}`).join(' · '));
+    // --- con «Ligeras»: los clásicos (2D), dibujados por Android
+    await js(`document.querySelector('[data-anim="lite"]').click(); return 1;`); await sleep(3000);
+    const l1 = await moving(1500); shot('viz-ligeras');
+    check('con animaciones «Ligeras», Android dibuja los clásicos (2D)', !!l1.st && /^vizFS:2d:/.test(l1.st.vizDrawn) && l1.n >= 5 && l1.st.vizTwo === true, JSON.stringify({ n: l1.n, drawn: l1.st && l1.st.vizDrawn, err: l1.st && l1.st.vizErr }));
+    await js(`document.querySelector('[data-anim="full"]').click(); return 1;`); await sleep(2500);
+    const l2 = await moving(1200);
+    check('y al volver a «Completas», otra vez los de la tarjeta gráfica', !!l2.st && /^vizFS:gl:/.test(l2.st.vizDrawn) && l2.n >= 5, JSON.stringify({ n: l2.n, drawn: l2.st && l2.st.vizDrawn }));
+    // --- cerrar: atrás cierra la pantalla completa; el del reproductor vuelve a dibujarlo Android
+    sh('input keyevent KEYCODE_BACK'); await sleep(2200);
+    const b1 = await st(); const bw = await js(`${O} return { full: !document.querySelector('#vizFull').hidden, on: W.on.join() };`);
+    check('atrás cierra la pantalla completa y vuelve el del reproductor', !!bw && !bw.full && bw.on === 'np' && !!b1 && b1.vizActive === 'vizNP', JSON.stringify([bw, b1 && b1.vizActive]));
+    await js(`document.querySelector('#npVizBtn').click(); return 1;`); await sleep(1200);
+    await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await sleep(2200);
+    await js(`document.querySelector('[data-hero="vinyl"]').click(); return 1;`); await sleep(1500);
+    const e1 = await st();
+    check('con el disco otra vez arriba, Android ya no dibuja ningún visualizador', !!e1 && e1.vizActive === '', JSON.stringify(e1 && { a: e1.vizActive, err: e1.vizErr }));
+    check('sin cierres por error con los visualizadores', crashes() === 0, crashText().slice(0, 1500));
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(800);
+  };
+  if (SOLO_VIZ) {
+    await goView('ajustes'); await sleep(1000);
+    const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
+    check('prueba rápida: las pantallas nativas, encendidas', t0 === 'true', t0);
+    await goView('inicio'); await sleep(3000);
+    await viz49(); saveLogs(); finish('prueba rápida: solo los visualizadores');
   }
 
   // ================= FASE 2 · «Mi música» nativa (Compose) =================
@@ -909,6 +1018,8 @@ try {
   }
   // ================= FASE 2 · último paso (4.8): las ventanas y el reproductor a pantalla completa, nativos =================
   await ventanas48();
+
+  await viz49();
 
   // ================= FASE 2 · pasos 4 y 5 (4.7): «Buscar» y «Ajustes», nativas =================
   {
