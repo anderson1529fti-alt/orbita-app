@@ -358,11 +358,20 @@ private fun EarOrb(sk: Skin, step: String) {
         val ctr = Offset(size.width / 2, size.height / 2)
         val ring = Brush.sweepGradient(listOf(lime, p.accent, p.accent2, teal, lime), ctr)
         rotate(spin - 50f, ctr) {
+            // el halo: una luz de cada color del aro, a su lado, difuminadas una a una (un degradado circular difuminado
+            // deja una raya fina donde empieza y acaba), girando y creciendo con tu voz
+            val rr = (size.width / 2 + 8.dp.toPx()) * (1f + 0.3f * lv)
+            val al = if (step == "fail") 0.35f else 0.45f + 0.55f * lv
             drawIntoCanvas { cv ->
                 val pt = Paint()
-                ring.applyTo(size, pt, if (step == "fail") 0.35f else 0.45f + 0.55f * lv)
+                pt.asFrameworkPaint().isAntiAlias = true
                 pt.asFrameworkPaint().maskFilter = BlurMaskFilter(17.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
-                cv.drawCircle(ctr, (size.width / 2 + 8.dp.toPx()) * (1f + 0.3f * lv), pt)
+                val cols = listOf(lime, p.accent, p.accent2, teal)
+                for (k in cols.indices) {
+                    val ang = k * PI / 2.0
+                    pt.color = cols[k].copy(alpha = (al * 0.85f).coerceIn(0f, 1f))
+                    cv.drawCircle(Offset(ctr.x + (cos(ang) * rr * 0.3).toFloat(), ctr.y + (sin(ang) * rr * 0.3).toFloat()), rr * 0.8f, pt)
+                }
             }
             drawCircle(ring, size.width / 2, ctr)
         }
