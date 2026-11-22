@@ -65,9 +65,16 @@ jobs:
             echo "(descargas: otra vez en 60 s)"; sleep 60
           done
           [ $ok = 1 ]
+      # (solo para las pruebas: un reconocimiento de voz de mentira, con guion, para probar «Háblale» en el emulador; no
+      # va en la app)
+      - name: Voz de prueba
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          sh pruebas/voz/hacer.sh pruebas/voz/voz-de-prueba.apk 2>&1 | tee salida/voz.txt
       # Lo mismo que compila la versión que se publica (sin firmar): que no falle por algo que solo salga ahí
       - name: Compilar como la versión publicada
-        if: hashFiles('pruebas/solo-ventanas') == '' && hashFiles('pruebas/solo-viz') == '' && hashFiles('pruebas/solo-letra') == ''
+        if: hashFiles('pruebas/solo-ventanas') == '' && hashFiles('pruebas/solo-viz') == '' && hashFiles('pruebas/solo-letra') == '' && hashFiles('pruebas/solo-voz') == ''
         run: |
           cd android
           set -o pipefail

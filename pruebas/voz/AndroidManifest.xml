@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo para las pruebas en el emulador (no va en la app): un reconocimiento de voz de mentira, con guion. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.orbita.pruebavoz">
+    <application android:label="Voz de prueba" android:allowBackup="false">
+        <service android:name=".Oido" android:exported="true" android:label="Oído de prueba">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="android.speech" android:resource="@xml/oido" />
+        </service>
+        <activity android:name=".Ventana" android:exported="true" android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

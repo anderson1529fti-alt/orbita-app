@@ -53,6 +53,11 @@ for (const p of perms) {
 if (!manifest.includes('"android.permission.READ_EXTERNAL_STORAGE"')) {
   manifest = manifest.replace('</manifest>', '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n</manifest>');
 }
+// 5.1 · para escuchar dentro de la app (SpeechRecognizer): desde Android 11, la app solo «ve» el reconocimiento de voz
+// del móvil si dice que lo va a buscar
+if (!manifest.includes('android.speech.RecognitionService')) {
+  manifest = manifest.replace('</manifest>', '    <queries>\n        <intent>\n            <action android:name="android.speech.RecognitionService" />\n        </intent>\n    </queries>\n</manifest>');
+}
 if (!manifest.includes('android:hardwareAccelerated')) manifest = manifest.replace('<application', '<application\n        android:hardwareAccelerated="true"');
 // Radios de internet que emiten por http (sin cifrar)
 if (!manifest.includes('android:usesCleartextTraffic')) manifest = manifest.replace('<application', '<application\n        android:usesCleartextTraffic="true"');

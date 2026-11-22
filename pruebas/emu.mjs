@@ -24,6 +24,7 @@ setTimeout(() => finish('pasó de 44 minutos'), 44 * 60000).unref();
 const SOLO = fs.existsSync('pruebas/solo-ventanas');
 const SOLO_VIZ = fs.existsSync('pruebas/solo-viz');
 const SOLO_LY = fs.existsSync('pruebas/solo-letra');
+const SOLO_VOZ = fs.existsSync('pruebas/solo-voz');
 // la pantalla en crudo (sin PNG: así se puede comparar aquí mismo, píxel a píxel)
 const grab = () => {
   const r = spawnSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64e6 }); const b = r.stdout;
@@ -141,7 +142,7 @@ function ui(again = true) {
     const g = k => { const r = m[0].match(new RegExp(' ' + k + '="([^"]*)"')); return r ? r[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)) : ''; };
     const b = (g('bounds').match(/\d+/g) || []).map(Number), cls = g('class');
     const web = !!inWeb[inWeb.length - 1] || cls === 'android.webkit.WebView';
-    if (b.length === 4) out.push({ text: g('text'), desc: g('content-desc'), cls, b, web });
+    if (b.length === 4) out.push({ text: g('text'), desc: g('content-desc'), cls, b, web, id: g('resource-id') });
     if (!m[1]) inWeb.push(web);
   }
   return out;
@@ -195,7 +196,9 @@ try {
   const apk = 'android/app/build/outputs/apk/debug/app-debug.apk';
   const inst = adb(`install -r -g ${apk}`, { timeout: 240000 });
   check('la app se instala', /Success/.test(inst), inst.trim().split('\n').pop());
-  for (const p of ['READ_MEDIA_AUDIO', 'POST_NOTIFICATIONS', 'RECORD_AUDIO']) sh(`pm grant ${PKG} android.permission.${p}`);
+  for (const p of ['READ_MEDIA_AUDIO', 'POST_NOTIFICATIONS']) sh(`pm grant ${PKG} android.permission.${p}`);
+  // (el micrófono, como en un móvil recién instalado: sin permiso; el primer «Háblale» lo pide. Aún no está abierta)
+  sh(`pm revoke ${PKG} android.permission.RECORD_AUDIO`);
   adb('logcat -c'); adb('logcat -b crash -c');
   sh(`am start -n ${PKG}/.MainActivity`);
   await sleep(12000);
@@ -633,6 +636,114 @@ try {
     check('sin vídeo, el hueco no vuelve', !!s5 && !s5.ytHole, JSON.stringify({ hueco: s5 && s5.ytHole }));
     check('sin cierres por error con el videoclip nativo', crashes() === 0, crashText().slice(0, 1500));
   };
+
+  // ================= FASE 3 · paso 4 (5.1): Nova te escucha sin salir de Órbita =================
+  // (el reconocimiento de voz del emulador es uno de mentira, con guion: «pruebas/voz»; el de verdad, el del móvil)
+  const voz51 = async () => {
+    const O = `const o = window.__orbita, N = o.NUI, W = o.W;`;
+    const st = () => js(`return await Capacitor.Plugins.OrbitaUi.status();`);
+    const until = async (expr, ms = 8000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await js(expr); if (v === true) return true; await sleep(400); } return false; };
+    const untilSt = async (f, ms = 8000) => { const t0 = Date.now(); let v = null; while (Date.now() - t0 < ms) { v = await st(); if (v && f(v)) return v; await sleep(250); } return v; };
+    const apk = 'pruebas/voz/voz-de-prueba.apk';
+    if (!fs.existsSync(apk)) { check('el reconocimiento de voz de prueba está (para probar «Háblale»)', false, 'no se pudo hacer: mira gradle/voz en los registros'); return; }
+    const ins = adb(`install -r ${apk}`, { timeout: 120000 });
+    sh('settings put secure voice_recognition_service io.github.orbita.pruebavoz/.Oido');
+    const guion = t => sh(`settings put global orbita_oido '${t}'`);
+    guion('pon algo tranquilo');
+    check('el reconocimiento de voz de prueba se instala y es el del móvil', /Success/.test(ins) && /pruebavoz/.test(sh('settings get secure voice_recognition_service')), ins.trim().split('\n').pop());
+    await goView('inicio'); await sleep(1500);
+    const input = () => js(`return document.querySelector('#djInput').value;`);
+    const clearIn = () => js(`document.querySelector('#djInput').value = ''; return 1;`);
+    // ---- la primera vez: el recuadro explica lo del permiso, Android lo pide; «No permitir» → la ventana de Google de siempre
+    await clearIn();
+    await js(`${O} o.voiceAsk(); return 1;`);
+    const p0 = await untilSt(s => s.earOn && s.earStep === 'perm', 5000); await sleep(1200);
+    let nodes = ui(); shot('voz-permiso');
+    const deny = nodes.find(n => /permission_deny_button$/.test(n.id || '')) || nodes.find(n => /^(Don.t allow|No permitir)$/i.test(n.text));
+    check('la primera vez, el recuadro de Nova explica lo del permiso y Android lo pide', !!p0 && p0.earStep === 'perm' && !!deny, JSON.stringify({ paso: p0 && p0.earStep, boton: !!deny && (deny.text || deny.id) }));
+    if (deny) tap(...center(deny));
+    await until(`return document.querySelector('#djInput').value.startsWith('ventana:');`, 8000); await sleep(600);
+    const d1 = await st(); const i1 = await input();
+    check('sin permiso: la ventana de Google de siempre, y lo dicho le llega a Nova', i1 === 'ventana: pon algo tranquilo' && !!d1 && !d1.earOn, JSON.stringify({ i1, on: d1 && d1.earOn }));
+    // ---- con permiso: escucha Órbita, con lo que va entendiendo y el aro moviéndose con la voz
+    sh(`pm grant ${PKG} android.permission.RECORD_AUDIO`); await sleep(800);
+    guion('pon algo tranquilo para leer'); await clearIn();
+    await js(`${O} o.voiceAsk(); return 1;`);
+    const e1 = await untilSt(s => s.earOn && s.earPartials >= 2, 6000);
+    nodes = ui(); shot('voz-escuchando');
+    const card = nodes.find(n => !n.web && /TE ESCUCHA/.test(n.desc || ''));
+    const mic = await js(`return document.querySelector('#djMic').classList.contains('on');`);
+    check('con permiso, escucha Órbita: el recuadro de Nova con lo que va entendiendo (y el botón parpadea)', !!e1 && e1.earOn && /^pon algo/.test(e1.earWords) && !!card && mic === true, JSON.stringify({ paso: e1 && e1.earStep, palabras: e1 && e1.earWords, recuadro: !!card && card.desc.slice(0, 80), mic }));
+    check('el aro se mueve con la voz', !!e1 && e1.earLevels >= 5 && e1.earMax > 0.3, JSON.stringify({ niveles: e1 && e1.earLevels, max: e1 && +e1.earMax.toFixed(2) }));
+    await until(`return document.querySelector('#djInput').value === 'pon algo tranquilo para leer';`, 8000);
+    const e2 = await untilSt(s => !s.earOn, 4000); const i2 = await input();
+    check('al callarte, lo dicho le llega a Nova y el recuadro se va', i2 === 'pon algo tranquilo para leer' && !!e2 && !e2.earOn && e2.earLast === 'ok', JSON.stringify({ i2, ultimo: e2 && e2.earLast }));
+    // ---- «Listo» termina antes: se queda con lo dicho hasta entonces
+    guion('lento:pon algo de jazz suave por favor'); await clearIn(); await sleep(400);
+    await js(`${O} o.voiceAsk(); return 1;`);
+    const e3 = await untilSt(s => s.earOn && s.earPartials >= 1, 6000);
+    nodes = ui(); const listo = nodes.find(n => !n.web && n.text === 'Listo');
+    if (listo) tap(...center(listo));
+    await until(`return document.querySelector('#djInput').value.length > 0;`, 6000); await sleep(400);
+    const i3 = await input(); const e4 = await st();
+    check('«Listo» termina antes y le manda lo dicho hasta entonces', !!listo && /^pon( algo)?$/.test(i3) && !!e4 && e4.earLast === 'ok', JSON.stringify({ i3, listo: !!listo, ultimo: e4 && e4.earLast, antes: e3 && e3.earWords }));
+    // ---- «Cancelar»: no le llega nada a Nova
+    await clearIn(); await sleep(300);
+    await js(`${O} o.voiceAsk(); return 1;`);
+    await untilSt(s => s.earOn && s.earPartials >= 1, 6000);
+    nodes = ui(); const canc = nodes.find(n => !n.web && n.text === 'Cancelar');
+    if (canc) tap(...center(canc));
+    const e5 = await untilSt(s => !s.earOn, 4000); await sleep(800); const i5 = await input();
+    check('«Cancelar» no le manda nada a Nova', !!canc && i5 === '' && !!e5 && e5.earLast === 'cancel', JSON.stringify({ i5, ultimo: e5 && e5.earLast }));
+    // ---- «atrás» mientras escucha: deja de escuchar (y la app sigue a la vista)
+    await js(`${O} o.voiceAsk(); return 1;`);
+    await untilSt(s => s.earOn && s.earPartials >= 1, 6000);
+    sh('input keyevent KEYCODE_BACK');
+    const e6 = await untilSt(s => !s.earOn, 4000); await sleep(800); const i6 = await input();
+    const top = sh('dumpsys activity activities | grep -m1 topResumedActivity');
+    check('«atrás» mientras escucha: deja de escuchar, no le manda nada y la app sigue', i6 === '' && !!e6 && e6.earLast === 'cancel' && new RegExp(PKG).test(top), JSON.stringify({ i6, ultimo: e6 && e6.earLast, arriba: top.trim().slice(-60) }));
+    // ---- no oye nada; sin internet; ocupado: lo dice en el recuadro, y nada a Nova
+    for (const [g, code, txt] of [['nada', 'timeout', 'no oye nada'], ['red', 'net', 'sin internet'], ['ocupado', 'busy', 'ocupado (lo intenta dos veces)']]) {
+      guion(g); await clearIn(); await sleep(300);
+      await js(`${O} o.voiceAsk(); return 1;`);
+      const f1 = await untilSt(s => s.earStep === 'fail', 6000);
+      if (g === 'red') { await sleep(300); shot('voz-sin-internet'); }
+      const f2 = await untilSt(s => !s.earOn, 5000); await sleep(500); const fi = await input();
+      check('si ' + txt + ', lo dice en el recuadro y no le manda nada a Nova', !!f1 && f1.earStep === 'fail' && !!f2 && f2.earLast === code && fi === '', JSON.stringify({ paso: f1 && f1.earStep, ultimo: f2 && f2.earLast, fi }));
+    }
+    // ---- desde el reproductor y desde la conversación, lo mismo
+    guion('sube el volumen');
+    await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(1200);
+    await js(`${O} o.act().pause(); document.querySelector('[data-act="np-open"]').click(); return 1;`);
+    await until(`${O} return W.on.join() === 'np';`, 8000); await sleep(800);
+    nodes = ui(); const npMic = nodes.find(n => !n.web && n.text === 'Háblale');
+    await clearIn();
+    if (npMic) tap(...center(npMic)); else await js(`document.querySelector('#npMic').click(); return 1;`);
+    const n1 = await untilSt(s => s.earOn, 5000); await sleep(400); shot('voz-desde-el-reproductor');
+    await until(`return document.querySelector('#djInput').value === 'sube el volumen';`, 8000);
+    const in1 = await input();
+    check('desde el reproductor («Háblale»), escucha Órbita por encima de él', !!npMic && !!n1 && n1.earOn && in1 === 'sube el volumen', JSON.stringify({ boton: !!npMic, on: n1 && n1.earOn, in1 }));
+    await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await sleep(1500);
+    guion('qué está sonando');
+    await js(`${O} o.openChat ? o.openChat() : document.querySelector('#openChat').click(); return 1;`); await sleep(2000);
+    nodes = ui(); const chMic = nodes.find(n => !n.web && n.desc === 'Háblale');
+    const before = await js(`return (document.querySelector('#chatLog') || {}).textContent || '';`);
+    if (chMic) tap(...center(chMic)); else await js(`document.querySelector('#chatMic').click(); return 1;`);
+    await untilSt(s => s.earOn, 5000);
+    await until(`return ((document.querySelector('#chatLog') || {}).textContent || '').includes('qué está sonando');`, 9000);
+    const after = await js(`return (document.querySelector('#chatLog') || {}).textContent || '';`);
+    check('desde la conversación con Nova, también: lo dicho aparece como tu mensaje', !!chMic && !String(before).includes('qué está sonando') && String(after).includes('qué está sonando'), JSON.stringify({ boton: !!chMic }));
+    await js(`${O} if (o.closeChat) o.closeChat(); else { const b = document.querySelector('[data-chat="close"]'); if (b) b.click(); } return 1;`); await sleep(1200);
+    guion('pon algo tranquilo');
+    check('sin cierres por error al escuchar', crashes() === 0, crashText().slice(0, 1500));
+  };
+  if (SOLO_VOZ) {
+    await goView('ajustes'); await sleep(1000);
+    const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
+    check('prueba rápida: las pantallas nativas, encendidas', t0 === 'true', t0);
+    await goView('inicio'); await sleep(3000);
+    await voz51(); saveLogs(); finish('prueba rápida: solo la voz');
+  }
   if (SOLO_LY) {
     await goView('ajustes'); await sleep(1000);
     const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
@@ -1220,6 +1331,7 @@ try {
   await viz49();
   await ly50();
   await yt50();
+  await voz51();
 
   // ================= FASE 2 · pasos 4 y 5 (4.7): «Buscar» y «Ajustes», nativas =================
   {
