@@ -174,7 +174,9 @@ internal fun driftAt(bg: Bg, now: Long): Float {
 private fun Backdrop(bg: Bg, noise: Bitmap?, coverBmp: androidx.compose.ui.graphics.ImageBitmap?, wantCover: Boolean) {
     val dens = LocalDensity.current.density
     var tick by remember { mutableStateOf(0L) }
-    if (bg.moving && bg.mode != "negro") LaunchedEffect(bg) { while (true) withFrameNanos { tick = it } }
+    // (se mueve en cada fotograma solo mientras se ve: guardada, no gasta)
+    val on = Base.on
+    if (bg.moving && bg.mode != "negro" && on) LaunchedEffect(bg) { while (true) withFrameNanos { tick = it } }
     // la portada: al cambiar de canción, la nueva aparece encima de la de antes (0,9 s, como el «background-image» de
     // la web); al poner o quitar el fondo con portada, aparece o se va (su «opacity», 0,9 s); si la nueva aún no ha
     // llegado, se queda la de antes

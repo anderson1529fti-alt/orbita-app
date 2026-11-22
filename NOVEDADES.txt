@@ -4,6 +4,9 @@ Fase 4, parte 1
 - Ahora también el fondo lo dibuja Android: la aurora (que se mueve igual que siempre, al mismo punto), «Quieto», la portada de lo que suena (con el mismo desenfoque) y «Negro puro», con el mismo grano.
 - La barra de abajo (la canción que suena, sus botones, la barra del tiempo y las pestañas) también es de Android. Se toca igual que siempre: la barra del tiempo se arrastra pegada al dedo, los botones se hunden al apretarlos y la barra entera se sube con el dedo para abrir el reproductor.
 - «Tu voz» también es nativa.
+- «Tu año en Órbita», la bienvenida y el despertador también los dibuja Android, con todo lo que se mueve (el aro y las barras de Nova, la luz del fondo, cómo entra cada cosa, las barras de arriba del resumen). Se tocan igual: pasar de página, mantener para pausar, saltar, posponer…
+- El aviso de importar canciones también es nativo, y la pantalla ya no se aparta mientras importas.
+- Arreglado: subir el reproductor con el dedo cuando el móvil va cargado podía acabar cerrándolo; ahora cuenta dónde sueltas.
 - Se ve exactamente igual que antes. Si algo no se ve bien, en Ajustes › Pantallas nativas se apaga y vuelve lo de siempre.
 - En la segunda parte de la fase 4, tus datos y lo que Nova decide pasan también a Android y se quita la parte web.
 

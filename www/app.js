@@ -2065,6 +2065,8 @@ function renderQueue() {
   }, { passive: false });
   const upEnd = e => {
     if (!d || d.k !== 'up' || !d.on) { d = null; return; }
+    const ct = e && e.changedTouches && e.changedTouches[0];
+    if (ct && Math.abs(ct.clientY - d.ly) > 2) npDragTo((d.base - ct.clientY) / NPM.top);
     NPM.noClick = Date.now(); npDragFlush();
     const v = flick(e);
     if ((NPM.p > 0.3 && v < 0.3) || v < -0.45) npAnimate(1, npOpened, npFlingMs(1, v)); else { NPM.flingMs = npFlingMs(0, v); closeNP(); }
@@ -2082,6 +2084,8 @@ function renderQueue() {
   }, { passive: false });
   const downEnd = e => {
     if (!d || d.k !== 'down' || !d.on) { d = null; return; }
+    const ct = e && e.changedTouches && e.changedTouches[0];
+    if (ct && Math.abs(ct.clientY - d.ly) > 2) npDragTo(1 - (ct.clientY - d.base) / NPM.top);
     npDragFlush();
     const v = flick(e);
     if ((NPM.p < 0.7 && v > -0.3) || v > 0.5) { NPM.flingMs = npFlingMs(0, v); closeNP(); } else npAnimate(1, npOpened, npFlingMs(1, v));
@@ -4125,7 +4129,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + (NUI.baseOk ? '; fondo y barra de abajo' + (BASE.on ? ' (a la vista)' : '') : NUI_PLUGIN && NUI.on && mirBad('base') ? '; fondo y barra de abajo: los de siempre (fallaron)' : '') + (NUI.vozOk ? ', «Tu voz»' : '') + (NUI.brainOk ? '; cerebro de comprensión' + (NB.nat ? ` (${(NB.natInfo || {}).threads || '?'} núcleos)` : NB.natFail ? ' (no arrancó: ' + NB.natFail + ')' : '') : NUI_PLUGIN && NUI.on && mirBad('brain') ? '; cerebro de comprensión: el de la parte web (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : NUI.screen === 'voz' ? '«Tu voz»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' + (NUI.passOk ? ' (también el resumen del año, la bienvenida, el despertador y el aviso de importar)' : '') : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + (NUI.baseOk ? '; fondo y barra de abajo' + (BASE.on ? ' (a la vista)' : '') : NUI_PLUGIN && NUI.on && mirBad('base') ? '; fondo y barra de abajo: los de siempre (fallaron)' : '') + (NUI.vozOk ? ', «Tu voz»' : '') + (NUI.brainOk ? '; cerebro de comprensión' + (NB.nat ? ` (${(NB.natInfo || {}).threads || '?'} núcleos)` : NB.natFail ? ' (no arrancó: ' + NB.natFail + ')' : '') : NUI_PLUGIN && NUI.on && mirBad('brain') ? '; cerebro de comprensión: el de la parte web (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : NUI.screen === 'voz' ? '«Tu voz»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -8464,7 +8468,8 @@ $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
   '5.3': [
     '<b>Todo lo que ves lo dibuja Android</b>: ahora también el fondo (la aurora, que se mueve igual que siempre, la portada o el negro puro), la barra de abajo (la canción que suena y las pestañas) y «Tu voz».',
-    'Se ve y se toca exactamente igual que antes: la barra de la canción se arrastra, y la barra entera se sube con el dedo para abrir el reproductor, como siempre.',
+    '«Tu año en Órbita», la bienvenida y el despertador también son de Android, con Nova y todo lo que se mueve; y el aviso de importar canciones ya no aparta la pantalla.',
+    'Se ve y se toca exactamente igual que antes: la barra del tiempo se arrastra, los botones se hunden al apretarlos y la barra entera se sube con el dedo para abrir el reproductor.',
     'Es la primera parte de la fase 4. En la segunda, tus datos y lo que Nova decide pasan también a Android y se quita la parte web.'
   ],
   '5.2': [
