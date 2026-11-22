@@ -6,6 +6,7 @@ import android.graphics.BlurMaskFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -83,6 +84,7 @@ internal object Ear {
     @Volatile var partials = 0
     @Volatile var levels = 0
     @Volatile var maxLevel = 0f
+    @Volatile var permCards = 0
 
     /** Lo que se le cuenta a la app: lo que va entendiendo, y cómo acabó (lo dicho, las otras formas de entenderlo y un código). */
     var onPartial: ((String) -> Unit)? = null
@@ -98,15 +100,30 @@ internal object Ear {
     private var ctx: Context? = null
     private var lang = "es-ES"
     private var offline = false
+    /** Android está preguntando por el micrófono (y desde cuándo). */
+    @Volatile var asking = false
+    private var askAt = 0L
 
-    val busy: Boolean get() = !ended || step == "perm"
+    val busy: Boolean get() = !ended || step == "perm" || (asking && SystemClock.uptimeMillis() - askAt < 60000)
 
     /** El recuadro sale ya (mientras Android pide permiso para el micrófono, explica por qué). */
     fun open(who: String, lite: Boolean, perm: Boolean) {
         gen++; ended = true
         this.who = who.ifBlank { "Nova" }; this.lite = lite
         words = ""; fail = ""; level = 0f; step = if (perm) "perm" else "ready"
+        if (perm) permCards++
         show(true)
+    }
+
+    /**
+     * Android va a preguntar por el micrófono. El recuadro que lo explica sale solo si de verdad pregunta: si ya le dijiste
+     * dos veces que no, Android contesta al momento sin preguntar, y el recuadro ni se asoma (se va directo a la ventana
+     * de Google).
+     */
+    fun ask(who: String, lite: Boolean) {
+        gen++; val g = gen
+        ended = true; asking = true; askAt = SystemClock.uptimeMillis()
+        main.postDelayed({ if (asking && g == gen) open(who, lite, true) }, 500)
     }
 
     /** Empieza a escuchar. */
@@ -132,11 +149,12 @@ internal object Ear {
     /** «Cancelar», tocar fuera o «atrás»: no le llega nada a Nova. */
     fun cancel() {
         if (!ended) { end("", emptyList(), "cancel"); return }
-        if (on) { gen++; step = ""; show(false) }
+        val wasAsking = asking; asking = false
+        if (on) { gen++; step = ""; show(false) } else if (wasAsking) gen++
     }
 
     /** No hubo permiso (o la app dijo que no): el recuadro se va sin más. */
-    fun close() { gen++; ended = true; step = ""; show(false) }
+    fun close() { gen++; ended = true; asking = false; step = ""; show(false) }
 
     private fun show(v: Boolean) {
         on = v
@@ -193,7 +211,7 @@ internal object Ear {
         }
         try { onEnd?.invoke(text, alts, code) } catch (ignored: Throwable) { }
         // (lo dicho se ve un momento; un aviso, algo más; lo cancelado se va ya)
-        val ms = when (code) { "ok" -> 550L; "cancel", "denied", "norec" -> 0L; else -> 1600L }
+        val ms = when (code) { "ok" -> 550L; "cancel", "denied", "norec" -> 0L; else -> 2400L }
         if (ms == 0L) show(false) else main.postDelayed({ if (g == gen) show(false) }, ms)
     }
 

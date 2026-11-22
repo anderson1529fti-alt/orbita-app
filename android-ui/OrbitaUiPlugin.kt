@@ -277,12 +277,17 @@ class OrbitaUiPlugin : Plugin() {
     // pausa un momento: eso no cuenta)
     override fun handleOnPause() {
         super.handleOnPause()
-        if (Ear.step != "perm" && (Ear.on || Ear.busy)) { Ear.cancel(); earBack.isEnabled = false }
+        if (!Ear.asking && Ear.step != "perm" && (Ear.on || Ear.busy)) { Ear.cancel(); earBack.isEnabled = false }
     }
 
     // ---------------------------------------------------------------- 5.1 · Nova te escucha
     private var earHost: ComposeView? = null
     private var earCall: PluginCall? = null
+    // (antes de preguntar por el micrófono: ¿ya se le había dicho que no una vez? Si se le vuelve a decir que no, Android
+    // ya no pregunta más, y Órbita se acuerda para ir directa a la ventana de Google, sin asomar el recuadro)
+    private var micWhy = false
+    private fun earPrefs() = context.getSharedPreferences("orbita_oido", android.content.Context.MODE_PRIVATE)
+    private fun micRationale(): Boolean = try { androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, android.Manifest.permission.RECORD_AUDIO) } catch (t: Throwable) { false }
     private fun ensureEarHost() {
         if (earHost != null) return
         val v = ComposeView(activity)
@@ -309,11 +314,14 @@ class OrbitaUiPlugin : Plugin() {
                 if (!android.speech.SpeechRecognizer.isRecognitionAvailable(context)) { call.resolve(JSObject().put("ok", false).put("code", "norec")); return@runOnUiThread }
                 ensureEarHost()
                 if (getPermissionState("mic") != PermissionState.GRANTED) {
-                    Ear.open(who, lite, true); earBack.isEnabled = true
+                    if (earPrefs().getBoolean("nunca", false) && !micRationale()) { call.resolve(JSObject().put("ok", false).put("code", "denied")); return@runOnUiThread }
+                    micWhy = micRationale()
+                    Ear.ask(who, lite); earBack.isEnabled = true
                     earCall = call
                     requestPermissionForAlias("mic", call, "afterMic")
                     return@runOnUiThread
                 }
+                if (earPrefs().contains("nunca")) earPrefs().edit().remove("nunca").apply()
                 earGo(call)
             } catch (t: Throwable) { call.resolve(JSObject().put("ok", false).put("code", "err")) }
         }
@@ -322,9 +330,12 @@ class OrbitaUiPlugin : Plugin() {
     @PermissionCallback
     private fun afterMic(call: PluginCall) {
         earCall = null
-        if (getPermissionState("mic") == PermissionState.GRANTED && Ear.step == "perm") { earGo(call); return }
+        // (si mientras tanto se canceló —«Cancelar», «atrás» o la app—, no escucha ni abre nada)
+        val wanted = Ear.asking
+        if (getPermissionState("mic") == PermissionState.GRANTED && wanted) { Ear.asking = false; earGo(call); return }
+        if (wanted && micWhy && !micRationale()) try { earPrefs().edit().putBoolean("nunca", true).apply() } catch (ignored: Throwable) { }
         Ear.close(); earBack.isEnabled = false
-        call.resolve(JSObject().put("ok", false).put("code", "denied"))
+        call.resolve(JSObject().put("ok", false).put("code", if (wanted) "denied" else "cancel"))
     }
 
     private fun earGo(call: PluginCall) {
@@ -438,7 +449,7 @@ class OrbitaUiPlugin : Plugin() {
             UiState.ytHole().let { h -> r.put("ytHole", if (h == null) "" else "${h.left.roundToInt()},${h.top.roundToInt()},${h.width.roundToInt()}x${h.height.roundToInt()}") }
             // 5.1 · el oído: si escucha, en qué paso, lo entendido, cuánto se oye y cómo acabó la última vez
             r.put("earOn", Ear.on); r.put("earStep", Ear.step); r.put("earWords", Ear.words); r.put("earLevel", Ear.level.toDouble()); r.put("earMax", Ear.maxLevel.toDouble())
-            r.put("earSessions", Ear.sessions); r.put("earLast", Ear.last); r.put("earPartials", Ear.partials); r.put("earLevels", Ear.levels)
+            r.put("earSessions", Ear.sessions); r.put("earLast", Ear.last); r.put("earPartials", Ear.partials); r.put("earLevels", Ear.levels); r.put("earPermCards", Ear.permCards); r.put("earAsking", Ear.asking)
             r.put("ytDock", UiState.ytDock != null); r.put("ytSlot", UiState.ytSlot != null); r.put("ytFwd", UiState.ytFwd)
             r.put("lyDrawn", Ly.drawn); r.put("lyIdx", Ly.shown); r.put("lyY", Ly.y.toDouble()); r.put("lyFill", Ly.fill.toDouble()); r.put("lyTaps", Ly.taps); r.put("lyGen", Ly.g); r.put("lyAt", Ly.i)
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }

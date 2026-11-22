@@ -663,19 +663,40 @@ try {
     const deny = nodes.find(n => /permission_deny_button$/.test(n.id || '')) || nodes.find(n => /^(Don.t allow|No permitir)$/i.test(n.text));
     check('la primera vez, el recuadro de Nova explica lo del permiso y Android lo pide', !!p0 && p0.earStep === 'perm' && !!deny, JSON.stringify({ paso: p0 && p0.earStep, boton: !!deny && (deny.text || deny.id) }));
     // (en el emulador hay dos «ventanas de Google»: la de Google y la de prueba; Android pregunta cuál, y se elige la de prueba)
+    // (la segunda vez Android ya propone la última elegida: «Completar la acción con Voz de prueba» › «Solo una vez»)
     const ventana = async () => {
       for (let k = 0; k < 6; k++) {
         await sleep(900);
-        if (await js(`return document.querySelector('#djInput').value.startsWith('ventana:');`) === true) break;
-        const pick = ui().find(n => n.text === 'Voz de prueba');
-        if (pick) { tap(...center(pick)); await sleep(900); const once = ui().find(n => /button_once$/.test(n.id || '')); if (once) tap(...center(once)); }
+        if (await js(`return document.querySelector('#djInput').value.startsWith('ventana:');`) === true) return;
+        const cn = ui();
+        const pick = cn.find(n => n.text === 'Voz de prueba');
+        const once = cn.find(n => /button_once$/.test(n.id || ''));
+        if (pick) { tap(...center(pick)); await sleep(900); const o2 = ui().find(n => /button_once$/.test(n.id || '')); if (o2) tap(...center(o2)); }
+        else if (once && cn.some(n => /Voz de prueba/.test(n.text || ''))) tap(...center(once));
       }
-      await until(`return document.querySelector('#djInput').value.startsWith('ventana:');`, 6000); await sleep(600);
+      const ok = await until(`return document.querySelector('#djInput').value.startsWith('ventana:');`, 6000); await sleep(600);
+      // (si se quedó algo abierto, «atrás», para que no tape lo siguiente)
+      if (!ok && ui().some(n => /resolver|chooser|button_once/i.test(n.id || ''))) { sh('input keyevent KEYCODE_BACK'); await sleep(1200); }
     };
     if (deny) tap(...center(deny));
     await ventana();
     const d1 = await st(); const i1 = await input();
     check('sin permiso: la ventana de Google de siempre, y lo dicho le llega a Nova', i1 === 'ventana: pon algo tranquilo' && !!d1 && !d1.earOn, JSON.stringify({ i1, on: d1 && d1.earOn }));
+    // ---- la segunda vez, Android vuelve a preguntar; si le dices otra vez que no, ya no pregunta más: a partir de ahí, directo
+    // a la ventana de Google, sin que el recuadro se asome
+    guion('pon algo animado'); await clearIn();
+    await js(`${O} o.voiceAsk(); return 1;`);
+    const p1 = await untilSt(s => s.earOn && s.earStep === 'perm', 5000); await sleep(1200);
+    nodes = ui();
+    const deny2 = nodes.find(n => /permission_deny_button$/.test(n.id || '')) || nodes.find(n => /^(Don.t allow|No permitir)$/i.test(n.text));
+    if (deny2) tap(...center(deny2));
+    await ventana();
+    const i2b = await input(); const c1 = ((await st()) || {}).earPermCards || 0;
+    guion('pon algo de rock'); await clearIn();
+    await js(`${O} o.voiceAsk(); return 1;`);
+    await ventana();
+    const d3 = await st(); const i3b = await input();
+    check('si le dices dos veces que no, ya no se pregunta más: directo a la ventana de Google, sin asomar el recuadro', !!p1 && !!deny2 && i2b === 'ventana: pon algo animado' && i3b === 'ventana: pon algo de rock' && !!d3 && d3.earPermCards === c1 && !d3.earAsking && !d3.earOn, JSON.stringify({ segunda: !!deny2, i2b, i3b, recuadros: d3 && d3.earPermCards, antes: c1 }));
     // ---- con permiso: escucha Órbita, con lo que va entendiendo y el aro moviéndose con la voz
     sh(`pm grant ${PKG} android.permission.RECORD_AUDIO`); await sleep(800);
     // (despacio, para que dé tiempo a mirar el recuadro mientras escucha)

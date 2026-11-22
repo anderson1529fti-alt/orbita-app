@@ -7158,7 +7158,7 @@ function earListen() {
     earOpenMark(true);
     const give = v => { earOpenMark(false); clearTimeout(EAR.to); if (EAR.res === res) { EAR.res = null; res(v); } };
     NUI_PLUGIN.listen({ lang: 'es-ES', offline, who: dj.name || 'Nova', lite: document.documentElement.classList.contains('lite') || !!reduceMotion })
-      .then(r => { if (!r || !r.ok) give({ fallback: (r && r.code) || 'norec' }); })
+      .then(r => { if (!r || !r.ok) give(r && r.code === 'cancel' ? { text: '', code: 'cancel' } : { fallback: (r && r.code) || 'norec' }); })
       .catch(() => give({ fallback: 'err' }));
     // (por si acaso Android no contesta: cuarenta segundos como mucho)
     clearTimeout(EAR.to); EAR.to = setTimeout(() => { if (EAR.res === res) { give({ text: '', code: 'timeout' }); NUI_PLUGIN.listenCancel().catch(() => {}); } }, 40000);
