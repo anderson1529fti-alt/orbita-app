@@ -854,20 +854,25 @@ try {
     // ---- de verdad: decirle algo con tus palabras y que Nova lo haga
     await js(`${O} const lk = t => t.demo ? !!(o.state.demoStats[t.id] || {}).liked : !!t.liked; const t = o.state.tracks.find(t => !lk(t) && !t.net); if (t) o.playQueue([t.id], 0); return 1;`); await sleep(1500);
     const before = await js(`${O} const t = o.current(); return t ? { id: t.id, liked: t.demo ? !!(o.state.demoStats[t.id] || {}).liked : !!t.liked } : null;`);
+    // (una frase de «me gusta» que el cerebro tenga clara: si duda, Nova pregunta o propone otra cosa, como siempre)
+    const said = await job(`${O} for (const x of ['me encanta esta, guárdala', 'esta canción es un temazo', 'qué pasada de canción, me flipa', 'me mola un montón esta']) { const r = await o.nbClassify(x); if (r.ok && r.intent === 'me_gusta') return x; } return '';`, 60000);
+    const phrase = (said.v || 'esta canción es un temazo');
     const calls0 = ((await st()) || {}).brainCalls || 0;
-    await js(`${O} o.novaCommand('esta canción es un temazo'); return 1;`);
+    await js(`${O} o.novaCommand(${JSON.stringify(phrase)}); return 1;`);
     let after = null;
     for (let k = 0; k < 16; k++) { await sleep(500); after = await js(`${O} const t = o.current(); return t ? { id: t.id, liked: t.demo ? !!(o.state.demoStats[t.id] || {}).liked : !!t.liked } : null;`); if (after && after.liked) break; }
     const calls1 = ((await st()) || {}).brainCalls || 0;
-    check('«esta canción es un temazo» (sin las palabras de siempre): Android lo entiende y Nova la guarda en favoritas', !!before && !before.liked && !!after && after.liked && after.id === before.id && calls1 > calls0, JSON.stringify({ antes: before, despues: after, llamadas: calls1 - calls0 }));
+    check('«' + phrase + '» (sin las palabras de siempre): Android lo entiende y Nova la guarda en favoritas', !!said.v && !!before && !before.liked && !!after && after.liked && after.id === before.id && calls1 > calls0, JSON.stringify({ frase: said.v || said.err, antes: before, despues: after, llamadas: calls1 - calls0 }));
     // ---- «Pantallas nativas» apagado: el de la parte web, como siempre; encendido: otra vez el de Android
     const tog = async on => js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; if ((b.getAttribute('aria-pressed') === 'true') !== ${on}) b.click(); await new Promise(r => setTimeout(r, 600)); return b.getAttribute('aria-pressed');`);
     await goView('ajustes'); await sleep(800);
     await tog(false); await goView('inicio'); await sleep(800);
-    const off = await job(`${O} const r = await o.nbClassify('pásala que no me apetece'); return { intent: r.intent, nat: !!o.NB.nat, worker: !!o.NB.worker };`, 240000);
+    // (la primera vez, mientras arranca, Nova no espera más de 6 s y sigue sin él: se espera a que arranque y otra vez)
+    const again = `try { await o.nbClassify('pásala que no me apetece'); } catch (e) {} try { await o.NB.ready; } catch (e) {} const r = await o.nbClassify('pásala que no me apetece'); return { intent: r.intent, nat: !!o.NB.nat, worker: !!o.NB.worker };`;
+    const off = await job(`${O} ${again}`, 240000);
     await goView('ajustes'); await sleep(800);
     await tog(true); await goView('inicio'); await sleep(1500);
-    const on = await job(`${O} const r = await o.nbClassify('pásala que no me apetece'); return { intent: r.intent, nat: !!o.NB.nat, worker: !!o.NB.worker };`, 120000);
+    const on = await job(`${O} ${again}`, 120000);
     check('con «Pantallas nativas» apagado entiende el de la parte web (como siempre), y al encenderlo vuelve el de Android', !!off.v && off.v.intent === 'saltar' && !off.v.nat && off.v.worker && !!on.v && on.v.intent === 'saltar' && on.v.nat && !on.v.worker, JSON.stringify({ apagado: off.v || off.err, encendido: on.v || on.err }));
     const dg = await js(`let got = ''; try { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async t => { got = t; } } }); } catch (e) {} const b = document.querySelector('#diagCopy'); if (b) b.click(); await new Promise(r => setTimeout(r, 900)); return got;`);
     const line = (String(dg || '').match(/Pantallas nativas:[^\n]*/) || [''])[0];
