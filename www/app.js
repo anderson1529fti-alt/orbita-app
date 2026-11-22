@@ -3542,7 +3542,7 @@ async function nbCheck(quiet) {
     ms += performance.now() - t0; n++;
     if (r && r.intent === want) { ok++; if (r.ok) sure++; } else miss.push(text);
   }
-  NB.check = { v: BRAIN_CHECK_V, ok, sure, n, ms: Math.round(ms / Math.max(1, n)), miss: miss.slice(0, 6), ts: Date.now(), model: NB.st && NB.st.repo };
+  NB.check = { v: BRAIN_CHECK_V, ok, sure, n, ms: Math.round(ms / Math.max(1, n)), miss: miss.slice(0, 6), ts: Date.now(), model: NB.st && NB.st.repo, eng: NB.nat ? 'android' : 'web' };
   LS.set('nbCheck', NB.check);
   if (!quiet) renderNB();
   return NB.check;
@@ -3578,7 +3578,7 @@ function brainWarm() {
 function brainCheckLine(kind) {
   if (kind === 'nb') {
     const c = NB.check; if (!c || !c.n) return '';
-    return `En la prueba entiende ${c.ok} de ${c.n} frases${c.ms ? ` · ${c.ms} ms cada una` : ''}`;
+    return `En la prueba entiende ${c.ok} de ${c.n} frases${c.ms ? ` · ${c.ms} ms cada una` : ''}${c.eng === 'android' ? ' · en Android' : ''}`;
   }
   const c = BB.check; if (!c || !c.n) return '';
   return `En la prueba contesta en ${(c.ms / 1000).toFixed(1).replace('.', ',')} s de media${c.good < c.n ? ` (${c.n - c.good} de ${c.n} sin respuesta útil)` : ''}${c.ms > 12000 ? ' · en este móvil va lento: Nova lo usa solo para lo que no entiende de otra forma' : ''}`;
@@ -4125,7 +4125,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + (NUI.brainOk ? '; cerebro de comprensión' + (NB.nat ? ` (${(NB.natInfo || {}).threads || '?'} núcleos)` : NB.natFail ? ' (no arrancó: ' + NB.natFail + ')' : '') : NUI_PLUGIN && NUI.on && mirBad('brain') ? '; cerebro de comprensión: el de la parte web (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -6245,7 +6245,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6253,7 +6253,7 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android, y Nova te escucha sin salir de Órbita. Si algo no se ve bien, apágalas y vuelven las de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android; Nova te escucha sin salir de Órbita y su cerebro de comprensión corre en Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagaron solas porque algo falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarlas.'
     : 'Apagadas: todo se ve con las pantallas de siempre.';
 }
@@ -7172,6 +7172,38 @@ function earEnd(e) {
 /* (if listening natively ever closed the app, next time it goes with the Google window, in this version) */
 (() => { try { if (LS.get('earOpen', '')) { LS.set('earOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.ear = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('escuchar en Órbita: la app se cerró escuchando → esta versión usa la ventana de Google'); } } catch {} })();
 function earOpenMark(on) { clearTimeout(NUI.earOpenT); if (!on) { LS.set('earOpen', ''); return; } if (NUI.earSure) return; LS.set('earOpen', '1'); NUI.earOpenT = setTimeout(() => { LS.set('earOpen', ''); NUI.earSure = true; }, 12000); }
+
+/* ---------- 5.2 · Phase 3, step 5: Nova's comprehension brain runs in Android (Kotlin + ONNX Runtime) ----------
+   The same model and the same messages the web worker used («init», «embed», «bank», «classify», «tokenize»); the
+   vectors travel as base64. If it ever closed the app while thinking, next time the brain goes back to the web one. */
+const f32b64 = a => { const u = new Uint8Array(a.buffer, a.byteOffset, a.byteLength); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+const b64f32 = b => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Float32Array(u.buffer); };
+const MIND = { busy: 0 };
+function mindMark(on) {
+  if (on) { if (MIND.busy++ === 0) LS.set('brainOpen', '1'); return; }
+  if (--MIND.busy <= 0) { MIND.busy = 0; LS.set('brainOpen', ''); }
+}
+/* (leaving the app is not a crash) */
+document.addEventListener('visibilitychange', () => { if (document.hidden) LS.set('brainOpen', ''); else if (MIND.busy > 0) LS.set('brainOpen', '1'); });
+(() => { try { if (LS.get('brainOpen', '')) { LS.set('brainOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.brain = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('cerebro de comprensión en Android: la app se cerró pensando → esta versión usa el de la parte web'); } } catch {} })();
+/* is the Android one usable (waiting a moment for Android to say what it has) */
+const mindCan = () => !!(NUI_PLUGIN && NUI.on && NUI.brainOk);
+async function mindWait() {
+  if (!NUI_PLUGIN || !NUI.on) return false;
+  try { if (NUI.statusP) await Promise.race([NUI.statusP, sleep(3000)]); } catch {}
+  return mindCan();
+}
+async function mindCall(msg) {
+  const m = { ...msg }; delete m.id;
+  if (m.type === 'bank') { m.vecs = f32b64(m.vecs); m.labels = Array.from(m.labels); }
+  mindMark(true);
+  try {
+    const r = await NUI_PLUGIN.brain(m);
+    if (r && typeof r.vecs === 'string') r.vecs = b64f32(r.vecs);
+    return r || { ok: false, error: 'sin respuesta' };
+  } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
+  finally { mindMark(false); }
+}
 
 /* ---------- Delegated actions ---------- */
 function armOrRun(btn, run) {
@@ -8187,6 +8219,11 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '5.2': [
+    '<b>El cerebro de comprensión de Nova corre en Android</b>: el que entiende lo que le dices con tus palabras («qué temazo», «pásala que me aburre»…) ya no va dentro de la parte web. Lo mueve Android con varios núcleos del móvil: entiende exactamente lo mismo, piensa más rápido y la parte web ya no carga con el modelo.',
+    'Es el mismo cerebro que ya tenías: no hay que descargar nada. Si no lo tienes, se instala como siempre en Ajustes › Tu DJ.',
+    'Con esto termina la fase 3: Nova (su conversación, su voz y sus cerebros) y los visualizadores ya son de Android. Lo que Nova decide y su memoria pasan con tus datos en la fase 4.'
+  ],
   '5.1': [
     '<b>Nova te escucha sin salir de Órbita</b>: al tocar «Háblale» ya no se abre la ventana de Google. Abajo sale el aro de Nova, que se mueve con tu voz, y lo que va entendiendo mientras hablas; al callarte, se lo dice a Nova. «Listo» termina antes y «Cancelar» (o «atrás») no le manda nada.',
     'La primera vez, Android te pedirá permiso para usar el micrófono. Si no se lo das, o si tu móvil no trae reconocimiento de voz, se usa la ventana de Google de siempre.',
@@ -9134,8 +9171,12 @@ const NB_OFFER_REQ = { m_relax: 'algo tranquilo', m_triste: 'algo que me acompa�
 const nbUsable = () => !!(NB.st && NB.on && NB.fails < 3 && window.Worker && window.caches);
 const nbTaught = () => LS.get('nbTeach', []);
 function nbHash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
-function nbCall(msg, tr) { return new Promise(res => { const id = ++NB.n; NB.wait.set(id, res); NB.worker.postMessage({ ...msg, id }, tr || []); }); }
-function nbReset() { if (NB.worker) { try { NB.worker.terminate(); } catch {} } NB.worker = null; NB.ready = null; NB.base = null; NB.cal = null; for (const r of NB.wait.values()) r({ ok: false, error: 'reset' }); NB.wait.clear(); }
+function nbCall(msg, tr) {
+  /* 5.2: on Android the brain runs there (the same messages) */
+  if (NB.nat) return mindCall(msg);
+  return new Promise(res => { const id = ++NB.n; NB.wait.set(id, res); NB.worker.postMessage({ ...msg, id }, tr || []); });
+}
+function nbReset() { if (NB.nat) { NB.nat = false; try { NUI_PLUGIN.brain({ type: 'reset' }).catch(() => {}); } catch {} } if (NB.worker) { try { NB.worker.terminate(); } catch {} } NB.worker = null; NB.ready = null; NB.base = null; NB.cal = null; for (const r of NB.wait.values()) r({ ok: false, error: 'reset' }); NB.wait.clear(); }
 const nbWithin = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('tiempo')), ms))]);
 
 /* ---- Where the files live ----
@@ -9257,6 +9298,24 @@ function nbInit() {
   if (NB.ready) return NB.ready;
   NB.ready = (async () => {
     const cache = await caches.open(NB_CACHE), native = NB.st.where === 'nativo';
+    /* 5.2 · Phase 3, step 5: with the files in the app's folder, the brain runs in Android (Kotlin + ONNX Runtime, with
+       several cores of the phone) and nothing of it is loaded in the web part. If it can't start, the web one, as always. */
+    if (native && !NB.natFail && await mindWait()) {
+      try {
+        const r = await mindCall({ type: 'init', cfg: { prefix: NB.st.prefix || '' } });
+        if (!r || !r.ok) throw new Error(r && r.error || 'fallo');
+        NB.nat = true; NB.ms = r.ms; NB.dim = r.dim; NB.natInfo = { threads: r.threads, load: r.load };
+        await nbLoadBank(cache);
+        renderNB();
+        nbCheckSoon();
+        return true;
+      } catch (e) {
+        NB.natFail = String(e && e.message || e).slice(0, 120);
+        diag('cerebro de comprensión en Android: no arrancó (' + NB.natFail + ') → el de la parte web');
+        if (NB.nat) { NB.nat = false; try { NUI_PLUGIN.brain({ type: 'reset' }).catch(() => {}); } catch {} }
+        NB.base = null; NB.cal = null;
+      }
+    }
     const get = async n => { const r = native ? await nbGetNative(n) : await cache.match(NB_KEY(n)); if (!r) throw new Error('falta ' + n); return r; };
     const typed = async (n, type) => URL.createObjectURL(new Blob([await (await get(n)).arrayBuffer()], { type }));
     const files = { ortJs: await typed('ort.wasm.min.js', 'text/javascript'), ortWasm: await typed('ort-wasm-simd.wasm', 'application/wasm') };
@@ -9270,8 +9329,7 @@ function nbInit() {
     await nbLoadBank(cache);
     renderNB();
     if (!native) setTimeout(() => nbMigrate().then(ok => { if (ok) renderNB(); }), 30000);
-    /* 4.1 · the test phrases, once per model (a couple of seconds, in the background) */
-    if (!NB.check || NB.check.v !== BRAIN_CHECK_V || NB.check.model !== NB.st.repo) setTimeout(() => { if (!document.hidden) nbCheck(true).then(() => renderNB()).catch(() => {}); }, 12000);
+    nbCheckSoon();
     return true;
   })();
   NB.ready.catch(e => {
@@ -9280,6 +9338,34 @@ function nbInit() {
     renderNB();
   });
   return NB.ready;
+}
+/* 4.1 · the test phrases, once per model and engine (a couple of seconds, in the background) */
+function nbCheckSoon() {
+  const due = () => !!NB.st && (!NB.check || NB.check.v !== BRAIN_CHECK_V || NB.check.model !== NB.st.repo || (NB.check.eng || 'web') !== (NB.nat ? 'android' : 'web'));
+  /* (still due when the time comes: it may have been done meanwhile, or the brain may have moved) */
+  if (due()) setTimeout(() => { if (!document.hidden && due()) nbCheck(true).then(() => renderNB()).catch(() => {}); }, 12000);
+}
+/* (for the tests: the same phrases through the web worker, to compare it with Android's) */
+async function nbWebProbe(texts, classify) {
+  const cache = await caches.open(NB_CACHE), native = NB.st.where === 'nativo';
+  const get = async n => { const r = native ? await nbGetNative(n) : await cache.match(NB_KEY(n)); if (!r) throw new Error('falta ' + n); return r; };
+  const typed = async (n, type) => URL.createObjectURL(new Blob([await (await get(n)).arrayBuffer()], { type }));
+  const files = { ortJs: await typed('ort.wasm.min.js', 'text/javascript'), ortWasm: await typed('ort-wasm-simd.wasm', 'application/wasm') };
+  const tok = await (await get('tokenizer.json')).text(), model = await (await get('modelo.onnx')).arrayBuffer();
+  const w = new Worker(URL.createObjectURL(new Blob([NB_WORKER_SRC], { type: 'text/javascript' }))), wait = new Map(); let n = 0;
+  w.onmessage = e => { const r = wait.get(e.data.id); if (r) { wait.delete(e.data.id); r(e.data); } };
+  const call = (m, tr) => new Promise(res => { const id = ++n; wait.set(id, res); w.postMessage({ ...m, id }, tr || []); });
+  try {
+    const i = await call({ type: 'init', files, tok, model, cfg: { prefix: NB.st.prefix || '' } }, [model]); if (!i.ok) throw new Error(i.error);
+    const t = await call({ type: 'tokenize', texts }), t0 = performance.now(), e = await call({ type: 'embed', texts }), ms = performance.now() - t0;
+    let cls = null;
+    if (classify && NB.base) {
+      const b = await call({ type: 'bank', vecs: NB.base.vecs.slice(), labels: Int32Array.from(NB.base.labels), nI: NB.intents.length, dim: NB.dim });
+      cls = { cal: b.cal, out: [] };
+      for (const x of classify) { const r = await call({ type: 'classify', text: x }); cls.out.push({ intent: NB.intents[r.intent], s1: r.s1, s2: r.s2 }); }
+    }
+    return { ok: true, ids: t.ids, vecs: Array.from(e.vecs), dim: e.dim, ms: Math.round(ms), init: i.ms, cls };
+  } finally { try { w.terminate(); } catch {} }
 }
 /* Nova's examples, turned into vectors once (kept on the phone) */
 async function nbLoadBank(cache) {
@@ -9320,6 +9406,7 @@ async function nbPushBank() {
 function nbTaughtExact(text) { const n = norm(text); const f = n && nbTaught().find(x => norm(x.t) === n); return f && NB_INTENTS[f.i] ? f.i : null; }
 async function nbClassify(text) {
   if (window.ORBITA_DEBUG && window.__nbFake) { const f = window.__nbFake(text); if (f) return f; }
+  if (NB.ready && NB.st && NB.st.where === 'nativo' && typeof mindCan === 'function' && (NB.nat ? !mindCan() : (NB.worker && !NB.natFail && mindCan()))) nbReset();
   await nbWithin(nbInit(), 6000);
   const ex = nbTaughtExact(text); if (ex) return { ok: true, intent: ex, conf: 1, taught: true };
   /* 4.1 · never stuck: if the worker doesn't answer in 4 s, Nova goes on without it (and after twice, it starts again) */
@@ -10192,7 +10279,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { nbWebProbe, mindCall, mindCan, NB_TEST, voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }
