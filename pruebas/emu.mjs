@@ -770,15 +770,16 @@ try {
     check('si el reconocimiento de voz del móvil no tiene permiso del micrófono: la ventana de Google, y lo dicho le llega a Nova', i7 === 'ventana: pon algo de pop' && !!d2 && !d2.earOn && d2.earLast === 'denied', JSON.stringify({ i7, ultimo: d2 && d2.earLast }));
     sh('pm grant io.github.orbita.pruebavoz android.permission.RECORD_AUDIO'); await sleep(1000);
     // ---- desde el reproductor y desde la conversación, lo mismo
-    guion('sube el volumen');
+    guion('lento:sube el volumen');
     await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(1200);
     await js(`${O} o.act().pause(); document.querySelector('[data-act="np-open"]').click(); return 1;`);
     await until(`${O} return W.on.join() === 'np';`, 8000); await sleep(800);
     const npMic = await find(n => !n.web && n.text === 'Háblale');
     await clearIn();
     if (npMic) tap(...center(npMic)); else await js(`document.querySelector('#npMic').click(); return 1;`);
-    const n1 = await untilSt(s => s.earOn, 5000); await sleep(400); shot('voz-desde-el-reproductor');
-    await until(`return document.querySelector('#djInput').value === 'sube el volumen';`, 8000);
+    // (la foto, cuando ya ha entrado del todo y se ve lo que va entendiendo)
+    const n1 = await untilSt(s => s.earOn && s.earPartials >= 1, 6000); await sleep(600); shot('voz-desde-el-reproductor');
+    await until(`return document.querySelector('#djInput').value === 'sube el volumen';`, 9000);
     const in1 = await input();
     check('desde el reproductor («Háblale»), escucha Órbita por encima de él', !!npMic && !!n1 && n1.earOn && in1 === 'sube el volumen', JSON.stringify({ boton: !!npMic, on: n1 && n1.earOn, in1 }));
     await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await sleep(1500);
