@@ -6814,7 +6814,7 @@ function mWalk(el, ctx, out) {
   let c2 = ctx;
   const next = () => { if (c2 === ctx) c2 = Object.assign({}, ctx); return c2; };
   if (cs.cursor === 'pointer' && !ctx.hand) next().hand = true;
-  if (cs.overflowX !== 'visible') { const x = next(); x.clipR = Math.min(ctx.clipR, r.right - (parseFloat(cs.borderRightWidth) || 0) - (parseFloat(cs.paddingRight) || 0)); x.ell = cs.textOverflow === 'ellipsis'; }
+  if (cs.overflowX !== 'visible') { const x = next(); x.ell = cs.textOverflow === 'ellipsis'; x.clipR = Math.min(ctx.clipR, r.right - (parseFloat(cs.borderRightWidth) || 0) - (x.ell ? parseFloat(cs.paddingRight) || 0 : 0)); }
   if (cs.backgroundImage !== 'none' && /text/.test(cs.webkitBackgroundClip || '')) { const g = mGrad(cs.backgroundImage); if (g && g[0] && g[0].t === 'l') { const x = next(); x.tg = g[0]; x.tgr = r; } }
   mPseudo(el, cs, r, '::before', ctx, kids);
   const open = tag !== 'DETAILS' || el.open;
@@ -7369,8 +7369,11 @@ function baseBg() {
   const base = mCol(getComputedStyle(document.body).backgroundColor) || 0xFF06050B;   // (this first: what is read after is as it is now)
   // (the animation of always, kept: looking for it among all of the page's is only done when it is gone, and not often)
   try {
-    let a = BASE.drift;
-    if ((!a || a.playState === 'idle') && performance.now() - BASE.driftAt > 400) { BASE.driftAt = performance.now(); a = BASE.drift = document.getAnimations().find(x => x.animationName === 'drift') || null; }
+    // (only if the light still has its animation: «Quieto» takes it away, and then it is where it starts)
+    const bgEl = $('.bg'), named = !!bgEl && /\bdrift\b/.test(getComputedStyle(bgEl, '::before').animationName || '');
+    let a = named ? BASE.drift : null;
+    if (!named) BASE.drift = null;
+    else if ((!a || a.playState === 'idle') && performance.now() - BASE.driftAt > 400) { BASE.driftAt = performance.now(); a = BASE.drift = document.getAnimations().find(x => x.animationName === 'drift') || null; }
     if (a && a.playState !== 'idle') { t = +a.currentTime || 0; moving = a.playState === 'running'; }
   } catch {}
   const m = LOOK.bg === 'portada' ? /url\("?([^")]*)"?\)/.exec(($('#bgCover') || { style: {} }).style.backgroundImage || '') : null;
