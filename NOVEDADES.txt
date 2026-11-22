@@ -1,3 +1,13 @@
+Órbita 5.1: Nova te escucha sin salir de Órbita.
+
+Fase 3, paso 4
+- Al tocar «Háblale» ya no se abre la ventana de Google: abajo sale un recuadro con el aro de Nova, que se mueve con tu voz, y lo que va entendiendo mientras hablas. Al callarte, se lo dice a Nova. «Listo» termina antes; «Cancelar», tocar fuera o «atrás» no le mandan nada.
+- Igual desde el reproductor y desde la conversación con Nova.
+- La primera vez, Android pide permiso para usar el micrófono (el recuadro explica para qué). Si no se lo das, o si el móvil no trae reconocimiento de voz, se usa la ventana de Google de siempre.
+- Si no hay internet o no te ha oído bien, lo dice en el mismo recuadro.
+- La voz con la que habla Nova ya era de Android: la del sistema (con las palabras saliendo a la vez) y la voz neuronal, que se hace en el propio móvil.
+- Sigue en la fase 3: la «cabeza» de Nova (lo que entiende y decide, sus cerebros y su memoria).
+
 Órbita 5.0: la letra y el videoclip del reproductor, también de Android.
 
 Fase 3, paso 3

@@ -280,6 +280,12 @@ class OrbitaUiPlugin : Plugin() {
         if (!Ear.asking && Ear.step != "perm" && (Ear.on || Ear.busy)) { Ear.cancel(); earBack.isEnabled = false }
     }
 
+    // la app se cierra: suelta el reconocimiento de voz
+    override fun handleOnDestroy() {
+        try { Ear.release() } catch (ignored: Throwable) { }
+        super.handleOnDestroy()
+    }
+
     // ---------------------------------------------------------------- 5.1 · Nova te escucha
     private var earHost: ComposeView? = null
     private var earCall: PluginCall? = null

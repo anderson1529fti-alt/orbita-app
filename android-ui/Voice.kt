@@ -164,13 +164,26 @@ internal object Ear {
         main.postDelayed({ if (!on && g == gen) h.visibility = View.GONE }, 320)
     }
 
+    // El reconocimiento de voz del móvil se queda el mismo de una vez para otra (soltarlo y pedir otro enseguida hace que
+    // Android aún lo esté soltando, y falla); si no se usa en un minuto, se suelta.
+    private var attempt = 0
+    private var ready = false
+    private val idle = Runnable { if (ended) drop() }
+    private fun drop() { try { sr?.destroy() } catch (ignored: Throwable) { }; sr = null }
+
+    /** Se cierra la app: deja de escuchar y suelta el reconocimiento de voz. */
+    fun release() { main.removeCallbacks(idle); if (!ended) end("", emptyList(), "cancel"); drop(); asking = false; host = null }
+
     private fun launch(g: Int) {
         val c = ctx ?: return end("", emptyList(), "norec")
-        try { sr?.destroy() } catch (ignored: Throwable) { }
-        sr = null
-        val r = try { SpeechRecognizer.createSpeechRecognizer(c) } catch (t: Throwable) { null } ?: return end("", emptyList(), "norec")
-        sr = r
-        r.setRecognitionListener(listener(g))
+        main.removeCallbacks(idle)
+        var r = sr
+        if (r == null) {
+            r = try { SpeechRecognizer.createSpeechRecognizer(c) } catch (t: Throwable) { null } ?: return end("", emptyList(), "norec")
+            sr = r
+        }
+        val a = ++attempt
+        ready = false
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
@@ -179,7 +192,14 @@ internal object Ear {
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, c.packageName)
         if (offline) i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-        try { r.startListening(i) } catch (t: Throwable) { end("", emptyList(), "norec") }
+        try { r.setRecognitionListener(listener(g, a)); r.startListening(i) } catch (t: Throwable) { drop(); end("", emptyList(), "norec") }
+    }
+
+    /** Una vez más (si estaba ocupado, o se había caído): lo de esta vez ya no cuenta. */
+    private fun again(g: Int, fresh: Boolean, ms: Long) {
+        tries++; attempt++
+        if (fresh) drop() else try { sr?.cancel() } catch (ignored: Throwable) { }
+        main.postDelayed({ if (g == gen && !ended) launch(g) }, ms)
     }
 
     /** Pasado un rato, si aún no ha acabado: con lo que haya entendido (o con nada). */
@@ -192,8 +212,7 @@ internal object Ear {
         ended = true; gen++
         val g = gen
         try { sr?.cancel() } catch (ignored: Throwable) { }
-        try { sr?.destroy() } catch (ignored: Throwable) { }
-        sr = null
+        main.removeCallbacks(idle); main.postDelayed(idle, 60000)
         last = code; level = 0f
         when (code) {
             "ok" -> { words = text; step = "done" }
@@ -215,21 +234,22 @@ internal object Ear {
         if (ms == 0L) show(false) else main.postDelayed({ if (g == gen) show(false) }, ms)
     }
 
-    private fun listener(g: Int) = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) { if (g == gen && step != "speech") step = "ready" }
-        override fun onBeginningOfSpeech() { if (g == gen) step = "speech" }
+    private fun listener(g: Int, a: Int) = object : RecognitionListener {
+        fun mine() = g == gen && a == attempt && !ended
+        override fun onReadyForSpeech(params: Bundle?) { if (mine()) { ready = true; if (step != "speech") step = "ready" } }
+        override fun onBeginningOfSpeech() { if (mine()) step = "speech" }
         override fun onRmsChanged(rmsdB: Float) {
-            if (g != gen || ended) return
+            if (!mine()) return
             levels++
             val v = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
             if (v > maxLevel) maxLevel = v
             level = level * 0.45f + v * 0.55f
         }
         override fun onBufferReceived(buffer: ByteArray?) { }
-        override fun onEndOfSpeech() { if (g == gen && !ended) { step = "think"; level = 0f; after(g, 8000) } }
-        override fun onError(error: Int) { if (g == gen && !ended) failed(g, error) }
+        override fun onEndOfSpeech() { if (mine()) { step = "think"; level = 0f; after(g, 8000) } }
+        override fun onError(error: Int) { if (mine()) failed(g, error) }
         override fun onResults(results: Bundle?) {
-            if (g != gen || ended) return
+            if (!mine()) return
             val l = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
             when {
                 l.isNotEmpty() -> end(l[0], l, "ok")
@@ -238,7 +258,7 @@ internal object Ear {
             }
         }
         override fun onPartialResults(partial: Bundle?) {
-            if (g != gen || ended) return
+            if (!mine()) return
             val t = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
             if (t.isEmpty() || t == words) return
             words = t; partials++
@@ -249,18 +269,22 @@ internal object Ear {
     }
 
     private fun failed(g: Int, error: Int) {
-        when (error) {
-            // no ha oído nada (o nada que entienda): con lo que fuera entendiendo, si algo
-            SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT, SpeechRecognizer.ERROR_CLIENT ->
-                if (words.isNotBlank()) end(words, listOf(words), "ok") else end("", emptyList(), if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) "timeout" else "nomatch")
-            // ocupado: una vez más, con uno nuevo
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> if (tries < 1) { tries++; try { sr?.cancel() } catch (ignored: Throwable) { }; main.postDelayed({ if (g == gen && !ended) launch(g) }, 350) } else end("", emptyList(), "busy")
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> end("", emptyList(), "denied")
-            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER, 11 -> end("", emptyList(), "net")
-            12, 13 -> end("", emptyList(), "lang")
-            SpeechRecognizer.ERROR_AUDIO -> end("", emptyList(), "audio")
-            10 -> end("", emptyList(), "busy")
-            else -> end("", emptyList(), "err$error")
+        when {
+            // ocupado: una vez más, enseguida
+            error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY && tries < 1 -> again(g, false, 350)
+            // se ha caído, o falló antes de empezar siquiera: una vez más, con uno nuevo
+            (error == 11 || (error == SpeechRecognizer.ERROR_CLIENT && !ready && words.isBlank())) && tries < 1 -> again(g, true, 800)
+            else -> when (error) {
+                // no ha oído nada (o nada que entienda): con lo que fuera entendiendo, si algo
+                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT, SpeechRecognizer.ERROR_CLIENT ->
+                    if (words.isNotBlank()) end(words, listOf(words), "ok") else end("", emptyList(), if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) "timeout" else "nomatch")
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY, 10 -> end("", emptyList(), "busy")
+                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> end("", emptyList(), "denied")
+                SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER -> end("", emptyList(), "net")
+                12, 13 -> end("", emptyList(), "lang")
+                SpeechRecognizer.ERROR_AUDIO -> end("", emptyList(), "audio")
+                else -> end("", emptyList(), "err$error")
+            }
         }
     }
 }
