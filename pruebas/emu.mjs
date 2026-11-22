@@ -401,13 +401,21 @@ try {
     check('«Ahora» con el visualizador arriba es nativa y el visualizador lo dibuja Android (y se mueve)', !!hs && hs.shown && hs.screen === 'inicio' && hs.which === 'vizHero' && h1.st && h1.st.vizActive === 'vizHero' && h1.n >= 10 && /^vizHero:gl:/.test(h1.st.vizDrawn), JSON.stringify({ hs, n: h1.n, drawn: h1.st && h1.st.vizDrawn, err: h1.st && h1.st.vizErr }));
     // tocarlo abre el reproductor (como siempre); allí, «Visual»
     const until = async (expr, ms = 8000) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await js(expr); if (v === true) return true; await sleep(500); } return false; };
+    // (las canciones de prueba duran 30 s y mirar la pantalla con el visualizador moviéndose tarda: que no se acabe a mitad)
+    await js(`${O} try { o.act().currentTime = 0.5; } catch (e) {} return 1;`);
     let hn = ui().find(n => !n.web && /Visualizador/.test(n.desc || ''));
     if (hn) { tap(...center(hn)); await sleep(1500); }
     await until(`${O} return W.on.join() === 'np';`);
     await sleep(800);
+    // «Visual» (si no está ya puesto); si el toque se pierde, otra vez
     let nv = null;
-    for (let k = 0; k < 3 && !nv; k++) { nv = ui().find(n => !n.web && (n.text === 'Visual' || n.desc === 'Visual')); if (!nv) await sleep(900); }
-    if (nv) tap(...center(nv)); else await tapWeb('#npVizBtn', 300);
+    for (let t = 0; t < 2; t++) {
+      if (await js(`${O} return !!o.VZ.np;`) === true) break;
+      nv = null;
+      for (let k = 0; k < 3 && !nv; k++) { nv = ui().find(n => !n.web && (n.text === 'Visual' || n.desc === 'Visual')); if (!nv) await sleep(900); }
+      if (nv) tap(...center(nv)); else await tapWeb('#npVizBtn', 300);
+      await until(`${O} return !!o.VZ.np;`, 4000);
+    }
     await until(`return (await Capacitor.Plugins.OrbitaUi.status()).vizActive === 'vizNP';`, 6000); await sleep(800);
     const n1 = await moving(1500);
     shot('viz-reproductor');

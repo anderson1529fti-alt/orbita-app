@@ -47,6 +47,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -356,7 +358,6 @@ private fun EarOrb(sk: Skin, step: String) {
         val spin = spinS?.value ?: 0f
         val wave = waveS?.value ?: 0f
         val ctr = Offset(size.width / 2, size.height / 2)
-        val ring = Brush.sweepGradient(listOf(lime, p.accent, p.accent2, teal, lime), ctr)
         rotate(spin - 50f, ctr) {
             // el halo: una luz de cada color del aro, a su lado, difuminadas una a una (un degradado circular difuminado
             // deja una raya fina donde empieza y acaba), girando y creciendo con tu voz
@@ -373,7 +374,16 @@ private fun EarOrb(sk: Skin, step: String) {
                     cv.drawCircle(Offset(ctr.x + (cos(ang) * rr * 0.3).toFloat(), ctr.y + (sin(ang) * rr * 0.3).toFloat()), rr * 0.8f, pt)
                 }
             }
-            drawCircle(ring, size.width / 2, ctr)
+            // el aro, en tramos de color que se solapan un poco (un degradado circular deja una rayita donde empieza y acaba)
+            val ringCols = listOf(lime, p.accent, p.accent2, teal, lime)
+            val segs = 120
+            val sw = 6.dp.toPx(); val rm = size.width / 2 - sw / 2
+            for (i in 0 until segs) {
+                val pos = i * 4f / segs
+                val k = pos.toInt().coerceAtMost(3)
+                drawArc(lerp(ringCols[k], ringCols[k + 1], pos - k), i * 360f / segs - 0.5f, 360f / segs + 1f, false,
+                    Offset(ctr.x - rm, ctr.y - rm), Size(rm * 2, rm * 2), style = Stroke(sw))
+            }
         }
         clipPath(Path().apply { addOval(Rect(ctr, 29.dp.toPx())) }) {
             drawRect(Brush.radialGradient(0f to Color(0xFF2A1F45), 0.7f to Color(0xFF0B0814), 1f to Color(0xFF0B0814),
