@@ -95,7 +95,7 @@ object UiState {
     /** 5.3 · ¿la ventana de arriba es «de paso»? (lo que se toca en ella va a la web) · cuántos toques se le han pasado */
     fun winPass(): Boolean = wins.lastOrNull()?.pass == true
     /** La ventana de más arriba que tiene ese punto (en px de la capa), o null. */
-    fun winAt(x: Float, y: Float, d: Float): WDef? {
+    internal fun winAt(x: Float, y: Float, d: Float): WDef? {
         for (w in wins.asReversed()) for (f in w.fixed) if (x >= f.x * d && x < (f.x + f.w) * d && y >= f.y * d && y < (f.y + f.h) * d) return w
         return null
     }
