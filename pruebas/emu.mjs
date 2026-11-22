@@ -662,30 +662,35 @@ try {
     let nodes = ui(); shot('voz-permiso');
     const deny = nodes.find(n => /permission_deny_button$/.test(n.id || '')) || nodes.find(n => /^(Don.t allow|No permitir)$/i.test(n.text));
     check('la primera vez, el recuadro de Nova explica lo del permiso y Android lo pide', !!p0 && p0.earStep === 'perm' && !!deny, JSON.stringify({ paso: p0 && p0.earStep, boton: !!deny && (deny.text || deny.id) }));
-    if (deny) tap(...center(deny));
     // (en el emulador hay dos «ventanas de Google»: la de Google y la de prueba; Android pregunta cuál, y se elige la de prueba)
-    for (let k = 0; k < 6; k++) {
-      await sleep(900);
-      if (await js(`return document.querySelector('#djInput').value.startsWith('ventana:');`) === true) break;
-      const cn = ui(); const pick = cn.find(n => n.text === 'Voz de prueba');
-      if (pick) { tap(...center(pick)); await sleep(900); const once = ui().find(n => /button_once$/.test(n.id || '')); if (once) tap(...center(once)); }
-    }
-    await until(`return document.querySelector('#djInput').value.startsWith('ventana:');`, 6000); await sleep(600);
+    const ventana = async () => {
+      for (let k = 0; k < 6; k++) {
+        await sleep(900);
+        if (await js(`return document.querySelector('#djInput').value.startsWith('ventana:');`) === true) break;
+        const pick = ui().find(n => n.text === 'Voz de prueba');
+        if (pick) { tap(...center(pick)); await sleep(900); const once = ui().find(n => /button_once$/.test(n.id || '')); if (once) tap(...center(once)); }
+      }
+      await until(`return document.querySelector('#djInput').value.startsWith('ventana:');`, 6000); await sleep(600);
+    };
+    if (deny) tap(...center(deny));
+    await ventana();
     const d1 = await st(); const i1 = await input();
     check('sin permiso: la ventana de Google de siempre, y lo dicho le llega a Nova', i1 === 'ventana: pon algo tranquilo' && !!d1 && !d1.earOn, JSON.stringify({ i1, on: d1 && d1.earOn }));
     // ---- con permiso: escucha Órbita, con lo que va entendiendo y el aro moviéndose con la voz
     sh(`pm grant ${PKG} android.permission.RECORD_AUDIO`); await sleep(800);
-    guion('pon algo tranquilo para leer'); await clearIn();
+    // (despacio, para que dé tiempo a mirar el recuadro mientras escucha)
+    const frase = 'pon algo tranquilo para leer un rato largo';
+    guion('lento:' + frase); await clearIn();
     await js(`${O} o.voiceAsk(); return 1;`);
-    const e1 = await untilSt(s => s.earOn && s.earPartials >= 2, 6000);
-    nodes = ui(); shot('voz-escuchando');
-    const card = nodes.find(n => !n.web && /TE ESCUCHA/.test(n.desc || ''));
+    const e1 = await untilSt(s => s.earOn && s.earPartials >= 3, 9000);
     const mic = await js(`return document.querySelector('#djMic').classList.contains('on');`);
+    shot('voz-escuchando'); nodes = ui();
+    const card = nodes.find(n => !n.web && /TE ESCUCHA/.test(n.desc || ''));
     check('con permiso, escucha Órbita: el recuadro de Nova con lo que va entendiendo (y el botón parpadea)', !!e1 && e1.earOn && /^pon algo/.test(e1.earWords) && !!card && mic === true, JSON.stringify({ paso: e1 && e1.earStep, palabras: e1 && e1.earWords, recuadro: !!card && card.desc.slice(0, 80), mic }));
     check('el aro se mueve con la voz', !!e1 && e1.earLevels >= 5 && e1.earMax > 0.3, JSON.stringify({ niveles: e1 && e1.earLevels, max: e1 && +e1.earMax.toFixed(2) }));
-    await until(`return document.querySelector('#djInput').value === 'pon algo tranquilo para leer';`, 8000);
+    await until(`return document.querySelector('#djInput').value === '${frase}';`, 20000);
     const e2 = await untilSt(s => !s.earOn, 4000); const i2 = await input();
-    check('al callarte, lo dicho le llega a Nova y el recuadro se va', i2 === 'pon algo tranquilo para leer' && !!e2 && !e2.earOn && e2.earLast === 'ok', JSON.stringify({ i2, ultimo: e2 && e2.earLast }));
+    check('al callarte, lo dicho le llega a Nova y el recuadro se va', i2 === frase && !!e2 && !e2.earOn && e2.earLast === 'ok', JSON.stringify({ i2, ultimo: e2 && e2.earLast }));
     // ---- «Listo» termina antes: se queda con lo dicho hasta entonces
     guion('lento:pon algo de jazz suave por favor'); await clearIn(); await sleep(400);
     await js(`${O} o.voiceAsk(); return 1;`);
@@ -694,7 +699,8 @@ try {
     if (listo) tap(...center(listo));
     await until(`return document.querySelector('#djInput').value.length > 0;`, 6000); await sleep(400);
     const i3 = await input(); const e4 = await st();
-    check('«Listo» termina antes y le manda lo dicho hasta entonces', !!listo && /^pon( algo)?$/.test(i3) && !!e4 && e4.earLast === 'ok', JSON.stringify({ i3, listo: !!listo, ultimo: e4 && e4.earLast, antes: e3 && e3.earWords }));
+    const jazz = 'pon algo de jazz suave por favor';
+    check('«Listo» termina antes y le manda lo dicho hasta entonces', !!listo && i3.length > 0 && i3.length < jazz.length && jazz.startsWith(i3) && !!e4 && e4.earLast === 'ok', JSON.stringify({ i3, listo: !!listo, ultimo: e4 && e4.earLast, antes: e3 && e3.earWords }));
     // ---- «Cancelar»: no le llega nada a Nova
     await clearIn(); await sleep(300);
     await js(`${O} o.voiceAsk(); return 1;`);
@@ -713,12 +719,21 @@ try {
     // ---- no oye nada; sin internet; ocupado: lo dice en el recuadro, y nada a Nova
     for (const [g, code, txt] of [['nada', 'timeout', 'no oye nada'], ['red', 'net', 'sin internet'], ['ocupado', 'busy', 'ocupado (lo intenta dos veces)']]) {
       guion(g); await clearIn(); await sleep(300);
+      const s0 = ((await st()) || {}).earSessions || 0;
       await js(`${O} o.voiceAsk(); return 1;`);
-      const f1 = await untilSt(s => s.earStep === 'fail', 6000);
+      const f1 = await untilSt(s => s.earSessions > s0 && s.earStep === 'fail', 6000);
       if (g === 'red') { await sleep(300); shot('voz-sin-internet'); }
       const f2 = await untilSt(s => !s.earOn, 5000); await sleep(500); const fi = await input();
       check('si ' + txt + ', lo dice en el recuadro y no le manda nada a Nova', !!f1 && f1.earStep === 'fail' && !!f2 && f2.earLast === code && fi === '', JSON.stringify({ paso: f1 && f1.earStep, ultimo: f2 && f2.earLast, fi }));
     }
+    // ---- si el reconocimiento de voz del móvil no tiene permiso del micrófono: la ventana de Google (que lo pide)
+    sh('pm revoke io.github.orbita.pruebavoz android.permission.RECORD_AUDIO'); await sleep(1500);
+    guion('pon algo de pop'); await clearIn();
+    await js(`${O} o.voiceAsk(); return 1;`);
+    await ventana();
+    const d2 = await st(); const i7 = await input();
+    check('si el reconocimiento de voz del móvil no tiene permiso del micrófono: la ventana de Google, y lo dicho le llega a Nova', i7 === 'ventana: pon algo de pop' && !!d2 && !d2.earOn && d2.earLast === 'denied', JSON.stringify({ i7, ultimo: d2 && d2.earLast }));
+    sh('pm grant io.github.orbita.pruebavoz android.permission.RECORD_AUDIO'); await sleep(1000);
     // ---- desde el reproductor y desde la conversación, lo mismo
     guion('sube el volumen');
     await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(1200);

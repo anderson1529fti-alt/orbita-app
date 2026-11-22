@@ -8374,6 +8374,8 @@ async function listenOnce() {
   /* 5.1: Nova listens inside Órbita (Android's speech recognition, with what it understands at the bottom) */
   if (NATIVE && typeof earCan === 'function' && earCan()) {
     const r = await earListen();
+    /* (if it's the phone's speech recognition that has no permission for the microphone: the Google window, which asks for it) */
+    if (r && !r.fallback && !r.text && (r.code === 'denied' || r.code === 'norec')) { r.fallback = r.code; diag('escuchar en Órbita: el reconocimiento de voz del móvil no pudo (' + r.code + ') → ventana de Google'); }
     if (r && !r.fallback) {
       if (!r.text && r.code === 'lang') toast('Para entenderte sin internet, el móvil necesita el español descargado: app de Google › Ajustes › Voz › Reconocimiento de voz sin conexión.', 8000);
       return r.text || '';
