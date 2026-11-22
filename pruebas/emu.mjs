@@ -25,6 +25,7 @@ const SOLO = fs.existsSync('pruebas/solo-ventanas');
 const SOLO_VIZ = fs.existsSync('pruebas/solo-viz');
 const SOLO_LY = fs.existsSync('pruebas/solo-letra');
 const SOLO_VOZ = fs.existsSync('pruebas/solo-voz');
+const SOLO_CEREBRO = fs.existsSync('pruebas/solo-cerebro');
 // la pantalla en crudo (sin PNG: así se puede comparar aquí mismo, píxel a píxel)
 const grab = () => {
   const r = spawnSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64e6 }); const b = r.stdout;
@@ -796,6 +797,90 @@ try {
     guion('pon algo tranquilo');
     check('sin cierres por error al escuchar', crashes() === 0, crashText().slice(0, 1500));
   };
+
+  // ================== 5.2 · Fase 3, paso 5: el cerebro de comprensión de Nova, en Android ==================
+  const cerebro52 = async () => {
+    const O = `const o = window.__orbita;`;
+    const st = () => js(`return await Capacitor.Plugins.OrbitaUi.status();`);
+    // (lo largo, en segundo plano dentro de la app, y se pregunta cada segundo: cada consulta tiene 20 s como mucho)
+    const job = async (expr, ms) => {
+      await js(`window.__jr = undefined; (async () => { ${expr} })().then(v => { window.__jr = { v }; }, e => { window.__jr = { err: String(e && e.message || e) }; }); return 1;`);
+      const t0 = Date.now();
+      while (Date.now() - t0 < ms) { const r = await js(`return window.__jr || null;`); if (r && (r.v !== undefined || r.err)) return r; await sleep(1000); }
+      return { err: 'tiempo' };
+    };
+    const D = 'pruebas/cerebro', files = ['tokenizer.json', 'modelo.onnx', 'ort.wasm.min.js', 'ort-wasm-simd.wasm'];
+    const have = files.every(f => fs.existsSync(`${D}/${f}`) && fs.statSync(`${D}/${f}`).size > 1000);
+    check('el cerebro de comprensión de prueba está (el mismo que se instala en el móvil)', have, have ? files.map(f => f + ' ' + Math.round(fs.statSync(`${D}/${f}`).size / 1048576) + ' MB').join(', ') : 'no se pudo bajar: mira salida/cerebro.txt');
+    if (!have) return;
+    // ---- los archivos, en la carpeta de la app y con los mismos nombres que cuando se instala desde Ajustes
+    sh('mkdir -p /data/local/tmp/cerebro');
+    for (const f of files) adb(`push ${D}/${f} /data/local/tmp/cerebro/${f}`, { timeout: 240000 });
+    sh(`run-as ${PKG} mkdir -p files/nova-cerebro-pequeno`);
+    for (const f of files) adb(`shell "cat /data/local/tmp/cerebro/${f} | run-as ${PKG} sh -c 'cat > files/nova-cerebro-pequeno/${f}'"`, { timeout: 240000 });
+    const lsz = sh(`run-as ${PKG} ls -l files/nova-cerebro-pequeno`);
+    const sizesOk = files.every(f => new RegExp('\\s' + fs.statSync(`${D}/${f}`).size + '\\s.*' + f.replace(/\./g, '\\.')).test(lsz));
+    const nbSt = { repo: 'Xenova/multilingual-e5-small', file: 'onnx/model_quantized.onnx', label: 'multilingual-e5-small', by: 'Microsoft (intfloat)', lic: 'MIT', prefix: 'query: ', mb: 146, ts: Date.now(), where: 'nativo' };
+    await js(`${O} o.nbReset(); o.NB.st = ${JSON.stringify(nbSt)}; o.NB.on = true; o.NB.fails = 0; o.NB.natFail = null; localStorage.setItem('orbita:nb', JSON.stringify(o.NB.st)); localStorage.setItem('orbita:nbOn', 'true'); return 1;`);
+    // ---- arranca en Android: nada del cerebro en la parte web
+    const t0 = Date.now();
+    const i1 = await job(`${O} await o.nbInit(); return { nat: !!o.NB.nat, dim: o.NB.dim, ms: o.NB.ms, info: o.NB.natInfo || null, fail: o.NB.natFail || '', bank: !!(o.NB.base && o.NB.cal), worker: !!o.NB.worker, n: o.NB.base ? o.NB.base.labels.length : 0 };`, 240000);
+    const s1 = await st();
+    const iv = i1.v || {};
+    check('el cerebro de comprensión arranca en Android (Kotlin + ONNX Runtime), con sus ejemplos, y nada de él en la parte web', sizesOk && iv.nat === true && iv.dim === 384 && iv.bank && !iv.worker && !!s1 && s1.brainThreads > 0,
+      JSON.stringify({ archivos: sizesOk, ...iv, err: i1.err || '', hilos: s1 && s1.brainThreads, carga: s1 && s1.brainLoad, s: Math.round((Date.now() - t0) / 1000) }));
+    if (!iv.nat) return;
+    // ---- lo mismo que la parte web: las mismas piezas de palabras, los mismos vectores y lo mismo entendido
+    const tricky = ['Pon   algo\ttranquilo\n por favor', '¡¡QUÉ TEMAZO!! 🔥🔥', 'ﬁesta en Ñuñoa — 2024', 'música para estudiar', 'Ça va? 你好, Привет мир', '👨‍👩‍👧 Ⅻ ① ㎏', 'ｆｕｌｌ ｗｉｄｔｈ', '', '   ', 'pon ' + 'algo muy muy largo '.repeat(40)];
+    const par = await job(`${O}
+      const T = o.NB_TEST.map(x => x[0]).concat(${JSON.stringify(tricky)}), C = o.NB_TEST.map(x => x[0]);
+      const nt = await o.mindCall({ type: 'tokenize', texts: T }); if (!nt.ok) throw new Error('tokenize: ' + nt.error);
+      const t1 = performance.now(); const ne = await o.mindCall({ type: 'embed', texts: T }); const nms = performance.now() - t1; if (!ne.ok) throw new Error('embed: ' + ne.error);
+      const nc = []; for (const x of C) { const r = await o.nbClassify(x); nc.push(r.intent); }
+      const w = await o.nbWebProbe(T, C);
+      const d = ne.dim, diffIds = [], cos = [];
+      T.forEach((t, i) => { if (JSON.stringify(nt.ids[i]) !== JSON.stringify(w.ids[i])) diffIds.push({ t: t.slice(0, 40), a: nt.ids[i].slice(0, 12), w: w.ids[i].slice(0, 12) }); let s = 0; for (let k = 0; k < d; k++) s += ne.vecs[i * d + k] * w.vecs[i * d + k]; cos.push(s); });
+      const minCos = Math.min(...cos), worst = T[cos.indexOf(minCos)];
+      const diffCls = []; C.forEach((t, i) => { if (nc[i] !== w.cls.out[i].intent) diffCls.push({ t, a: nc[i], w: w.cls.out[i].intent }); });
+      const want = o.NB_TEST.map(x => x[1]), okA = nc.filter((x, i) => x === want[i]).length, okW = w.cls.out.filter((x, i) => x.intent === want[i]).length;
+      return { n: T.length, diffIds: diffIds.slice(0, 4), nIds: diffIds.length, minCos: +minCos.toFixed(5), worst: worst.slice(0, 40), diffCls, okA, okW, nC: C.length, msA: Math.round(nms / T.length), msW: Math.round(w.ms / T.length) };`, 300000);
+    const pv = par.v || {};
+    check('Android parte las frases en las mismas piezas que la parte web (también con acentos, emojis, otros alfabetos y frases larguísimas)', !par.err && pv.nIds === 0 && pv.n > 40, JSON.stringify({ err: par.err || '', n: pv.n, distintas: pv.nIds, ej: pv.diffIds }));
+    check('y saca los mismos vectores de significado (± lo que cambia de un motor a otro)', !par.err && pv.minCos >= 0.999, JSON.stringify({ minimo: pv.minCos, frase: pv.worst }));
+    check('y entiende lo mismo que la parte web en las frases de prueba', !par.err && Array.isArray(pv.diffCls) && pv.diffCls.length === 0 && pv.okA >= pv.okW, JSON.stringify({ android: pv.okA, web: pv.okW, de: pv.nC, distintas: pv.diffCls, ms: { android: pv.msA, web: pv.msW } }));
+    // ---- la prueba de Ajustes («entiende X de Y frases»), ahora con el de Android
+    const ck = await job(`${O} const c = await o.nbCheck(true); return c ? { ok: c.ok, n: c.n, ms: c.ms, eng: c.eng } : null;`, 180000);
+    check('la prueba de Ajustes › Tu DJ se hace con el cerebro de Android', !!ck.v && ck.v.eng === 'android' && ck.v.ok >= (pv.okW || 0) && ck.v.n > 0, JSON.stringify(ck.v || ck.err));
+    // ---- de verdad: decirle algo con tus palabras y que Nova lo haga
+    await js(`${O} const lk = t => t.demo ? !!(o.state.demoStats[t.id] || {}).liked : !!t.liked; const t = o.state.tracks.find(t => !lk(t) && !t.net); if (t) o.playQueue([t.id], 0); return 1;`); await sleep(1500);
+    const before = await js(`${O} const t = o.current(); return t ? { id: t.id, liked: t.demo ? !!(o.state.demoStats[t.id] || {}).liked : !!t.liked } : null;`);
+    const calls0 = ((await st()) || {}).brainCalls || 0;
+    await js(`${O} o.novaCommand('esta canción es un temazo'); return 1;`);
+    let after = null;
+    for (let k = 0; k < 16; k++) { await sleep(500); after = await js(`${O} const t = o.current(); return t ? { id: t.id, liked: t.demo ? !!(o.state.demoStats[t.id] || {}).liked : !!t.liked } : null;`); if (after && after.liked) break; }
+    const calls1 = ((await st()) || {}).brainCalls || 0;
+    check('«esta canción es un temazo» (sin las palabras de siempre): Android lo entiende y Nova la guarda en favoritas', !!before && !before.liked && !!after && after.liked && after.id === before.id && calls1 > calls0, JSON.stringify({ antes: before, despues: after, llamadas: calls1 - calls0 }));
+    // ---- «Pantallas nativas» apagado: el de la parte web, como siempre; encendido: otra vez el de Android
+    const tog = async on => js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; if ((b.getAttribute('aria-pressed') === 'true') !== ${on}) b.click(); await new Promise(r => setTimeout(r, 600)); return b.getAttribute('aria-pressed');`);
+    await goView('ajustes'); await sleep(800);
+    await tog(false); await goView('inicio'); await sleep(800);
+    const off = await job(`${O} const r = await o.nbClassify('pásala que no me apetece'); return { intent: r.intent, nat: !!o.NB.nat, worker: !!o.NB.worker };`, 240000);
+    await goView('ajustes'); await sleep(800);
+    await tog(true); await goView('inicio'); await sleep(1500);
+    const on = await job(`${O} const r = await o.nbClassify('pásala que no me apetece'); return { intent: r.intent, nat: !!o.NB.nat, worker: !!o.NB.worker };`, 120000);
+    check('con «Pantallas nativas» apagado entiende el de la parte web (como siempre), y al encenderlo vuelve el de Android', !!off.v && off.v.intent === 'saltar' && !off.v.nat && off.v.worker && !!on.v && on.v.intent === 'saltar' && on.v.nat && !on.v.worker, JSON.stringify({ apagado: off.v || off.err, encendido: on.v || on.err }));
+    const dg = await js(`let got = ''; try { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async t => { got = t; } } }); } catch (e) {} const b = document.querySelector('#diagCopy'); if (b) b.click(); await new Promise(r => setTimeout(r, 900)); return got;`);
+    const line = (String(dg || '').match(/Pantallas nativas:[^\n]*/) || [''])[0];
+    check('el diagnóstico dice que el cerebro de comprensión corre en Android', /cerebro de comprensión \(\d+ núcleos\)/.test(line), line.slice(-160));
+    check('sin cierres por error con el cerebro', crashes() === 0, crashText().slice(0, 1500));
+  };
+  if (SOLO_CEREBRO) {
+    await goView('ajustes'); await sleep(1000);
+    const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
+    check('prueba rápida: las pantallas nativas, encendidas', t0 === 'true', t0);
+    await goView('inicio'); await sleep(3000);
+    await cerebro52(); saveLogs(); finish('prueba rápida: solo el cerebro');
+  }
   if (SOLO_VOZ) {
     await goView('ajustes'); await sleep(1000);
     const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
@@ -1391,6 +1476,7 @@ try {
   await ly50();
   await yt50();
   await voz51();
+  await cerebro52();
 
   // ================= FASE 2 · pasos 4 y 5 (4.7): «Buscar» y «Ajustes», nativas =================
   {

@@ -283,6 +283,7 @@ class OrbitaUiPlugin : Plugin() {
     // la app se cierra: suelta el reconocimiento de voz
     override fun handleOnDestroy() {
         try { Ear.release() } catch (ignored: Throwable) { }
+        try { Mind.release() } catch (ignored: Throwable) { }
         super.handleOnDestroy()
     }
 
@@ -352,6 +353,13 @@ class OrbitaUiPlugin : Plugin() {
         earBack.isEnabled = true
         call.resolve(JSObject().put("ok", true))
     }
+
+    /**
+     * 5.2 · El cerebro de comprensión de Nova, en Android: los mismos mensajes que usaba la parte web con su «worker»
+     * («init», «embed», «bank», «classify», «tokenize» y «reset»). Los vectores van y vienen en base64.
+     */
+    @PluginMethod
+    fun brain(call: PluginCall) { Mind.handle(context, call) }
 
     /** «Listo» desde la app: deja de escuchar y se queda con lo dicho. */
     @PluginMethod
@@ -439,7 +447,7 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 10)
+        r.put("available", true); r.put("v", 11)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
@@ -456,6 +464,7 @@ class OrbitaUiPlugin : Plugin() {
             // 5.1 · el oído: si escucha, en qué paso, lo entendido, cuánto se oye y cómo acabó la última vez
             r.put("earOn", Ear.on); r.put("earStep", Ear.step); r.put("earWords", Ear.words); r.put("earLevel", Ear.level.toDouble()); r.put("earMax", Ear.maxLevel.toDouble())
             r.put("earSessions", Ear.sessions); r.put("earLast", Ear.last); r.put("earPartials", Ear.partials); r.put("earLevels", Ear.levels); r.put("earPermCards", Ear.permCards); r.put("earAsking", Ear.asking)
+            r.put("brainThreads", Mind.threads); r.put("brainLoad", Mind.loadMs); r.put("brainCalls", Mind.calls)
             r.put("ytDock", UiState.ytDock != null); r.put("ytSlot", UiState.ytSlot != null); r.put("ytFwd", UiState.ytFwd)
             r.put("lyDrawn", Ly.drawn); r.put("lyIdx", Ly.shown); r.put("lyY", Ly.y.toDouble()); r.put("lyFill", Ly.fill.toDouble()); r.put("lyTaps", Ly.taps); r.put("lyGen", Ly.g); r.put("lyAt", Ly.i)
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }

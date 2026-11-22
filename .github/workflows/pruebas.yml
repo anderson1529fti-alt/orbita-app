@@ -17,7 +17,7 @@ concurrency:
 jobs:
   emulador:
     runs-on: ubuntu-24.04
-    timeout-minutes: 62
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -30,6 +30,20 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
+      # (las piezas para compilar, guardadas de una vez para otra: menos descargas, y no depender de que Maven Central
+      # conteste —a veces dice «demasiadas peticiones»—)
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('package.json', 'scripts/prepare-android.mjs') }}
+          restore-keys: gradle-
+      # (solo para las pruebas: el cerebro de comprensión de Nova, el mismo que se instala en el móvil desde Ajustes)
+      - uses: actions/cache@v4
+        with:
+          path: pruebas/cerebro
+          key: cerebro-e5-small-q-ort118-v1
       - name: Dependencias
         timeout-minutes: 8
         run: npm install --no-audit --no-fund
@@ -72,9 +86,21 @@ jobs:
         run: |
           set -o pipefail
           sh pruebas/voz/hacer.sh pruebas/voz/voz-de-prueba.apk 2>&1 | tee salida/voz.txt
+      - name: Cerebro de prueba
+        continue-on-error: true
+        run: |
+          mkdir -p pruebas/cerebro salida && cd pruebas/cerebro
+          get() { if [ ! -s "$1" ]; then curl -fsSL --retry 3 --retry-delay 5 -o "$1.tmp" "$2" && mv "$1.tmp" "$1"; fi; }
+          {
+            get tokenizer.json https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/tokenizer.json
+            get modelo.onnx https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/onnx/model_quantized.onnx
+            get ort.wasm.min.js https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.wasm.min.js || get ort.wasm.min.js https://unpkg.com/onnxruntime-web@1.18.0/dist/ort.wasm.min.js
+            get ort-wasm-simd.wasm https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort-wasm-simd.wasm || get ort-wasm-simd.wasm https://unpkg.com/onnxruntime-web@1.18.0/dist/ort-wasm-simd.wasm
+            ls -la
+          } 2>&1 | tee ../../salida/cerebro.txt
       # Lo mismo que compila la versión que se publica (sin firmar): que no falle por algo que solo salga ahí
       - name: Compilar como la versión publicada
-        if: hashFiles('pruebas/solo-ventanas') == '' && hashFiles('pruebas/solo-viz') == '' && hashFiles('pruebas/solo-letra') == '' && hashFiles('pruebas/solo-voz') == ''
+        if: hashFiles('pruebas/solo-ventanas') == '' && hashFiles('pruebas/solo-viz') == '' && hashFiles('pruebas/solo-letra') == '' && hashFiles('pruebas/solo-voz') == '' && hashFiles('pruebas/solo-cerebro') == ''
         run: |
           cd android
           set -o pipefail
