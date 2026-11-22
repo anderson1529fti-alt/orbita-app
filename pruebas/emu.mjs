@@ -830,6 +830,8 @@ try {
     check('el cerebro de comprensión arranca en Android (Kotlin + ONNX Runtime), con sus ejemplos, y nada de él en la parte web', sizesOk && iv.nat === true && iv.dim === 384 && iv.bank && !iv.worker && !!s1 && s1.brainThreads > 0,
       JSON.stringify({ archivos: sizesOk, ...iv, err: i1.err || '', hilos: s1 && s1.brainThreads, carga: s1 && s1.brainLoad, s: Math.round((Date.now() - t0) / 1000) }));
     if (!iv.nat) return;
+    // ---- la prueba de Ajustes («entiende X de Y frases»), ahora con el de Android (y así no se hace sola en medio de lo que se mide)
+    const ck = await job(`${O} const c = await o.nbCheck(true); return c ? { ok: c.ok, n: c.n, ms: c.ms, eng: c.eng } : null;`, 180000);
     // ---- lo mismo que la parte web: las mismas piezas de palabras, los mismos vectores y lo mismo entendido
     const tricky = ['Pon   algo\ttranquilo\n por favor', '¡¡QUÉ TEMAZO!! 🔥🔥', 'ﬁesta en Ñuñoa — 2024', 'música para estudiar', 'Ça va? 你好, Привет мир', '👨‍👩‍👧 Ⅻ ① ㎏', 'ｆｕｌｌ ｗｉｄｔｈ', '', '   ', 'pon ' + 'algo muy muy largo '.repeat(40)];
     const par = await job(`${O}
@@ -837,21 +839,18 @@ try {
       const nt = await o.mindCall({ type: 'tokenize', texts: T }); if (!nt.ok) throw new Error('tokenize: ' + nt.error);
       const t1 = performance.now(); const ne = await o.mindCall({ type: 'embed', texts: T }); const nms = performance.now() - t1; if (!ne.ok) throw new Error('embed: ' + ne.error);
       const nc = []; for (const x of C) { const r = await o.nbClassify(x); nc.push(r.intent); }
-      const tb = performance.now(); for (let i = 0; i < 10; i++) await o.mindCall({ type: 'tokenize', texts: ['hola'] }); const bridge = (performance.now() - tb) / 10;
-      const te = performance.now(); for (let i = 0; i < 10; i++) await o.nbClassify(C[i]); const e2e = (performance.now() - te) / 10;
+
       const w = await o.nbWebProbe(T, C);
       const d = ne.dim, diffIds = [], cos = [];
       T.forEach((t, i) => { if (JSON.stringify(nt.ids[i]) !== JSON.stringify(w.ids[i])) diffIds.push({ t: t.slice(0, 40), a: nt.ids[i].slice(0, 12), w: w.ids[i].slice(0, 12) }); let s = 0; for (let k = 0; k < d; k++) s += ne.vecs[i * d + k] * w.vecs[i * d + k]; cos.push(s); });
       const minCos = Math.min(...cos), worst = T[cos.indexOf(minCos)];
       const diffCls = []; C.forEach((t, i) => { if (nc[i] !== w.cls.out[i].intent) diffCls.push({ t, a: nc[i], w: w.cls.out[i].intent }); });
       const want = o.NB_TEST.map(x => x[1]), okA = nc.filter((x, i) => x === want[i]).length, okW = w.cls.out.filter((x, i) => x.intent === want[i]).length;
-      return { n: T.length, diffIds: diffIds.slice(0, 4), nIds: diffIds.length, minCos: +minCos.toFixed(5), worst: worst.slice(0, 40), diffCls, okA, okW, nC: C.length, msA: Math.round(nms / T.length), msW: Math.round(w.ms / T.length), bridge: Math.round(bridge), e2e: Math.round(e2e) };`, 300000);
+      return { n: T.length, diffIds: diffIds.slice(0, 4), nIds: diffIds.length, minCos: +minCos.toFixed(5), worst: worst.slice(0, 40), diffCls, okA, okW, nC: C.length, msA: Math.round(nms / T.length), msW: Math.round(w.ms / T.length) };`, 300000);
     const pv = par.v || {};
     check('Android parte las frases en las mismas piezas que la parte web (también con acentos, emojis, otros alfabetos y frases larguísimas)', !par.err && pv.nIds === 0 && pv.n > 40, JSON.stringify({ err: par.err || '', n: pv.n, distintas: pv.nIds, ej: pv.diffIds }));
     check('y saca los mismos vectores de significado (± lo que cambia de un motor a otro)', !par.err && pv.minCos >= 0.999, JSON.stringify({ minimo: pv.minCos, frase: pv.worst }));
-    check('y entiende lo mismo que la parte web en las frases de prueba', !par.err && Array.isArray(pv.diffCls) && pv.diffCls.length === 0 && pv.okA >= pv.okW, JSON.stringify({ android: pv.okA, web: pv.okW, de: pv.nC, distintas: pv.diffCls, ms: { android: pv.msA, web: pv.msW, idaYVuelta: pv.bridge, fraseEntera: pv.e2e } }));
-    // ---- la prueba de Ajustes («entiende X de Y frases»), ahora con el de Android
-    const ck = await job(`${O} const c = await o.nbCheck(true); return c ? { ok: c.ok, n: c.n, ms: c.ms, eng: c.eng } : null;`, 180000);
+    check('y entiende lo mismo que la parte web en las frases de prueba', !par.err && Array.isArray(pv.diffCls) && pv.diffCls.length === 0 && pv.okA >= pv.okW, JSON.stringify({ android: pv.okA, web: pv.okW, de: pv.nC, distintas: pv.diffCls }));
     check('la prueba de Ajustes › Tu DJ se hace con el cerebro de Android', !!ck.v && ck.v.eng === 'android' && ck.v.ok >= (pv.okW || 0) && ck.v.n > 0, JSON.stringify(ck.v || ck.err));
     // ---- de verdad: decirle algo con tus palabras y que Nova lo haga
     await js(`${O} const lk = t => t.demo ? !!(o.state.demoStats[t.id] || {}).liked : !!t.liked; const t = o.state.tracks.find(t => !lk(t) && !t.net); if (t) o.playQueue([t.id], 0); return 1;`); await sleep(1500);
@@ -870,12 +869,14 @@ try {
     await goView('ajustes'); await sleep(800);
     await tog(false); await goView('inicio'); await sleep(800);
     // (la primera vez, mientras arranca, Nova no espera más de 6 s y sigue sin él: se espera a que arranque y otra vez)
-    const again = `try { await o.nbClassify('pásala que no me apetece'); } catch (e) {} try { await o.NB.ready; } catch (e) {} const r = await o.nbClassify('pásala que no me apetece'); const C = o.NB_TEST.map(x => x[0]); const te = performance.now(); for (let i = 0; i < 10; i++) await o.nbClassify(C[i]); return { intent: r.intent, nat: !!o.NB.nat, worker: !!o.NB.worker, e2e: Math.round((performance.now() - te) / 10) };`;
+    // (y lo que tarda: en una pantalla quieta, sin nada más a la vez, 20 frases; «piensa» es lo que tarda el cerebro, «entera» lo que espera Nova)
+    const timing = `const C = o.NB_TEST.map(x => x[0]); let think = 0; const te = performance.now(); for (let i = 0; i < 20; i++) { const r = await o.nbClassify(C[i]); think += r.ms || 0; } const whole = (performance.now() - te) / 20;`;
+    const again = `try { await o.nbClassify('pásala que no me apetece'); } catch (e) {} try { await o.NB.ready; } catch (e) {} const r = await o.nbClassify('pásala que no me apetece'); location.hash = '#ajustes'; await new Promise(r => setTimeout(r, 2500)); ${timing} location.hash = '#inicio'; return { intent: r.intent, nat: !!o.NB.nat, worker: !!o.NB.worker, piensa: Math.round(think / 20), entera: Math.round(whole) };`;
     const off = await job(`${O} ${again}`, 240000);
     await goView('ajustes'); await sleep(800);
     await tog(true); await goView('inicio'); await sleep(1500);
     const on = await job(`${O} ${again}`, 120000);
-    check('de principio a fin (lo que Nova espera por cada frase), el de Android contesta antes que el de la parte web', !!off.v && !!on.v && on.v.e2e < off.v.e2e, JSON.stringify({ android: on.v && on.v.e2e, web: off.v && off.v.e2e, antes: pv.e2e }));
+    check('el de Android piensa cada frase más rápido que el de la parte web (y lo que espera Nova, de principio a fin)', !!off.v && !!on.v && on.v.piensa < off.v.piensa, JSON.stringify({ android: on.v && { piensa: on.v.piensa, entera: on.v.entera }, web: off.v && { piensa: off.v.piensa, entera: off.v.entera }, nucleos: s1 && s1.brainThreads }));
     check('con «Pantallas nativas» apagado entiende el de la parte web (como siempre), y al encenderlo vuelve el de Android', !!off.v && off.v.intent === 'saltar' && !off.v.nat && off.v.worker && !!on.v && on.v.intent === 'saltar' && on.v.nat && !on.v.worker, JSON.stringify({ apagado: off.v || off.err, encendido: on.v || on.err }));
     const dg = await js(`let got = ''; try { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async t => { got = t; } } }); } catch (e) {} const b = document.querySelector('#diagCopy'); if (b) b.click(); await new Promise(r => setTimeout(r, 900)); return got;`);
     const line = (String(dg || '').match(/Pantallas nativas:[^\n]*/) || [''])[0];

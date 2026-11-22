@@ -1,7 +1,7 @@
 Órbita 5.2: el cerebro de comprensión de Nova corre en Android. Termina la fase 3.
 
 Fase 3, paso 5 (el último)
-- El cerebro que entiende lo que le dices con tus palabras («qué temazo», «pásala que me aburre»…) ya no va dentro de la parte web: lo mueve Android (Kotlin con ONNX Runtime) con varios núcleos del móvil. Entiende exactamente lo mismo, contesta antes y la app va más ligera.
+- El cerebro que entiende lo que le dices con tus palabras («qué temazo», «pásala que me aburre»…) ya no va dentro de la parte web: lo mueve Android (Kotlin con ONNX Runtime) con varios núcleos del móvil. Entiende exactamente lo mismo, piensa más rápido y la parte web ya no carga con el modelo.
 - Es el mismo cerebro que ya tenías: no hay que descargar nada. Si no lo tienes, se instala como siempre en Ajustes › Tu DJ.
 - El cerebro grande ya funcionaba en Android desde la 3.1.
 - Con esto termina la fase 3: la conversación con Nova, su voz, sus cerebros, los visualizadores, la letra y el videoclip ya son de Android. Lo que Nova decide y su memoria pasan con tus datos en la fase 4.

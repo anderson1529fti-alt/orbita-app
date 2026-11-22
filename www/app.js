@@ -8220,7 +8220,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) vizK
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
   '5.2': [
-    '<b>El cerebro de comprensión de Nova corre en Android</b>: el que entiende lo que le dices con tus palabras («qué temazo», «pásala que me aburre»…) ya no va dentro de la parte web. Lo mueve Android con varios núcleos del móvil: entiende lo mismo, contesta antes y la app va más ligera.',
+    '<b>El cerebro de comprensión de Nova corre en Android</b>: el que entiende lo que le dices con tus palabras («qué temazo», «pásala que me aburre»…) ya no va dentro de la parte web. Lo mueve Android con varios núcleos del móvil: entiende exactamente lo mismo, piensa más rápido y la parte web ya no carga con el modelo.',
     'Es el mismo cerebro que ya tenías: no hay que descargar nada. Si no lo tienes, se instala como siempre en Ajustes › Tu DJ.',
     'Con esto termina la fase 3: Nova (su conversación, su voz y sus cerebros) y los visualizadores ya son de Android. Lo que Nova decide y su memoria pasan con tus datos en la fase 4.'
   ],
@@ -9341,8 +9341,9 @@ function nbInit() {
 }
 /* 4.1 · the test phrases, once per model and engine (a couple of seconds, in the background) */
 function nbCheckSoon() {
-  const eng = NB.nat ? 'android' : 'web';
-  if (!NB.check || NB.check.v !== BRAIN_CHECK_V || NB.check.model !== NB.st.repo || (NB.check.eng || 'web') !== eng) setTimeout(() => { if (!document.hidden) nbCheck(true).then(() => renderNB()).catch(() => {}); }, 12000);
+  const due = () => !!NB.st && (!NB.check || NB.check.v !== BRAIN_CHECK_V || NB.check.model !== NB.st.repo || (NB.check.eng || 'web') !== (NB.nat ? 'android' : 'web'));
+  /* (still due when the time comes: it may have been done meanwhile, or the brain may have moved) */
+  if (due()) setTimeout(() => { if (!document.hidden && due()) nbCheck(true).then(() => renderNB()).catch(() => {}); }, 12000);
 }
 /* (for the tests: the same phrases through the web worker, to compare it with Android's) */
 async function nbWebProbe(texts, classify) {
