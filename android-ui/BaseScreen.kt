@@ -86,11 +86,11 @@ fun OrbitaBase() {
     if (wantCover && coverBmp == null) LaunchedEffect(bg.cover) { needArt(bg.cover, 400, dens) }
     var gaveUp by remember { mutableStateOf("") }
     if (wantCover && coverBmp == null) LaunchedEffect(bg.cover) { kotlinx.coroutines.delay(1500); gaveUp = bg.cover }
-    // (al subir, no se ve nada hasta tenerlo todo, el grano y la portada: mientras, debajo se ve el de la web, que es
-    //  igual; ya arriba, si cambia la canción, se queda la portada de antes hasta tener la nueva)
+    // (la primera vez, no se ve nada hasta tenerlo todo, el grano y la portada: mientras, debajo se ve el de la web, que
+    //  es igual; después ya no se deshace: al irse y volver, está al momento; si cambia la canción, se queda la portada
+    //  de antes hasta tener la nueva)
     var live by remember { mutableStateOf(false) }
     val on = Base.on
-    LaunchedEffect(on) { if (!on) live = false }
     if (on && !live && noise != null && (!wantCover || coverBmp != null || gaveUp == bg.cover)) live = true
     Base.live = live && on
     if (!live) return

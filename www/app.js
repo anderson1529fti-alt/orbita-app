@@ -6070,8 +6070,10 @@ function nuiFree() {
   const m = $('#main'), r = m.getBoundingClientRect(); if (r.width < 50 || r.height < 50) return false;
   if (W.on.includes('np')) return false;   // (the player, drawn natively, covers everything)
   // things that float over a part of the content area: the import progress, a notice of the app that is already up, the docked video
-  for (const id of ['importProg', 'toast', 'ytDock']) { const el = document.getElementById(id); if (el && !el.hidden) return false; }
-  for (const [fx, fy] of [[0.5, 0.2], [0.5, 0.55], [0.15, 0.9], [0.85, 0.08]]) { const el = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!el || !m.contains(el)) return false; }
+  // (5.3 · the import notice, drawn by Android on top of the native screen, isn't in the way)
+  const impN = NUI.passOk && NUI.winOk, imp = $('#importProg');
+  for (const id of impN ? ['toast', 'ytDock'] : ['importProg', 'toast', 'ytDock']) { const el = document.getElementById(id); if (el && !el.hidden) return false; }
+  for (const [fx, fy] of [[0.5, 0.2], [0.5, 0.55], [0.15, 0.9], [0.85, 0.08]]) { const el = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!el || !(m.contains(el) || (impN && imp && imp.contains(el)))) return false; }
   return true;
 }
 function nuiHide() {
@@ -6148,6 +6150,8 @@ function nuiLook() {
   const o = { h: hue, s: sat, glowK: +LOOK.glow || 0, round: { redondo: 1, suave: 0.55, recto: 0.18 }[LOOK.round] ?? 1, tk: { s: 0.92, m: 1, l: 1.1 }[LOOK.text] ?? 1, titles: LOOK.titles || '', black: LOOK.bg === 'negro' };
   const k = JSON.stringify(o); if (k === NUI.lookKey) return; NUI.lookKey = k;
   NUI_PLUGIN.look(o).catch(() => {});
+  // (5.3 · what is read from the page changes colour with the tone without the page changing: read again, all of it)
+  try { BASE.dirty.add('*'); for (const id of W.on) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); if (NUI.shown && PAGES[NUI.screen] && PAGES[NUI.screen].mirror) pgMark(NUI.screen, '*'); } catch {}
 }
 /* The library and what surrounds it, read from the screen of always (so both always say the same) */
 function nuiSyncSoon() { if (!NUI.on || NUI.syncT) return; NUI.syncT = setTimeout(() => { NUI.syncT = 0; nuiSync(); }, 30); }
@@ -6245,8 +6249,9 @@ function nuiEvent(e) {
 }
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
+  try { NUI_PLUGIN.winHide().catch(() => {}); } catch {}   // (5.3 · and its windows; the layer below, once it is known that this Android has it)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); NUI.baseOk = (+s.v || 0) >= 12 && !mirBad('base'); NUI.vozOk = (+s.v || 0) >= 12; NUI.passOk = (+s.v || 0) >= 12; if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); NUI.baseOk = (+s.v || 0) >= 12 && !mirBad('base'); NUI.vozOk = (+s.v || 0) >= 12; NUI.passOk = (+s.v || 0) >= 12; if ((+s.v || 0) >= 12 && !BASE.on) NUI_PLUGIN.base({ on: false }).catch(() => {}); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6533,6 +6538,8 @@ function mBox(n, cs) {
     if (g && g.some(x => x.t !== 'x')) { n.g = g; const gc = (cs.backgroundClip || '').split(',').map(x => x.trim()[0] || 'b').join(''); if (/[^b]/.test(gc)) n.gc = gc; }
   }
   // (blur, colour and light of a box: the background of the player)
+  // (5.3 · the ring of what has the focus, as the web draws it: «outline», a little outside its edge)
+  if (cs.outlineStyle && cs.outlineStyle !== 'none' && (parseFloat(cs.outlineWidth) || 0) > 0) { const oc = mCol(cs.outlineColor); if (oc) n.ol = [mF(parseFloat(cs.outlineWidth)), oc, mF(parseFloat(cs.outlineOffset) || 0)]; }
   if (cs.filter && cs.filter !== 'none') {
     const f = cs.filter, b = /blur\(([\d.]+)px\)/.exec(f), sa = /saturate\(([\d.]+)\)/.exec(f), br = /brightness\(([\d.]+)\)/.exec(f);
     if (b || sa || br) n.fx = [b ? mF(+b[1]) : 0, sa ? mF(+sa[1]) : 1, br ? mF(+br[1]) : 1];
@@ -6553,12 +6560,12 @@ function mBox(n, cs) {
   if (+cs.opacity < 1) n.o = mF(+cs.opacity);
   if (cs.overflowX === 'hidden' || cs.overflowY === 'hidden' || cs.overflowX === 'clip') n.cl = 1;
 }
-const mPaints = n => n.bg || n.g || n.bw || n.sh || n.o != null || n.cl;
+const mPaints = n => n.bg || n.g || n.bw || n.sh || n.o != null || n.cl || n.ol;
 /* how the letters of an element look, as an entry of the table of the part */
 function mStyle(cs, ctx) {
   const fam = (cs.fontFamily || '').split(',')[0], ff = /Unbounded/i.test(fam) ? 'd' : /Mono/i.test(fam) ? 'm' : 'b';
   const sw = parseFloat(cs.webkitTextStrokeWidth) || 0, fill = cs.webkitTextFillColor || cs.color;
-  const fl = (cs.fontStyle === 'italic' ? 1 : 0) + (/underline/.test(cs.textDecorationLine) ? 2 : 0) + (/line-through/.test(cs.textDecorationLine) ? 4 : 0);
+  const fl = (cs.fontStyle === 'italic' ? 1 : 0) + (/underline/.test(cs.textDecorationLine) ? 2 : 0) + (/line-through/.test(cs.textDecorationLine) ? 4 : 0) + (/tabular-nums/.test(cs.fontVariantNumeric || '') ? 8 : 0);
   const a = [mF(parseFloat(cs.fontSize) || 15), +cs.fontWeight || 400, ff, sw && !mCol(fill) ? mCol(cs.webkitTextStrokeColor) : mCol(fill) || mCol(cs.color), mF(parseFloat(cs.letterSpacing) || 0), fl, sw && !mCol(fill) ? mF(sw) : 0];
   const k = a.join('|'); let i = ctx.sk.get(k); if (i === undefined) { i = ctx.st.length; ctx.st.push(a); ctx.sk.set(k, i); }
   return i;
@@ -6962,9 +6969,11 @@ const WIN = {
   viz: { el: '#vizFull', viz: true },
   /* 5.3 · «Tu año en Órbita», la bienvenida y el despertador: Android los dibuja (en partes: lo de arriba y lo de en medio
      cambian solos), y lo que se toca en ellos le llega a la web tal cual (ella ya sabe pasar de página, saltar, apagar…) */
-  recap: { el: '#recap', pass: true, parts: ['.rc-top', '#rcStage'] },
-  onb: { el: '#onb', pass: true, parts: ['.onb-top', '#onbStage'] },
-  alarm: { el: '#alarmScr', pass: true, parts: ['.al-in'] }
+  recap: { el: '#recap', pass: true, full: true, parts: ['.rc-top', '#rcStage'] },
+  onb: { el: '#onb', pass: true, full: true, parts: ['.onb-top', '#onbStage'] },
+  alarm: { el: '#alarmScr', pass: true, full: true, parts: ['.al-in'] },
+  /* el aviso de que se están importando canciones (con su «Parar»): encima de la pantalla nativa, que sigue ahí */
+  imp: { el: '#importProg', pass: true }
 };
 /* windows that go as always (and, while one of them is up, every window does) */
 const WIN_WEB = ['#ytOverlay', '#vizFull'];
@@ -7339,8 +7348,8 @@ function baseWant() {
   if (!NUI_PLUGIN || !NUI.baseOk || !NUI.on || NUI.classic || innerWidth > 760 || root.classList.contains('booting') || !state.ready || document.hidden) return false;
   if (!(NUI.shown || W.on.includes('np'))) return false;
   if (W.key === '-' || W.drag || NPM.on || NPM.closing) return false;
-  if (W.on.some(id => WIN[id].pass)) return false;
-  for (const id of ['importProg', 'toast', 'ytDock', 'ytOverlay', 'dropOverlay']) { const el = document.getElementById(id); if (el && !el.hidden && el.getClientRects().length) return false; }
+  if (W.on.some(id => WIN[id].full)) return false;
+  for (const id of NUI.passOk && NUI.winOk ? ['toast', 'ytDock', 'ytOverlay', 'dropOverlay'] : ['importProg', 'toast', 'ytDock', 'ytOverlay', 'dropOverlay']) { const el = document.getElementById(id); if (el && !el.hidden && el.getClientRects().length) return false; }
   const it = $('#intro'); if (it && it.isConnected) { const cs = getComputedStyle(it); if (cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity > 0.01) return false; }
   // (and nothing of the web over the bar: a menu, a notice… what is at its points is the bar's, or a native window's)
   for (const el of [$('.player'), $('.nav')]) {
@@ -7419,7 +7428,8 @@ function baseTick() {
     const bg = baseBg(), bk = JSON.stringify([bg.h, bg.s, bg.mode, bg.base, bg.cover, bg.moving, bg.fade, bg.moving ? 0 : bg.t]);
     if (first || bk !== BASE.bgKey || now - BASE.bgAt > 5000) { BASE.bgKey = bk; BASE.bgAt = now; o.bg = bg; }
   }
-  if (first || BASE.dirty.size) Object.assign(o, baseSync(first));
+  if (first) BASE.dirty.add('*');
+  if (first || BASE.dirty.size) Object.assign(o, baseSync(false));
   if (!first && !Object.keys(o).length) return;
   BASE.on = true; o.on = true;
   if (first) baseOpenMark(true);
@@ -7427,7 +7437,7 @@ function baseTick() {
 }
 function baseOff() {
   if (!BASE.on) return;
-  BASE.on = false; BASE.keys = {}; BASE.fixedKey = ''; BASE.bgKey = ''; BASE.anim.clear();
+  BASE.on = false; BASE.anim.clear();   // (Android keeps what it has: when it comes back, only what changed is sent)
   try { NUI_PLUGIN.base({ on: false }).catch(() => {}); } catch {}
 }
 /* (if the native background and bar ever closed the app while coming up, next time the web's, in this version) */

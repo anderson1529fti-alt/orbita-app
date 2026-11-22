@@ -942,7 +942,7 @@ try {
     // subir la barra con el dedo abre el reproductor (lo hace la web, como siempre; mientras, se ve la de siempre)
     const spy = `const p = document.querySelector('.player'); window.__sw = { s: 0, m: 0, e: 0, c: 0, t: [] }; const k = n => e => { window.__sw[n]++; if (window.__sw.t.length < 12) window.__sw.t.push(n + ':' + Math.round(e.touches && e.touches[0] ? e.touches[0].clientY : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : -1))); };
       if (!window.__swOn) { window.__swOn = 1; p.addEventListener('touchstart', k('s'), { passive: true, capture: true }); p.addEventListener('touchmove', k('m'), { passive: true, capture: true }); p.addEventListener('touchend', k('e'), { capture: true }); p.addEventListener('touchcancel', k('c'), { capture: true }); } return 1;`;
-    const swipeUp = async () => { await js(spy); const tr = await rectOf('.player .pl-meta-t'); if (tr) { const [x, y] = scr(tr); sh(`input swipe ${x} ${y} ${x} ${Math.max(200, y - 900)} 900`); } return !!tr; };
+    const swipeUp = async () => { await js(spy); const tr = await rectOf('.player .pl-meta-t'); if (tr) { const [x, y] = scr(tr); sh(`input swipe ${x} ${y} ${x} ${Math.max(200, y - 900)} 1400`); } return !!tr; };
     await swipeUp();
     const np = await until(`${O} return W.on.includes('np') && !document.querySelector('#np').hidden;`, 6000);
     await sleep(800); shot('base-subir-reproductor');
@@ -1081,8 +1081,12 @@ try {
       o.openRecap(); return 1;`);
     const up3 = await until(`${O} return W.on.includes('recap') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === true;`, 8000);
     await sleep(2500); shot('resumen-nativo');
-    const r1 = await st(); await sleep(1200); const r2 = await st();
-    check('«Tu año en Órbita» lo dibuja Android, y sus barras de arriba se llenan solas', up3 && !!r1 && !!r2 && r1.winPass && r2.barFrames - r1.barFrames >= 8 && (r1.winTexts || []).length > 2, JSON.stringify({ up3, barras: r2 && r1 ? r2.barFrames - r1.barFrames : -1, android: r1 && r1.winTexts && r1.winTexts.slice(0, 8) }));
+    // (las barras de arriba: cuánto blanco hay en su fila, en dos fotos seguidas de lo que dibuja Android)
+    const rb = await rectOf('#rcBars');
+    const white = img => { if (!img || !rb) return -1; const y = Math.round(T + (rb[1] + rb[3]) / 2 * D); let n = 0; for (let x = 0; x < img.w; x++) { const i = (y * img.w + x) * 4; if (img.d[i] > 200 && img.d[i + 1] > 200 && img.d[i + 2] > 200) n++; } return n; };
+    const r1 = await st(), g1 = grab(); await sleep(1500); const g2 = grab(), r2 = await st();
+    const w1 = white(g1), w2 = white(g2), rcs = await js(`const R = window.__orbita.RC; return { i: R.i, paused: R.paused, f: Math.min(1, (performance.now() - R.t0) / R.dur) };`);
+    check('«Tu año en Órbita» lo dibuja Android, y sus barras de arriba se llenan solas', up3 && !!r1 && !!r2 && r1.winPass && (r1.winTexts || []).length > 2 && (w2 > w1 + 4 || (rcs && rcs.f >= 1)), JSON.stringify({ up3, blanco: [w1, w2], web: rcs, android: r1 && r1.winTexts && r1.winTexts.slice(0, 8) }));
     // tocar a la derecha pasa de página (le llega a la web)
     const i0 = await js(`return window.__orbita.RC.i;`);
     { const r = await rectOf('#rcTap'); if (r) { tap(Math.round((r[0] + (r[2] - r[0]) * 0.85) * D), Math.round(T + (r[1] + (r[3] - r[1]) * 0.55) * D)); await sleep(2200); } }

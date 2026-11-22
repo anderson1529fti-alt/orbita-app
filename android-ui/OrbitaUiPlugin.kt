@@ -65,11 +65,16 @@ internal class WinFrame(ctx: android.content.Context, private val web: () -> Vie
             val h = UiState.ytHole()
             through = h != null && h.contains(androidx.compose.ui.geometry.Offset(ev.x, ev.y))
             if (through) UiState.ytFwd++
-            else if (UiState.winPass()) {
-                // 5.3 · una ventana «de paso» arriba del todo (el resumen del año, la bienvenida, el despertador): lo que
-                // no es de aquí (escribir, una barra que se arrastra) le llega entero a la web, que la tiene debajo
-                if (super.dispatchTouchEvent(ev)) return true
-                through = true; UiState.passFwd++
+            else {
+                // 5.3 · la ventana de más arriba en ese punto: si es «de paso» (el resumen del año, la bienvenida, el
+                // despertador, el aviso de importar), lo que no es de aquí (escribir, una barra que se arrastra) le llega
+                // entero a la web, que la tiene debajo; fuera de las ventanas «de paso» pequeñas, lo de debajo (la
+                // pantalla nativa), como si no estuvieran
+                val w = UiState.winAt(ev.x, ev.y, resources.displayMetrics.density)
+                if (w != null && w.pass) {
+                    if (super.dispatchTouchEvent(ev)) return true
+                    through = true; UiState.passFwd++
+                } else if (w == null && UiState.wins.isNotEmpty() && UiState.wins.all { it.pass }) return false
             }
         }
         if (!through) return super.dispatchTouchEvent(ev)
@@ -89,6 +94,11 @@ internal class WinFrame(ctx: android.content.Context, private val web: () -> Vie
 object UiState {
     /** 5.3 · ¿la ventana de arriba es «de paso»? (lo que se toca en ella va a la web) · cuántos toques se le han pasado */
     fun winPass(): Boolean = wins.lastOrNull()?.pass == true
+    /** La ventana de más arriba que tiene ese punto (en px de la capa), o null. */
+    fun winAt(x: Float, y: Float, d: Float): WDef? {
+        for (w in wins.asReversed()) for (f in w.fixed) if (x >= f.x * d && x < (f.x + f.w) * d && y >= f.y * d && y < (f.y + f.h) * d) return w
+        return null
+    }
     @Volatile var passFwd = 0
     /** 5.0 · el dedo empezó en la letra del reproductor: no baja el reproductor (como en la web: .np-lyrics se salta). */
     @Volatile var npNoDrag = false

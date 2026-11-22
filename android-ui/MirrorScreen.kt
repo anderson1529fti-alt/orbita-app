@@ -174,7 +174,9 @@ internal data class MNode(
     // 5.3 · un botón apretado con el dedo: la web lo encoge un poco («scale»), desde su centro
     val sc: Float = 1f,
     // 5.3 · lo que se mueve solo (por el nombre de su animación de CSS): lo mueve Android
-    val an: List<MAnim> = emptyList()
+    val an: List<MAnim> = emptyList(),
+    // 5.3 · el aro de lo que tiene el foco («outline»): su grosor, su color y cuánto se separa del borde
+    val olw: Float = 0f, val olc: Int = 0, val olo: Float = 0f
 )
 
 private val NO_F = emptyList<Float>()
@@ -274,7 +276,8 @@ private fun mNode(o: JSONObject, st: List<MStyle>, depth: Int): MNode {
         mKids(o.optJSONArray("c"), st, depth + 1),
         gap = o.optInt("gp") == 1, ot = o.f("ot"), gn = o.optInt("gn", 0),
         sc = o.f("sc", 1f).let { if (it > 0f && it < 4f) it else 1f },
-        an = mAnims(o.optJSONArray("an"))
+        an = mAnims(o.optJSONArray("an")),
+        olw = o.optJSONArray("ol")?.optDouble(0, 0.0)?.toFloat() ?: 0f, olc = o.optJSONArray("ol")?.optLong(1, 0L)?.toInt() ?: 0, olo = o.optJSONArray("ol")?.optDouble(2, 0.0)?.toFloat() ?: 0f
     )
 }
 
@@ -532,7 +535,7 @@ private fun blurredCover(key: String, src: ImageBitmap, wPx: Float, hPx: Float, 
 }
 
 private fun Modifier.mDecor(c: MNode): Modifier {
-    if (c.bg == 0 && c.g.isEmpty() && (c.bc == 0 || c.bw.size != 4) && c.sh.isEmpty() && c.mk <= 0f) return this
+    if (c.bg == 0 && c.g.isEmpty() && (c.bc == 0 || c.bw.size != 4) && c.sh.isEmpty() && c.mk <= 0f && (c.olw <= 0f || c.olc == 0)) return this
     return this.drawWithCache {
         val d = density
         val w = size.width; val h = size.height
@@ -545,6 +548,10 @@ private fun Modifier.mDecor(c: MNode): Modifier {
         // las capas del fondo, de la de abajo a la de arriba: degradados e imágenes
         val layers = ArrayList<androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit>()
         val cf = fxColor(c.fx)
+        // 5.3 · «filter: blur()» en lo que no es una imagen (el halo de Nova, la luz de fondo del resumen…): la forma, desenfocada
+        // como en CSS (una gaussiana de esa desviación)
+        val fxBlur = if (c.fx.size == 3) c.fx[0] else 0f
+        val mf = if (fxBlur > 0.2f) BlurMaskFilter(max(0.5f, (fxBlur * d - 0.5f) / 0.57735f), BlurMaskFilter.Blur.NORMAL) else null
         for (i in c.g.indices.reversed()) {
             val L = c.g[i]
             val pad = i < c.gc.length && c.gc[i] != 'b'
@@ -574,7 +581,8 @@ private fun Modifier.mDecor(c: MNode): Modifier {
             }
             val b = mBrush(L, if (pad) innerBox else full) ?: continue
             val p = if (pad) inner else outer
-            layers.add { drawPath(p, b) }
+            if (mf == null) layers.add { drawPath(p, b) }
+            else layers.add { drawIntoCanvas { cv -> val pt = Paint(); b.applyTo(size, pt, 1f); pt.asFrameworkPaint().isAntiAlias = true; pt.asFrameworkPaint().maskFilter = mf; cv.drawPath(p, pt) } }
         }
         val shadows = c.sh.map { s ->
             val p = Paint()
@@ -604,7 +612,10 @@ private fun Modifier.mDecor(c: MNode): Modifier {
                     }
                 }
             }
-            if (c.bg != 0) drawPath(outer, Color(c.bg))
+            if (c.bg != 0) {
+                if (mf == null) drawPath(outer, Color(c.bg))
+                else drawIntoCanvas { cv -> val pt = Paint(); pt.color = Color(c.bg); pt.asFrameworkPaint().isAntiAlias = true; pt.asFrameworkPaint().maskFilter = mf; cv.drawPath(outer, pt) }
+            }
             for (l in layers) l()
             if (c.bc != 0 && c.bw.size == 4) {
                 if (uniform && bw[0] > 0f) {
@@ -618,6 +629,11 @@ private fun Modifier.mDecor(c: MNode): Modifier {
                 }
             }
             if (mark != null) drawPath(mark, Color(c.mc))
+            // 5.3 · el aro del foco: por fuera del borde, a su distancia, siguiendo sus esquinas
+            if (c.olw > 0f && c.olc != 0) {
+                val ow = c.olw * d; val e = c.olo * d + ow / 2f
+                drawPath(rr(-e, -e, w + e, h + e, q, -e), Color(c.olc), style = Stroke(ow))
+            }
         }
     }
 }
@@ -713,6 +729,7 @@ internal fun mStyleOf(st: MStyle, brush: Brush? = null, color: Color = Color(st.
     val fam = when (st.ff) { "d" -> Display; "m" -> Mono; else -> Body }
     var ts = style(st.fs, color, fam, FontWeight(st.fw.coerceIn(100, 900)), 1.25f, if (st.fs > 0f) st.ls / st.fs else 0f, TextAlign.Start, brush)
     if ((st.fl and 1) != 0) ts = ts.copy(fontStyle = FontStyle.Italic)
+    if ((st.fl and 8) != 0) ts = ts.copy(fontFeatureSettings = "tnum")   // (5.3 · números de ancho fijo: la hora del despertador)
     if ((st.fl and 6) != 0) ts = ts.copy(textDecoration = if ((st.fl and 6) == 6) TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough)) else if ((st.fl and 2) != 0) TextDecoration.Underline else TextDecoration.LineThrough)
     if (st.sw > 0f) ts = ts.copy(drawStyle = Stroke(width = st.sw * LocalDensity.current.density))
     return ts
