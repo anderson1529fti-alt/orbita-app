@@ -278,7 +278,7 @@ private fun EarCard(sk: Skin) {
         step == "think" -> "…"
         else -> "Habla cuando quieras…"
     }
-    val dim = words.isBlank() && step != "fail"
+    val dim = words.isBlank() && step != "fail" && step != "perm"
     Column(
         Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 14.dp)
             .glowPanel(sk, 22f).pointerInput(Unit) { detectTapGestures { } }

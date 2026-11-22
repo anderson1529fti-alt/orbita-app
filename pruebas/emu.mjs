@@ -647,6 +647,7 @@ try {
     const apk = 'pruebas/voz/voz-de-prueba.apk';
     if (!fs.existsSync(apk)) { check('el reconocimiento de voz de prueba está (para probar «Háblale»)', false, 'no se pudo hacer: mira gradle/voz en los registros'); return; }
     const ins = adb(`install -r ${apk}`, { timeout: 120000 });
+    sh('pm grant io.github.orbita.pruebavoz android.permission.RECORD_AUDIO');
     sh('settings put secure voice_recognition_service io.github.orbita.pruebavoz/.Oido');
     const guion = t => sh(`settings put global orbita_oido '${t}'`);
     guion('pon algo tranquilo');
@@ -662,7 +663,14 @@ try {
     const deny = nodes.find(n => /permission_deny_button$/.test(n.id || '')) || nodes.find(n => /^(Don.t allow|No permitir)$/i.test(n.text));
     check('la primera vez, el recuadro de Nova explica lo del permiso y Android lo pide', !!p0 && p0.earStep === 'perm' && !!deny, JSON.stringify({ paso: p0 && p0.earStep, boton: !!deny && (deny.text || deny.id) }));
     if (deny) tap(...center(deny));
-    await until(`return document.querySelector('#djInput').value.startsWith('ventana:');`, 8000); await sleep(600);
+    // (en el emulador hay dos «ventanas de Google»: la de Google y la de prueba; Android pregunta cuál, y se elige la de prueba)
+    for (let k = 0; k < 6; k++) {
+      await sleep(900);
+      if (await js(`return document.querySelector('#djInput').value.startsWith('ventana:');`) === true) break;
+      const cn = ui(); const pick = cn.find(n => n.text === 'Voz de prueba');
+      if (pick) { tap(...center(pick)); await sleep(900); const once = ui().find(n => /button_once$/.test(n.id || '')); if (once) tap(...center(once)); }
+    }
+    await until(`return document.querySelector('#djInput').value.startsWith('ventana:');`, 6000); await sleep(600);
     const d1 = await st(); const i1 = await input();
     check('sin permiso: la ventana de Google de siempre, y lo dicho le llega a Nova', i1 === 'ventana: pon algo tranquilo' && !!d1 && !d1.earOn, JSON.stringify({ i1, on: d1 && d1.earOn }));
     // ---- con permiso: escucha Órbita, con lo que va entendiendo y el aro moviéndose con la voz
