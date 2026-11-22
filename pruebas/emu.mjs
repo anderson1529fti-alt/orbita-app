@@ -525,7 +525,9 @@ try {
     check('con la letra abierta, el reproductor sigue siendo nativo y la letra la dibuja Android', !!w1 && w1.on === 'np' && w1.open && !!s1 && s1.lyDrawn === `s:${w1.lg}:16`, JSON.stringify({ w1, drawn: s1 && s1.lyDrawn }));
     // va con la canción: el verso encendido avanza (el mismo que en la web), se va llenando y la caja lo sigue
     // (el de la web se lee justo antes y justo después del de Android: un cambio de verso puede caer entre medias)
-    const a = await st(); await sleep(4300); const wa = await js(`return window.__orbita.LY.idx;`); const b = await st(); const wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
+    const a = await st(); await sleep(4300); let wa = await js(`return window.__orbita.LY.idx;`); let b = await st(); let wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
+    // (con el emulador muy cargado, Android puede ir un momento por detrás: se mira otra vez, como mucho 1,5 s)
+    for (let k = 0; k < 6 && b && wb && b.lyIdx !== wb.idx && b.lyIdx !== wa; k++) { await sleep(250); wa = await js(`return window.__orbita.LY.idx;`); b = await st(); wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`); }
     check('va con la canción: el verso encendido avanza (el mismo que en la web), se llena y la caja lo sigue', !!a && !!b && !!wb && (b.lyIdx === wb.idx || b.lyIdx === wa) && b.lyIdx > a.lyIdx && b.lyFill > 0 && b.lyFill <= 1 && b.lyY > a.lyY, JSON.stringify({ a: a && [a.lyIdx, +a.lyY.toFixed(1), +a.lyFill.toFixed(2)], b: b && [b.lyIdx, +b.lyY.toFixed(1), +b.lyFill.toFixed(2)], web: wb }));
     // tocar un verso (de los que vienen) lleva la canción allí, como en la web (las canciones de prueba son cortas:
     // desde aquí, en pausa y cerca del principio)
@@ -545,7 +547,9 @@ try {
       const x = Math.round((box[0] + box[2]) / 2 * D), y0 = Math.round(T + (box[1] + (box[3] - box[1]) * 0.25) * D), y1 = Math.round(T + (box[1] + (box[3] - box[1]) * 0.8) * D);
       const sy0 = (await st()).lyY;
       sh(`input swipe ${x} ${y0} ${x} ${y1} 600`); await sleep(1300);
-      const s4 = await st(); const w4 = await js(`${O} return { on: W.on.join(), np: !document.querySelector('#np').hidden };`);
+      let s4 = await st();
+      // (si el emulador se ha comido el gesto, otra vez)
+      if (s4 && !(s4.lyY < sy0 - 20)) { sh(`input swipe ${x} ${y0} ${x} ${y1} 600`); await sleep(1300); s4 = await st(); } const w4 = await js(`${O} return { on: W.on.join(), np: !document.querySelector('#np').hidden };`);
       check('deslizar la letra con el dedo la mueve a ella, y no baja el reproductor', !!w4 && w4.np && w4.on === 'np' && !!s4 && s4.lyY < sy0 - 20, JSON.stringify({ sy0: +sy0.toFixed(1), sy1: s4 && +s4.lyY.toFixed(1), w4 }));
     } else check('deslizar la letra con el dedo la mueve a ella, y no baja el reproductor', false, 'sin caja de letra');
     // quieta: cada verso, donde en la web (± 3), con la caja en el mismo sitio
@@ -882,6 +886,7 @@ try {
     const line = (String(dg || '').match(/Pantallas nativas:[^\n]*/) || [''])[0];
     check('el diagnóstico dice que el cerebro de comprensión corre en Android', /cerebro de comprensión \(\d+ núcleos\)/.test(line), line.slice(-160));
     check('sin cierres por error con el cerebro', crashes() === 0, crashText().slice(0, 1500));
+    await js(`${O} o.nbReset(); return 1;`);   // (se suelta: lo que viene después tiene la memoria de siempre)
   };
   if (SOLO_CEREBRO) {
     await goView('ajustes'); await sleep(1000);
@@ -1485,7 +1490,6 @@ try {
   await ly50();
   await yt50();
   await voz51();
-  await cerebro52();
 
   // ================= FASE 2 · pasos 4 y 5 (4.7): «Buscar» y «Ajustes», nativas =================
   {
@@ -1833,6 +1837,10 @@ try {
     const other = (a1.match(/u0 ([\w.]+)\//) || [])[1];
     if (other && other !== PKG) sh(`am force-stop ${other}`);
   }
+  // el cerebro, al final de todo (carga el modelo en Android y, para compararlo, también en la parte web: es lo que más memoria pide)
+  sh(`am start -n ${PKG}/.MainActivity`); await sleep(3000);
+  await goView('inicio'); await sleep(1500);
+  await cerebro52();
 } catch (e) {
   check('la prueba terminó sin errores propios', false, e && e.stack || e);
 }
