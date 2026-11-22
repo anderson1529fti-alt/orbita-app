@@ -527,7 +527,7 @@ try {
     // (el de la web se lee justo antes y justo después del de Android: un cambio de verso puede caer entre medias)
     const a = await st(); await sleep(4300); let wa = await js(`return window.__orbita.LY.idx;`); let b = await st(); let wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`);
     // (con el emulador muy cargado, Android puede ir un momento por detrás: se mira otra vez, como mucho 1,5 s)
-    for (let k = 0; k < 6 && b && wb && b.lyIdx !== wb.idx && b.lyIdx !== wa; k++) { await sleep(250); wa = await js(`return window.__orbita.LY.idx;`); b = await st(); wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`); }
+    for (let k = 0; k < 6 && b && wb && ((b.lyIdx !== wb.idx && b.lyIdx !== wa) || !(b.lyFill > 0)); k++) { await sleep(250); wa = await js(`return window.__orbita.LY.idx;`); b = await st(); wb = await js(`${O} return { idx: o.LY.idx, t: +o.act().currentTime.toFixed(2) };`); }
     check('va con la canción: el verso encendido avanza (el mismo que en la web), se llena y la caja lo sigue', !!a && !!b && !!wb && (b.lyIdx === wb.idx || b.lyIdx === wa) && b.lyIdx > a.lyIdx && b.lyFill > 0 && b.lyFill <= 1 && b.lyY > a.lyY, JSON.stringify({ a: a && [a.lyIdx, +a.lyY.toFixed(1), +a.lyFill.toFixed(2)], b: b && [b.lyIdx, +b.lyY.toFixed(1), +b.lyFill.toFixed(2)], web: wb }));
     // tocar un verso (de los que vienen) lleva la canción allí, como en la web (las canciones de prueba son cortas:
     // desde aquí, en pausa y cerca del principio)
