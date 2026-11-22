@@ -26,6 +26,7 @@ const SOLO_VIZ = fs.existsSync('pruebas/solo-viz');
 const SOLO_LY = fs.existsSync('pruebas/solo-letra');
 const SOLO_VOZ = fs.existsSync('pruebas/solo-voz');
 const SOLO_CEREBRO = fs.existsSync('pruebas/solo-cerebro');
+const SOLO_BASE = fs.existsSync('pruebas/solo-base');
 // la pantalla en crudo (sin PNG: así se puede comparar aquí mismo, píxel a píxel)
 const grab = () => {
   const r = spawnSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64e6 }); const b = r.stdout;
@@ -888,6 +889,125 @@ try {
     check('sin cierres por error con el cerebro', crashes() === 0, crashText().slice(0, 1500));
     await js(`${O} o.nbReset(); return 1;`);   // (se suelta: lo que viene después tiene la memoria de siempre)
   };
+  // ================= FASE 4 · parte 1 (5.3): el fondo y la barra de abajo, de Android =================
+  const base53 = async () => {
+    const O = `const o = window.__orbita, N = o.NUI, W = o.W;`;
+    const st = () => js(`return await Capacitor.Plugins.OrbitaUi.status();`);
+    const until = async (expr, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await js(expr) === true) return true; await sleep(400); } return false; };
+    const D = await js(`return devicePixelRatio;`);
+    let T = 0; { const wv = ui().find(n => n.cls === 'android.webkit.WebView'); T = wv ? wv.b[1] : 0; }
+    const rectOf = sel => js(`const e = document.querySelector('${sel}'); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];`);
+    const scr = r => [Math.round((r[0] + r[2]) / 2 * D), Math.round(T + (r[1] + r[3]) / 2 * D)];
+    await goView('inicio'); await sleep(1500);
+    await until(`return (await Capacitor.Plugins.OrbitaUi.status()).baseLive === true;`, 8000);
+    // --- arriba, con «Ahora» nativa
+    const s1 = await st();
+    const w1 = await js(`${O} return { shown: N.shown, screen: N.screen, on: o.BASE.on, quiere: o.baseWant() };`);
+    shot('base-ahora');
+    check('con «Ahora» nativa, el fondo y la barra de abajo los dibuja Android', !!s1 && s1.baseShown && s1.baseLive && s1.baseParts === 5 && /^aurora:/.test(s1.baseDrawn) && !!w1 && w1.on, JSON.stringify({ w1, shown: s1 && s1.baseShown, live: s1 && s1.baseLive, partes: s1 && s1.baseParts, drawn: s1 && s1.baseDrawn, grano: s1 && s1.noiseMs }));
+    const webT = await js(`const out = []; const walk = el => { for (const n of el.childNodes) { if (n.nodeType === 3) { const t = n.textContent.trim(); if (t && n.parentElement && n.parentElement.getClientRects().length && getComputedStyle(n.parentElement).visibility !== 'hidden') out.push(t); } else if (n.nodeType === 1 && getComputedStyle(n).display !== 'none') walk(n); } }; walk(document.querySelector('.player')); walk(document.querySelector('.nav')); return out;`);
+    const natT = (s1 && s1.baseTexts) || [];
+    const norm = a => (a || []).map(t => String(t).replace(/\s+/g, ' ').trim()).filter(Boolean);
+    check('la barra nativa dice lo mismo que la de siempre (la canción, el tiempo y las pestañas)', norm(webT).length >= 6 && norm(webT).every(t => norm(natT).some(x => x === t || x.startsWith(t.slice(0, 12)))), JSON.stringify({ web: norm(webT), android: norm(natT) }));
+    // --- se mueve, y al mismo punto que la de la web
+    const a1 = await st(); await sleep(1600); const a2 = await st();
+    check('la aurora se mueve (Android la dibuja en cada fotograma)', !!a1 && !!a2 && a2.baseFrames - a1.baseFrames >= 10 && /:mueve$/.test(a2.baseDrawn), JSON.stringify({ fotogramas: a2 && a1 ? a2.baseFrames - a1.baseFrames : -1, drawn: a2 && a2.baseDrawn }));
+    const dr = await js(`const a = document.getAnimations().find(x => x.animationName === 'drift'); if (!a) return null;
+      const ease = x => { if (x <= 0) return 0; if (x >= 1) return 1; let lo = 0, hi = 1, t = x; for (let i = 0; i < 30; i++) { const bx = 3 * (1 - t) * (1 - t) * t * .42 + 3 * (1 - t) * t * t * .58 + t * t * t; if (bx < x) lo = t; else hi = t; t = (lo + hi) / 2; } return 3 * (1 - t) * t * t + t * t * t; };
+      const at = ms => { const it = Math.floor(ms / 46000); let f = (ms - it * 46000) / 46000; if (it % 2) f = 1 - f; return ease(f); };
+      const t0 = +a.currentTime; const s = await Capacitor.Plugins.OrbitaUi.status(); const t1 = +a.currentTime;
+      return { web0: at(t0), web1: at(t1), nat: s.bgDrift, ms: t1 - t0 };`);
+    check('va al mismo punto que la de la web (su animación de siempre, de 46 s)', !!dr && dr.nat >= Math.min(dr.web0, dr.web1) - 0.004 && dr.nat <= Math.max(dr.web0, dr.web1) + 0.004, JSON.stringify(dr));
+    // --- lo que se toca en la barra le llega a la web: una pestaña, el play, la barra del tiempo, subirla con el dedo
+    const tb = await rectOf('.nav .tab[data-view="buscar"]');
+    if (tb) { tap(...scr(tb)); await sleep(1800); }
+    const v1 = await js(`${O} return { view: o.state.view, screen: N.screen, shown: N.shown };`);
+    const s2 = await st();
+    check('tocar «Buscar» en la barra nativa cambia de pestaña (le llega a la web, como siempre)', !!tb && !!v1 && v1.view === 'buscar' && v1.screen === 'buscar' && s2 && s2.baseLive, JSON.stringify({ v1, live: s2 && s2.baseLive }));
+    await goView('inicio'); await sleep(1500);
+    await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(2500);
+    const pl0 = await js(`return !!document.querySelector('.player .ctrl.play[aria-label="Pausar"], .player .ctrl.play.on, .player .ctrl.play.playing') || document.querySelector('.player .ctrl.play').getAttribute('aria-label');`);
+    const pb = await rectOf('.player .ctrl.play');
+    if (pb) { tap(...scr(pb)); await sleep(1500); }
+    const pl1 = await js(`return document.querySelector('.player .ctrl.play').getAttribute('aria-label');`);
+    check('tocar el play de la barra nativa pausa (le llega a la web)', !!pb && pl1 === 'Reproducir', JSON.stringify({ antes: pl0, despues: pl1 }));
+    if (pb) { tap(...scr(pb)); await sleep(1500); }
+    const pl2 = await js(`return document.querySelector('.player .ctrl.play').getAttribute('aria-label');`);
+    check('y otra vez, vuelve a sonar', pl2 === 'Pausar', String(pl2));
+    // la barra del tiempo: se arrastra aquí (pegada al dedo) y la canción salta a donde se suelta
+    const sk = await rectOf('.player .seek');
+    if (sk) { const y = Math.round(T + (sk[1] + sk[3]) / 2 * D), x0 = Math.round((sk[0] + (sk[2] - sk[0]) * 0.15) * D), x1 = Math.round((sk[0] + (sk[2] - sk[0]) * 0.75) * D); sh(`input swipe ${x0} ${y} ${x1} ${y} 700`); await sleep(1200); }
+    const sv = await js(`return +document.querySelector('.player .seek').value;`);
+    check('arrastrar la barra del tiempo (nativa) mueve la canción a donde se suelta', !!sk && sv >= 640 && sv <= 860, String(sv));
+    // subir la barra con el dedo abre el reproductor (lo hace la web, como siempre; mientras, se ve la de siempre)
+    const tr = await rectOf('.player .pl-meta-t');
+    if (tr) { const [x, y] = scr(tr); sh(`input swipe ${x} ${y} ${x} ${Math.max(200, y - 900)} 450`); }
+    const np = await until(`${O} return W.on.includes('np') && !document.querySelector('#np').hidden;`, 6000);
+    await sleep(800); shot('base-subir-reproductor');
+    const s3 = await st();
+    check('subir la barra con el dedo abre el reproductor (como siempre)', np, JSON.stringify({ on: await js(`${O} return W.on.join();`), base: s3 && s3.baseShown }));
+    await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await until(`${O} return !W.on.length;`, 5000); await sleep(1500);
+    // --- con algo de la web encima, se va (y se ve la de siempre); al irse, vuelve
+    await js(`document.querySelector('#importProg').hidden = false; return 1;`); await sleep(1200);
+    const s4 = await st();
+    await js(`document.querySelector('#importProg').hidden = true; return 1;`);
+    const back = await until(`return (await Capacitor.Plugins.OrbitaUi.status()).baseLive === true;`, 5000);
+    check('con algo de la web encima, la capa nativa se va; y vuelve cuando se va', !!s4 && !s4.baseShown && back, JSON.stringify({ con_algo: s4 && s4.baseShown, vuelve: back }));
+    // --- cada fondo, quieto en el mismo punto: Android y la web, píxel a píxel
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    await goView('ajustes'); await sleep(1800);
+    const pr = await rectOf('.player'); const H = await js(`return innerHeight;`);
+    const setBg = async v => { await js(`const b = document.querySelector('#lkBg [data-v="${v}"]'); if (b) b.click(); return 1;`); await sleep(1500); };
+    const freeze = async ms => js(`const a = document.getAnimations().find(x => x.animationName === 'drift'); if (!a) return null; a.pause(); a.currentTime = ${ms}; return a.playState;`);
+    const par = {};
+    const pair = async (name, want) => {
+      await until(`const s = await Capacitor.Plugins.OrbitaUi.status(); return s.baseLive === true && ${JSON.stringify(want)}.every(w => s.baseDrawn.includes(w));`, 8000);
+      await sleep(1500);
+      const sn = await st(); const nat = grab(); shot(`base-${name}-nativa`);
+      await js(`${O} N.classic = true; return 1;`); await until(`return (await Capacitor.Plugins.OrbitaUi.status()).baseShown === false;`, 5000); await sleep(2500);
+      const web = grab(); shot(`base-${name}-web`);
+      await js(`${O} N.classic = false; return 1;`); await sleep(2000);
+      if (!nat || !web) { par[name] = null; return; }
+      const sh0 = nat.h, top = T / sh0, py = pr ? (T + pr[1] * D) / sh0 : 0.85;
+      par[name] = {
+        drawn: sn && sn.baseDrawn,
+        barra: vdiff(nat, web, [0, py + 0.004, 1, Math.min(1, (T + H * D) / sh0) - 0.002]),
+        lados: vdiff(nat, web, [0, top + 0.01, 0.025, py - 0.01]),
+        derecha: vdiff(nat, web, [0.975, top + 0.01, 1, py - 0.01]),
+        entera: vdiff(nat, web, [0, top, 1, Math.min(1, (T + H * D) / sh0)])
+      };
+    };
+    await setBg('aurora'); await freeze(23000); await pair('aurora', ['aurora:', ':quieta']);
+    await setBg('quieto'); await pair('quieto', ['quieto:']);
+    await setBg('negro'); await pair('negro', ['negro']);
+    await js(`${O} const t = o.state.tracks.find(x => x.title === 'Luz de las siete'); if (t) o.playQueue([t.id], 0); return !!t;`); await sleep(2500);
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    await setBg('portada'); await freeze(23000); await pair('portada', ['portada:', ':portada']);
+    log('  fondo y barra, Android contra la web: ' + JSON.stringify(par));
+    const okF = (p, px, blk) => !!p && p.px <= px && p.blk <= blk;
+    for (const [k, nm] of [['aurora', 'la aurora (quieta en el mismo punto)'], ['quieto', '«Quieto»'], ['negro', '«Negro puro»'], ['portada', 'la portada de lo que suena']]) {
+      const p = par[k];
+      check(`fondo ${nm}: Android lo dibuja igual que la web (los bordes, donde solo hay fondo, y la pantalla entera)`, !!p && okF(p.lados, 3, 1.5) && okF(p.derecha, 3, 1.5) && okF(p.entera, 12, 3), JSON.stringify(p && { drawn: p.drawn, lados: p.lados, derecha: p.derecha, entera: p.entera }));
+      check(`la barra de abajo con el fondo ${nm}: igual que la de siempre`, !!p && okF(p.barra, 8, 2.5), JSON.stringify(p && p.barra));
+    }
+    await setBg('aurora'); await js(`const a = document.getAnimations().find(x => x.animationName === 'drift'); if (a) a.play(); return 1;`); await sleep(1000);
+    // --- «Tu voz», nativa (leída entera, como «Buscar» y «Ajustes»)
+    await goView('voz'); await sleep(2500);
+    const vz = await js(`${O} return { shown: N.shown, screen: N.screen, view: o.state.view };`);
+    const svz = await st(); shot('voz-nativa');
+    const vzT = ui().filter(n => !n.web && n.text).map(n => n.text);
+    const webVz = await js(`return [...document.querySelectorAll('#view-voz h1, #view-voz h2, #view-voz h3')].map(e => e.textContent.trim()).filter(Boolean).slice(0, 4);`);
+    check('«Tu voz» es nativa (Android la dibuja, con sus textos), con el fondo y la barra nativos', !!vz && vz.shown && vz.screen === 'voz' && svz && svz.baseLive && (webVz || []).length > 0 && webVz.every(t => vzT.some(x => x === t || x.startsWith(t.slice(0, 10)))), JSON.stringify({ vz, live: svz && svz.baseLive, web: webVz, android: vzT.slice(0, 14) }));
+    await goView('inicio'); await sleep(1500);
+    check('sin cierres por error con el fondo y la barra nativos', crashes() === 0, crashText().slice(0, 1500));
+  };
+  if (SOLO_BASE) {
+    await goView('ajustes'); await sleep(1000);
+    const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
+    check('prueba rápida: las pantallas nativas, encendidas', t0 === 'true', t0);
+    await goView('inicio'); await sleep(3000);
+    await base53(); saveLogs(); finish('prueba rápida: solo el fondo y la barra');
+  }
   if (SOLO_CEREBRO) {
     await goView('ajustes'); await sleep(1000);
     const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
@@ -1837,8 +1957,11 @@ try {
     const other = (a1.match(/u0 ([\w.]+)\//) || [])[1];
     if (other && other !== PKG) sh(`am force-stop ${other}`);
   }
-  // el cerebro, al final de todo (carga el modelo en Android y, para compararlo, también en la parte web: es lo que más memoria pide)
+  // ================= FASE 4 · parte 1 (5.3): el fondo y la barra de abajo, de Android =================
   sh(`am start -n ${PKG}/.MainActivity`); await sleep(3000);
+  await goView('inicio'); await sleep(1500);
+  await base53();
+  // el cerebro, al final de todo (carga el modelo en Android y, para compararlo, también en la parte web: es lo que más memoria pide)
   await goView('inicio'); await sleep(1500);
   await cerebro52();
 } catch (e) {

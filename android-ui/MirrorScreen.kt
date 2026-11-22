@@ -170,7 +170,9 @@ internal data class MNode(
     val fx: List<Float>, val sw: Int, val lt: Boolean,
     val kids: List<MNode>,
     // 5.0 · la letra: de qué vez es (gn), y de cada verso, si es un hueco (gap) y su offsetTop de la web (ot)
-    val gap: Boolean = false, val ot: Float = 0f, val gn: Int = 0
+    val gap: Boolean = false, val ot: Float = 0f, val gn: Int = 0,
+    // 5.3 · un botón apretado con el dedo: la web lo encoge un poco («scale»), desde su centro
+    val sc: Float = 1f
 )
 
 private val NO_F = emptyList<Float>()
@@ -268,7 +270,8 @@ private fun mNode(o: JSONObject, st: List<MStyle>, depth: Int): MNode {
         o.f("mk"), o.c("mc"), o.optInt("mo") == 1,
         o.optJSONArray("fx").let { a -> if (a != null && a.length() == 3) List(3) { a.optDouble(it, if (it == 0) 0.0 else 1.0).toFloat() } else NO_F }, o.optInt("sw", 0), o.optInt("lt") == 1,
         mKids(o.optJSONArray("c"), st, depth + 1),
-        gap = o.optInt("gp") == 1, ot = o.f("ot"), gn = o.optInt("gn", 0)
+        gap = o.optInt("gp") == 1, ot = o.f("ot"), gn = o.optInt("gn", 0),
+        sc = o.f("sc", 1f).let { if (it > 0f && it < 4f) it else 1f }
     )
 }
 
@@ -290,6 +293,13 @@ internal fun mParsePart(o: JSONObject): List<MNode> {
  * solo se vuelven a dibujar las piezas que lo usan (las barras, las listas desplegables…), no las 600 de «Ajustes».
  */
 internal val LocalMSkin = compositionLocalOf<Skin?> { null }
+
+/**
+ * 5.3 · Piezas «de paso»: se dibujan aquí pero lo que se toca en ellas le llega a la web tal cual (la barra de abajo, el
+ * resumen del año, la bienvenida, el despertador). Las barras que se arrastran, las cajas de escribir y las listas
+ * desplegables siguen siendo de aquí.
+ */
+internal val LocalMPass = compositionLocalOf { false }
 
 @Composable
 internal fun rememberMirrorSkin(): Skin {
@@ -365,7 +375,9 @@ internal fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float,
         layout(max(0, ((ox + w) * d).roundToInt() - x0), max(0, ((oy + h) * d).roundToInt() - y0)) {
             for (i in 0 until n) {
                 val c = kids[i]; val p = ps[i]
-                if (c.e == "t") p.place((c.x * d).roundToInt() - x0, ((c.y + c.h / 2f) * d - p.height / 2f).roundToInt() - y0)
+                // (5.3 · lo que la web agranda o encoge desde su centro: un botón apretado, el corazón… igual aquí)
+                if (c.sc != 1f) { val s = c.sc; p.placeWithLayer((c.x * d).roundToInt() - x0, if (c.e == "t") ((c.y + c.h / 2f) * d - p.height / 2f).roundToInt() - y0 else (c.y * d).roundToInt() - y0) { scaleX = s; scaleY = s } }
+                else if (c.e == "t") p.place((c.x * d).roundToInt() - x0, ((c.y + c.h / 2f) * d - p.height / 2f).roundToInt() - y0)
                 else p.place((c.x * d).roundToInt() - x0, (c.y * d).roundToInt() - y0)
             }
         }
@@ -627,7 +639,8 @@ private fun MBoxNode(c: MNode) {
     if (c.label.isNotEmpty()) m = m.semantics { contentDescription = c.label }
     // (las imágenes de fondo: el fondo del reproductor)
     for (L in c.g) if (L.t == "u") { val dens = LocalDensity.current.density; LaunchedEffect(L.u) { needArt(L.u, bgSide(c), dens) } }
-    if (c.sw > 0) {
+    val pass = LocalMPass.current
+    if (c.sw > 0 && !pass) {
         // la portada del reproductor: hacia los lados se va con el dedo (como en la de siempre) y, al soltarla, pasa de canción
         val off = remember { Animatable(0f) }
         val scope = rememberCoroutineScope()
@@ -652,7 +665,7 @@ private fun MBoxNode(c: MNode) {
             }
         }.graphicsLayer { translationX = off.value * 0.35f; rotationZ = off.value / density * 0.02f }
     }
-    if (c.e == "dr" && c.k > 0) {
+    if (c.e == "dr" && c.k > 0 && !pass) {
         // una banda del ecualizador: se arrastra arriba y abajo; dos toques seguidos la dejan a 0
         val last = remember { LongArray(2) }
         m = m.pointerInput(c.k) {
@@ -680,7 +693,7 @@ private fun MBoxNode(c: MNode) {
                 }
             }
         }
-    } else if (c.k > 0) {
+    } else if (c.k > 0 && !pass) {
         // (lo pequeño se encoge un poco al tocarlo, como los botones de la web; una fila entera, no)
         m = m.press(if (c.w < 230f && c.h < 90f) 0.96f else 1f) { mSend("hTap", c.k) }
     }

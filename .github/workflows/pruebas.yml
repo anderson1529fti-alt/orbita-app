@@ -100,7 +100,7 @@ jobs:
           } 2>&1 | tee ../../salida/cerebro.txt
       # Lo mismo que compila la versión que se publica (sin firmar): que no falle por algo que solo salga ahí
       - name: Compilar como la versión publicada
-        if: hashFiles('pruebas/solo-ventanas') == '' && hashFiles('pruebas/solo-viz') == '' && hashFiles('pruebas/solo-letra') == '' && hashFiles('pruebas/solo-voz') == '' && hashFiles('pruebas/solo-cerebro') == ''
+        if: hashFiles('pruebas/solo-ventanas') == '' && hashFiles('pruebas/solo-viz') == '' && hashFiles('pruebas/solo-letra') == '' && hashFiles('pruebas/solo-voz') == '' && hashFiles('pruebas/solo-cerebro') == '' && hashFiles('pruebas/solo-base') == ''
         run: |
           cd android
           set -o pipefail

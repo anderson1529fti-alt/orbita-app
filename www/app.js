@@ -4125,7 +4125,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + (NUI.brainOk ? '; cerebro de comprensión' + (NB.nat ? ` (${(NB.natInfo || {}).threads || '?'} núcleos)` : NB.natFail ? ' (no arrancó: ' + NB.natFail + ')' : '') : NUI_PLUGIN && NUI.on && mirBad('brain') ? '; cerebro de comprensión: el de la parte web (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + (NUI.baseOk ? '; fondo y barra de abajo' + (BASE.on ? ' (a la vista)' : '') : NUI_PLUGIN && NUI.on && mirBad('base') ? '; fondo y barra de abajo: los de siempre (fallaron)' : '') + (NUI.vozOk ? ', «Tu voz»' : '') + (NUI.brainOk ? '; cerebro de comprensión' + (NB.nat ? ` (${(NB.natInfo || {}).threads || '?'} núcleos)` : NB.natFail ? ' (no arrancó: ' + NB.natFail + ')' : '') : NUI_PLUGIN && NUI.on && mirBad('brain') ? '; cerebro de comprensión: el de la parte web (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : NUI.screen === 'voz' ? '«Tu voz»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -6091,7 +6091,7 @@ function nuiWant() {
 const homeCan = () => NUI.homeOk && (state.heroMode !== 'viz' || NUI.vizOk);
 const nuiActive = () => NUI.on && (state.view === 'biblioteca' || (state.view === 'inicio' && NUI.homeOk) || pgCan(state.view) || !$('#chat').hidden || (NUI.winOk && (winOpen() || W.on.length > 0)));
 /* a screen of the new ones can go native: the plugin knows how (the mirrored ones need the 4.7 one) and it hasn't failed in this version */
-const pgCan = v => !!PAGES[v] && NUI.pgOk && (!PAGES[v].mirror || (NUI.mirOk && !mirBad(v)));
+const pgCan = v => !!PAGES[v] && NUI.pgOk && (!PAGES[v].need || NUI[PAGES[v].need]) && (!PAGES[v].mirror || (NUI.mirOk && !mirBad(v)));
 function nuiLoop() {
   if (NUI.raf || !NUI.on) return;
   const step = () => {
@@ -6119,7 +6119,8 @@ function nuiLoop() {
       else if (k !== NUI.rect) { NUI.rect = k; NUI_PLUGIN.rect(o).catch(() => {}); }
       if (scr === 'inicio') homeTick(); else if (PAGES[scr]) pgTick(scr);
     } else if (NUI.shown) nuiHide();
-    if (nuiActive()) NUI.raf = requestAnimationFrame(step);
+    try { baseTick(); } catch (e) { diag('fondo y barra nativos: ' + (e && e.message || e)); baseOff(); }
+    if (nuiActive()) NUI.raf = requestAnimationFrame(step); else baseOff();
   };
   NUI.raf = requestAnimationFrame(step);
 }
@@ -6245,7 +6246,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); NUI.baseOk = (+s.v || 0) >= 12 && !mirBad('base'); NUI.vozOk = (+s.v || 0) >= 12; if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6253,7 +6254,7 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android; Nova te escucha sin salir de Órbita y su cerebro de comprensión corre en Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activadas: todo lo que ves lo dibuja Android (las pantallas, el reproductor, las ventanas, la barra de abajo, el fondo, los visualizadores, la letra, la conversación con Nova, el resumen del año, la bienvenida y el despertador); Nova te escucha sin salir de Órbita y su cerebro de comprensión corre en Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagaron solas porque algo falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarlas.'
     : 'Apagadas: todo se ve con las pantallas de siempre.';
 }
@@ -6447,6 +6448,8 @@ const tuBlock = el => {
 const PAGES = {
   buscar: { view: '#view-buscar', mirror: true, parts: {} },
   ajustes: { view: '#view-ajustes', mirror: true, parts: {} },
+  /* 5.3 · «Tu voz», read whole like «Buscar» and «Ajustes» (with the plugin that knows it) */
+  voz: { view: '#view-voz', mirror: true, parts: {}, need: 'vozOk' },
   tu: {
     view: '#view-tu',
     where: el => el.closest('#tuOut') ? 'out' : el.closest('.head') ? 'head' : el.closest('.tu-links') ? 'links' : 'mem',
@@ -6652,13 +6655,42 @@ function mPseudo(el, cs, r, which, ctx, kids) {
   if (mPaints(n)) kids.push(n);
 }
 const M_TEXT_IN = { text: 1, search: 1, password: 1, email: 1, url: 1, tel: 1, number: 1 };
+/* (5.3) how much something is grown or shrunk from its centre, by «scale» or by a «transform» that only does that
+   (from anywhere else, or turned, or moved: it is read as it is seen) */
+function mScaleOf(el, cs) {
+  let p = '', v = 1;
+  if (cs.scale && cs.scale !== 'none') { const a = cs.scale.split(/\s+/).map(parseFloat); if (a.length > 2 || (a.length === 2 && Math.abs(a[0] - a[1]) > 1e-4)) return null; p = 'scale'; v = a[0]; if (cs.transform && cs.transform !== 'none') return null; }
+  else if (cs.transform && cs.transform !== 'none') { const m = /^matrix\(([^)]+)\)$/.exec(cs.transform); if (!m) return null; const q = m[1].split(',').map(Number); if (Math.abs(q[1]) > 1e-4 || Math.abs(q[2]) > 1e-4 || Math.abs(q[0] - q[3]) > 1e-4 || Math.abs(q[4]) > 0.01 || Math.abs(q[5]) > 0.01) return null; p = 'transform'; v = q[0]; }
+  else return null;
+  if (!(v > 0) || Math.abs(v - 1) < 1e-3 || (cs.rotate && cs.rotate !== 'none') || (cs.translate && cs.translate !== 'none')) return null;
+  const o = cs.transformOrigin.split(' ').map(parseFloat), w = el.offsetWidth || (el.getBBox ? el.getBBox().width : 0), h = el.offsetHeight || (el.getBBox ? el.getBBox().height : 0);
+  if (!(Math.abs(o[0] - w / 2) < 0.6 && Math.abs((o.length > 1 ? o[1] : o[0]) - h / 2) < 0.6)) return null;
+  return { p, v };
+}
+/* (5.3) the elements whose «style» the reading itself touched a moment (and left as it was): not a change */
+const M_OWN = new Set();
+const mOwn = m => m.type === 'attributes' && m.attributeName === 'style' && M_OWN.has(m.target);
 /* one element (and what is inside it) → the pieces to draw, added to «out» */
 function mWalk(el, ctx, out) {
   const tag = el.tagName;
   if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEMPLATE' || tag === 'OPTION' || tag === 'BR') return;
-  if (ctx.skip && el === ctx.skip) return;
+  if (ctx.skip && (ctx.skip === el || (ctx.skip instanceof Set && ctx.skip.has(el)))) return;
   const cs = getComputedStyle(el);
   if (cs.display === 'none' || (el.style && el.style.visibility === 'hidden')) return;
+  // (something that grows or shrinks from its centre: a button pressed with the finger, which the web shrinks a little
+  //  with «scale» and lets go with a spring; the heart when you like a song, and its ring… It is read as it is without
+  //  it and Android draws it grown or shrunk the same, from its centre; the change of a moment isn't a change for the
+  //  watchers)
+  if (!M_OWN.has(el)) {
+    const sv = mScaleOf(el, cs);
+    if (sv) {
+      const at = out.length, pv = el.style.getPropertyValue(sv.p), pp = el.style.getPropertyPriority(sv.p);
+      el.style.setProperty(sv.p, 'none', 'important'); if (!M_OWN.size) queueMicrotask(() => M_OWN.clear()); M_OWN.add(el);
+      try { mWalk(el, ctx, out); } finally { if (pv) el.style.setProperty(sv.p, pv, pp); else el.style.removeProperty(sv.p); }
+      if (out.length === at + 1) out[at].sc = +sv.v.toFixed(3);
+      return;
+    }
+  }
   const r = el.getBoundingClientRect();
   const n = { x: mF(r.left - ctx.ox), y: mF(r.top - ctx.oy), w: mF(r.width), h: mF(r.height) };
   // the light behind the cover of the player: Android moves it with the music on its own
@@ -6933,6 +6965,7 @@ function winWatch(id) {
       for (const m of list) {
         const t = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (!t) continue;
         if (m.type === 'attributes' && m.attributeName === 'style' && (t.id === 'npHalo' || t.id === 'npBg')) continue;
+        if (mOwn(m)) continue;
         if (m.type === 'attributes' && NUI.lyOk && t.closest && t.closest('#lyScroll')) continue;
         winMarkEl(t);
       }
@@ -7027,7 +7060,7 @@ function pgAfter(name) { for (const ms of [30, 400, 1500]) setTimeout(() => { co
 function pgWatch(name) {
   const P = PAGES[name], S = pgOf(name); if (S.obs) return;
   try {
-    S.obs = new MutationObserver(list => { for (const m of list) { const el = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (el) pgMark(name, P.mirror ? mirWhere(name, el) : P.where(el)); } });
+    S.obs = new MutationObserver(list => { for (const m of list) { if (mOwn(m)) continue; const el = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (el) pgMark(name, P.mirror ? mirWhere(name, el) : P.where(el)); } });
     // (a mirrored screen is drawn from everything it has: any attribute may change how it looks)
     S.obs.observe($(P.view), P.mirror ? { subtree: true, childList: true, characterData: true, attributes: true } : { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'class', 'aria-pressed', 'disabled', 'src', 'placeholder', 'open'] });
   } catch (e) { diag('pantalla nativa «' + name + '»: no puedo seguir los cambios (' + (e && e.message || e) + ')'); delete PAGES[name]; }
@@ -7204,6 +7237,123 @@ async function mindCall(msg) {
   } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
   finally { mindMark(false); }
 }
+
+/* ================== 5.3 · Phase 4, part 1: everything that is seen, by Android ==================
+   The layer at the very bottom: the background of the app (Android draws it: the same aurora, moving at the same point
+   as the web's, or still, or the cover, or pure black; with the same grain) and the bar at the bottom (the song that
+   plays and the tabs), read from the one of always like the screens. What is touched on the bar reaches the web as it
+   is (it already knows what to do, also opening the player with the finger); only the bar of the song is dragged there.
+   It goes up when everything on the screen is Android's (a native screen or the native player) and nothing of the web
+   is on top; otherwise the web's own, identical, is seen. If it ever closed the app, in this version, the web's. */
+const BASE = { on: false, keys: {}, dirty: new Set(), anim: new Set(), poll: 0, obs: null, vals: new Map(), els: new Map(), bgKey: '', bgAt: 0, bgRead: 0, drift: null, driftAt: 0, fixedKey: '', sure: false, openT: 0 };
+/* the parts of the bar, in the order they are drawn: the player (its box), its three pieces, and the tabs */
+function baseList() {
+  const pl = $('.player'), nav = $('.nav'), out = [];
+  if (pl && pl.getClientRects().length) {
+    const subs = ['.pl-track', '.pl-center .ctrls', '.seekrow', '.pl-right'].map(q => pl.querySelector(q)).filter(x => x && x.getClientRects().length);
+    out.push([pl, new Set(subs)]); for (const x of subs) out.push([x, null]);
+  }
+  if (nav && nav.getClientRects().length) out.push([nav, null]);
+  return out;
+}
+/* is everything on the screen Android's now, with nothing of the web on top? */
+function baseWant() {
+  if (!NUI_PLUGIN || !NUI.baseOk || !NUI.on || NUI.classic || innerWidth > 760 || root.classList.contains('booting') || !state.ready || document.hidden) return false;
+  if (!(NUI.shown || W.on.includes('np'))) return false;
+  if (W.key === '-' || W.drag || NPM.on || NPM.closing) return false;
+  if (W.on.some(id => WIN[id].pass)) return false;
+  for (const id of ['importProg', 'toast', 'ytDock', 'ytOverlay', 'dropOverlay']) { const el = document.getElementById(id); if (el && !el.hidden && el.getClientRects().length) return false; }
+  const it = $('#intro'); if (it && it.isConnected) { const cs = getComputedStyle(it); if (cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity > 0.01) return false; }
+  // (and nothing of the web over the bar: a menu, a notice… what is at its points is the bar's, or a native window's)
+  for (const el of [$('.player'), $('.nav')]) {
+    if (!el || !el.getClientRects().length) continue;
+    const r = el.getBoundingClientRect(), y = r.top + Math.min(r.height / 2, 20);
+    if (y < 0 || y >= innerHeight) continue;
+    for (const fx of [0.12, 0.5, 0.88]) {
+      const at = document.elementFromPoint(r.left + r.width * fx, y);
+      if (at && !el.contains(at) && !W.on.some(id => { const w = $(WIN[id].el); return !!w && w.contains(at); })) return false;
+    }
+  }
+  return true;
+}
+/* how the background is now (and where its movement goes: the web's own animation says it) */
+function baseBg() {
+  let moving = false, t = 0;
+  // (the animation of always, kept: looking for it among all of the page's is only done when it is gone, and not often)
+  try {
+    let a = BASE.drift;
+    if ((!a || a.playState === 'idle') && performance.now() - BASE.driftAt > 400) { BASE.driftAt = performance.now(); a = BASE.drift = document.getAnimations().find(x => x.animationName === 'drift') || null; }
+    if (a && a.playState !== 'idle') { t = +a.currentTime || 0; moving = a.playState === 'running'; }
+  } catch {}
+  const m = LOOK.bg === 'portada' ? /url\("?([^")]*)"?\)/.exec(($('#bgCover') || { style: {} }).style.backgroundImage || '') : null;
+  return { h: hue, s: sat, mode: LOOK.bg, base: mCol(getComputedStyle(document.body).backgroundColor) || 0xFF06050B, cover: m ? m[1] : '', moving, t: Math.round(t), fade: !matchMedia('(prefers-reduced-motion: reduce)').matches };
+}
+function baseMark(el) {
+  let k = '*';
+  for (let x = el; x && x !== document.body; x = x.parentElement) { const v = BASE.els.get(x); if (v) { k = v; break; } }
+  BASE.dirty.add(k);
+}
+function baseWatch() {
+  if (BASE.obs) return;
+  try {
+    BASE.obs = new MutationObserver(list => { if (!BASE.on) return; for (const m of list) { if (mOwn(m)) continue; const t = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (t) baseMark(t); } });
+    for (const el of [$('.player'), $('.nav')]) if (el) BASE.obs.observe(el, { subtree: true, childList: true, characterData: true, attributes: true });
+  } catch {}
+  addEventListener('resize', () => BASE.dirty.add('*'));
+}
+/* the parts of the bar that changed (all of them when it comes up) */
+function baseSync(force) {
+  const list = baseList(), fixed = [], parts = {}, els = new Map(), all = force || BASE.dirty.has('*');
+  for (const [el, skip] of list) {
+    const r = el.getBoundingClientRect(), k = hKey(el); els.set(el, k);
+    fixed.push([k, mF(r.left), mF(r.top), mF(r.width), mF(r.height)]);
+    if (!all && !BASE.dirty.has(k) && BASE.keys[k]) continue;
+    const ctx = { ox: r.left, oy: r.top, st: [], sk: new Map(), clipR: 1e9, ell: false, hand: false, tg: null, tgr: null, skip, vals: BASE.vals }, c = [];
+    try { mWalk(el, ctx, c); } catch (e) { diag('barra nativa: ' + (e && e.message || e)); continue; }
+    const v = { st: ctx.st, c }, js = JSON.stringify(v);
+    if (force || js !== BASE.keys[k]) { BASE.keys[k] = js; parts[k] = v; }
+    // (something moving in it that ends — the spring of a button let go, the heart, a colour changing slowly —: read
+    //  again in the next frame, until it ends; what moves forever isn't looked at)
+    try { if (el.getAnimations({ subtree: true }).some(a => a.playState === 'running' && a.effect && a.effect.getTiming().iterations !== Infinity)) BASE.anim.add(k); } catch {}
+  }
+  BASE.dirty.clear(); BASE.els = els;
+  for (const k of Object.keys(BASE.keys)) if (![...els.values()].some(v => String(v) === k)) delete BASE.keys[k];
+  const o = {}, fk = JSON.stringify(fixed);
+  if (force || fk !== BASE.fixedKey) { BASE.fixedKey = fk; o.fixed = fixed; }
+  if (Object.keys(parts).length) o.parts = parts;
+  return o;
+}
+/* once per frame, from the loop of the native screens */
+function baseTick() {
+  if (!NUI_PLUGIN || !NUI.baseOk) return;
+  if (!baseWant()) { baseOff(); return; }
+  baseWatch();
+  // (values that change with nothing changing in the page: the bar of the song while it plays)
+  for (const [el, v] of BASE.vals) { if (!el.isConnected) { BASE.vals.delete(el); continue; } if (el.value !== v) { BASE.vals.set(el, el.value); baseMark(el); } }
+  const now = performance.now(), first = !BASE.on, o = {};
+  if (now - BASE.poll > 3000) { BASE.poll = now; BASE.dirty.add('*'); }
+  for (const k of BASE.anim) BASE.dirty.add(k); BASE.anim.clear();
+  // (how the background is: read four times a second; Android moves it on its own and is told again every 5 s)
+  if (first || now - BASE.bgRead > 250) {
+    BASE.bgRead = now;
+    const bg = baseBg(), bk = JSON.stringify([bg.h, bg.s, bg.mode, bg.base, bg.cover, bg.moving, bg.fade]);
+    if (first || bk !== BASE.bgKey || now - BASE.bgAt > 5000) { BASE.bgKey = bk; BASE.bgAt = now; o.bg = bg; }
+  }
+  if (first || BASE.dirty.size) Object.assign(o, baseSync(first));
+  if (!first && !Object.keys(o).length) return;
+  BASE.on = true; o.on = true;
+  if (first) baseOpenMark(true);
+  NUI_PLUGIN.base(o).catch(e => { diag('fondo y barra nativos: ' + (e && e.message || e)); NUI.baseOk = false; BASE.on = false; });
+}
+function baseOff() {
+  if (!BASE.on) return;
+  BASE.on = false; BASE.keys = {}; BASE.fixedKey = ''; BASE.bgKey = ''; BASE.anim.clear();
+  try { NUI_PLUGIN.base({ on: false }).catch(() => {}); } catch {}
+}
+/* (if the native background and bar ever closed the app while coming up, next time the web's, in this version) */
+(() => { try { if (LS.get('baseOpen', '')) { LS.set('baseOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.base = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('fondo y barra nativos: la app se cerró al ponerlos → esta versión usa los de siempre'); } } catch {} })();
+function baseOpenMark(on) { clearTimeout(BASE.openT); if (!on) { LS.set('baseOpen', ''); return; } if (BASE.sure) return; LS.set('baseOpen', '1'); BASE.openT = setTimeout(() => { LS.set('baseOpen', ''); BASE.sure = true; }, 12000); }
+document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(BASE.openT); LS.set('baseOpen', ''); } });
 
 /* ---------- Delegated actions ---------- */
 function armOrRun(btn, run) {
@@ -8219,6 +8369,11 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '5.3': [
+    '<b>Todo lo que ves lo dibuja Android</b>: ahora también el fondo (la aurora, que se mueve igual que siempre, la portada o el negro puro), la barra de abajo (la canción que suena y las pestañas) y «Tu voz».',
+    'Se ve y se toca exactamente igual que antes: la barra de la canción se arrastra, y la barra entera se sube con el dedo para abrir el reproductor, como siempre.',
+    'Es la primera parte de la fase 4. En la segunda, tus datos y lo que Nova decide pasan también a Android y se quita la parte web.'
+  ],
   '5.2': [
     '<b>El cerebro de comprensión de Nova corre en Android</b>: el que entiende lo que le dices con tus palabras («qué temazo», «pásala que me aburre»…) ya no va dentro de la parte web. Lo mueve Android con varios núcleos del móvil: entiende exactamente lo mismo, piensa más rápido y la parte web ya no carga con el modelo.',
     'Es el mismo cerebro que ya tenías: no hay que descargar nada. Si no lo tienes, se instala como siempre en Ajustes › Tu DJ.',
@@ -10279,7 +10434,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { nbWebProbe, mindCall, mindCan, NB_TEST, voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { get BASE() { return BASE; }, baseWant, baseBg, baseList, LOOK, nbWebProbe, mindCall, mindCan, NB_TEST, voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }
