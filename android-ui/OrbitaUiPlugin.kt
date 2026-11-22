@@ -27,6 +27,9 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
+import com.getcapacitor.annotation.Permission
+import com.getcapacitor.annotation.PermissionCallback
+import com.getcapacitor.PermissionState
 import org.json.JSONObject
 import java.text.Normalizer
 import kotlin.math.roundToInt
@@ -240,7 +243,7 @@ object UiState {
  * la zona de contenido de la app de siempre (que sigue poniendo el fondo, el reproductor de abajo y las pestañas) y le
  * cuentan a la app lo que toca el usuario. Si algo falla, la app vuelve sola a la pantalla de siempre.
  */
-@CapacitorPlugin(name = "OrbitaUi")
+@CapacitorPlugin(name = "OrbitaUi", permissions = [Permission(alias = "mic", strings = [android.Manifest.permission.RECORD_AUDIO])])
 class OrbitaUiPlugin : Plugin() {
     private var host: ComposeView? = null
     private var x = 0f
@@ -251,7 +254,112 @@ class OrbitaUiPlugin : Plugin() {
 
     override fun load() {
         UiState.emit = { _, o -> try { notifyListeners("ui", o) } catch (ignored: Throwable) { } }
+        // 5.1 · lo que va entendiendo y cómo acabó, a la app (lo que se va entendiendo, como mucho cada 150 ms)
+        var partAt = 0L
+        Ear.onPartial = { t ->
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - partAt >= 150) { partAt = now; UiState.send("earPart") { it.put("text", t) } }
+        }
+        Ear.onEnd = { text, alts, code ->
+            earBack.isEnabled = false
+            val a = JSArray(); for (x in alts) a.put(x)
+            UiState.send("earEnd") { it.put("text", text); it.put("alts", a); it.put("code", code) }
+        }
+        // «atrás» mientras escucha: deja de escuchar (y nada más)
+        try { activity.onBackPressedDispatcher.addCallback(activity, earBack) } catch (ignored: Throwable) { }
     }
+
+    private val earBack = object : androidx.activity.OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() { Ear.cancel(); isEnabled = false }
+    }
+
+    // la app se va (o se apaga la pantalla) mientras escucha: deja de escuchar (pedir el permiso también la deja en
+    // pausa un momento: eso no cuenta)
+    override fun handleOnPause() {
+        super.handleOnPause()
+        if (!Ear.asking && Ear.step != "perm" && (Ear.on || Ear.busy)) { Ear.cancel(); earBack.isEnabled = false }
+    }
+
+    // la app se cierra: suelta el reconocimiento de voz
+    override fun handleOnDestroy() {
+        try { Ear.release() } catch (ignored: Throwable) { }
+        super.handleOnDestroy()
+    }
+
+    // ---------------------------------------------------------------- 5.1 · Nova te escucha
+    private var earHost: ComposeView? = null
+    private var earCall: PluginCall? = null
+    // (antes de preguntar por el micrófono: ¿ya se le había dicho que no una vez? Si se le vuelve a decir que no, Android
+    // ya no pregunta más, y Órbita se acuerda para ir directa a la ventana de Google, sin asomar el recuadro)
+    private var micWhy = false
+    private fun earPrefs() = context.getSharedPreferences("orbita_oido", android.content.Context.MODE_PRIVATE)
+    private fun micRationale(): Boolean = try { androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, android.Manifest.permission.RECORD_AUDIO) } catch (t: Throwable) { false }
+    private fun ensureEarHost() {
+        if (earHost != null) return
+        val v = ComposeView(activity)
+        v.setContent { EarLayer() }
+        v.visibility = View.GONE
+        v.translationZ = 45f   // (por encima de las ventanas)
+        val wv = bridge.webView
+        (wv.parent as ViewGroup).addView(v, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        earHost = v; Ear.host = v
+    }
+
+    /**
+     * Escucha: el recuadro de abajo con el aro de Nova y lo que va entendiendo; al acabar llega «earEnd» con lo dicho.
+     * Contesta enseguida {ok: true}, o {ok: false, code} si no puede (sin reconocimiento de voz en el móvil, o sin
+     * permiso del micrófono): entonces la app usa la ventana de Google de siempre.
+     */
+    @PluginMethod
+    fun listen(call: PluginCall) {
+        val who = call.getString("who", "Nova") ?: "Nova"
+        val lite = call.getBoolean("lite", false) == true
+        activity.runOnUiThread {
+            try {
+                if (Ear.busy) { call.resolve(JSObject().put("ok", false).put("code", "busy")); return@runOnUiThread }
+                if (!android.speech.SpeechRecognizer.isRecognitionAvailable(context)) { call.resolve(JSObject().put("ok", false).put("code", "norec")); return@runOnUiThread }
+                ensureEarHost()
+                if (getPermissionState("mic") != PermissionState.GRANTED) {
+                    if (earPrefs().getBoolean("nunca", false) && !micRationale()) { call.resolve(JSObject().put("ok", false).put("code", "denied")); return@runOnUiThread }
+                    micWhy = micRationale()
+                    Ear.ask(who, lite); earBack.isEnabled = true
+                    earCall = call
+                    requestPermissionForAlias("mic", call, "afterMic")
+                    return@runOnUiThread
+                }
+                if (earPrefs().contains("nunca")) earPrefs().edit().remove("nunca").apply()
+                earGo(call)
+            } catch (t: Throwable) { call.resolve(JSObject().put("ok", false).put("code", "err")) }
+        }
+    }
+
+    @PermissionCallback
+    private fun afterMic(call: PluginCall) {
+        earCall = null
+        // (si mientras tanto se canceló —«Cancelar», «atrás» o la app—, no escucha ni abre nada)
+        val wanted = Ear.asking
+        if (getPermissionState("mic") == PermissionState.GRANTED && wanted) { Ear.asking = false; earGo(call); return }
+        if (wanted && micWhy && !micRationale()) try { earPrefs().edit().putBoolean("nunca", true).apply() } catch (ignored: Throwable) { }
+        Ear.close(); earBack.isEnabled = false
+        call.resolve(JSObject().put("ok", false).put("code", if (wanted) "denied" else "cancel"))
+    }
+
+    private fun earGo(call: PluginCall) {
+        val lang = call.getString("lang", "es-ES") ?: "es-ES"
+        val offline = call.getBoolean("offline", false) == true
+        Ear.open(call.getString("who", "Nova") ?: "Nova", call.getBoolean("lite", false) == true, false)
+        Ear.start(context, lang, offline)
+        earBack.isEnabled = true
+        call.resolve(JSObject().put("ok", true))
+    }
+
+    /** «Listo» desde la app: deja de escuchar y se queda con lo dicho. */
+    @PluginMethod
+    fun listenStop(call: PluginCall) { activity.runOnUiThread { Ear.finish() }; call.resolve() }
+
+    /** Cancelar desde la app: nada le llega a Nova. */
+    @PluginMethod
+    fun listenCancel(call: PluginCall) { activity.runOnUiThread { Ear.cancel(); earBack.isEnabled = false }; call.resolve() }
 
     private fun num(call: PluginCall, k: String, d: Float): Float {
         val o = call.data?.opt(k)
@@ -331,7 +439,7 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 9)
+        r.put("available", true); r.put("v", 10)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
@@ -345,6 +453,9 @@ class OrbitaUiPlugin : Plugin() {
             r.put("vizCover", Viz.coverOk); r.put("vizYaw", Viz.yaw.toDouble()); r.put("vizPitch", Viz.pitch.toDouble()); r.put("vizZoom", Viz.zoom.toDouble())
             // 5.0 · la letra: qué caja se ve, qué verso está encendido, por dónde va y cuánto lleva de relleno
             UiState.ytHole().let { h -> r.put("ytHole", if (h == null) "" else "${h.left.roundToInt()},${h.top.roundToInt()},${h.width.roundToInt()}x${h.height.roundToInt()}") }
+            // 5.1 · el oído: si escucha, en qué paso, lo entendido, cuánto se oye y cómo acabó la última vez
+            r.put("earOn", Ear.on); r.put("earStep", Ear.step); r.put("earWords", Ear.words); r.put("earLevel", Ear.level.toDouble()); r.put("earMax", Ear.maxLevel.toDouble())
+            r.put("earSessions", Ear.sessions); r.put("earLast", Ear.last); r.put("earPartials", Ear.partials); r.put("earLevels", Ear.levels); r.put("earPermCards", Ear.permCards); r.put("earAsking", Ear.asking)
             r.put("ytDock", UiState.ytDock != null); r.put("ytSlot", UiState.ytSlot != null); r.put("ytFwd", UiState.ytFwd)
             r.put("lyDrawn", Ly.drawn); r.put("lyIdx", Ly.shown); r.put("lyY", Ly.y.toDouble()); r.put("lyFill", Ly.fill.toDouble()); r.put("lyTaps", Ly.taps); r.put("lyGen", Ly.g); r.put("lyAt", Ly.i)
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }

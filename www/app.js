@@ -4125,7 +4125,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -6225,6 +6225,8 @@ function nuiEvent(e) {
   else if (e.type === 'mY') mirY(e);
   else if (e.type === 'wY') winY(e);
   else if (e.type === 'lyTap') lyTap(e);
+  else if (e.type === 'earEnd') earEnd(e);
+  else if (e.type === 'earPart') EAR.part = String(e.text || '');
   else if (e.type === 'mSwipe') winSwipe(e);
   else if (e.type === 'npDrag') winDrag(e);
   else if (e.type === 'hSel') { const el = $(e.sel); if (el && el.tagName === 'SELECT' && [...el.options].some(x => x.value === e.v)) { el.value = e.v; el.dispatchEvent(new Event('change', { bubbles: true })); } homeAfter(); }
@@ -6243,7 +6245,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6251,7 +6253,7 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android, y Nova te escucha sin salir de Órbita. Si algo no se ve bien, apágalas y vuelven las de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagaron solas porque algo falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarlas.'
     : 'Apagadas: todo se ve con las pantallas de siempre.';
 }
@@ -7141,6 +7143,35 @@ function ytNatLoop() {
   NUI.ytShown = on; ytOpenMark(on);
   if (on) { YT_NAT = ''; ytPlace(); } else ytNatPlace(null);
 }
+
+/* ---------- 5.1 · Phase 3, step 4: Nova listens inside Órbita (Android's speech recognition, no Google window) ----------
+   Android shows the box at the bottom with Nova's ring (it moves with your voice) and what it is understanding; when you
+   stop, what you said comes here and goes to Nova as always. Without speech recognition on the phone, or without
+   permission for the microphone, it answers {fallback}: then the Google window of always. */
+const EAR = { res: null, part: '', to: 0 };
+const earCan = () => !!(NUI_PLUGIN && NUI.earOk && NUI.on);
+function earListen() {
+  return new Promise(res => {
+    if (EAR.res) { const r0 = EAR.res; EAR.res = null; r0({ text: '', code: 'cancel' }); }
+    EAR.res = res; EAR.part = '';
+    const offline = LS.get('sttOffline', false) || navigator.onLine === false;
+    earOpenMark(true);
+    const give = v => { earOpenMark(false); clearTimeout(EAR.to); if (EAR.res === res) { EAR.res = null; res(v); } };
+    NUI_PLUGIN.listen({ lang: 'es-ES', offline, who: dj.name || 'Nova', lite: document.documentElement.classList.contains('lite') || !!reduceMotion })
+      .then(r => { if (!r || !r.ok) give(r && r.code === 'cancel' ? { text: '', code: 'cancel' } : { fallback: (r && r.code) || 'norec' }); })
+      .catch(() => give({ fallback: 'err' }));
+    // (por si acaso Android no contesta: cuarenta segundos como mucho)
+    clearTimeout(EAR.to); EAR.to = setTimeout(() => { if (EAR.res === res) { give({ text: '', code: 'timeout' }); NUI_PLUGIN.listenCancel().catch(() => {}); } }, 40000);
+  });
+}
+function earEnd(e) {
+  earOpenMark(false); clearTimeout(EAR.to);
+  const f = EAR.res; EAR.res = null;
+  if (f) f({ text: String(e.text || '').trim(), code: String(e.code || ''), alts: Array.isArray(e.alts) ? e.alts : [] });
+}
+/* (if listening natively ever closed the app, next time it goes with the Google window, in this version) */
+(() => { try { if (LS.get('earOpen', '')) { LS.set('earOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.ear = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('escuchar en Órbita: la app se cerró escuchando → esta versión usa la ventana de Google'); } } catch {} })();
+function earOpenMark(on) { clearTimeout(NUI.earOpenT); if (!on) { LS.set('earOpen', ''); return; } if (NUI.earSure) return; LS.set('earOpen', '1'); NUI.earOpenT = setTimeout(() => { LS.set('earOpen', ''); NUI.earSure = true; }, 12000); }
 
 /* ---------- Delegated actions ---------- */
 function armOrRun(btn, run) {
@@ -8156,6 +8187,11 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '5.1': [
+    '<b>Nova te escucha sin salir de Órbita</b>: al tocar «Háblale» ya no se abre la ventana de Google. Abajo sale el aro de Nova, que se mueve con tu voz, y lo que va entendiendo mientras hablas; al callarte, se lo dice a Nova. «Listo» termina antes y «Cancelar» (o «atrás») no le manda nada.',
+    'La primera vez, Android te pedirá permiso para usar el micrófono. Si no se lo das, o si tu móvil no trae reconocimiento de voz, se usa la ventana de Google de siempre.',
+    'Es el paso 4 de la fase 3 (la voz de Nova).'
+  ],
   '5.0': [
     '<b>La letra que va con la música la dibuja Android</b>: en el reproductor, el verso que suena se enciende, se va llenando como en un karaoke y la letra lo sigue sola (si la mueves con el dedo, espera un poco antes de volver). Tocar un verso lleva la canción allí, como siempre.',
     '<b>El videoclip, también en el reproductor de Android</b>: el vídeo se ve en su sitio, se toca como siempre y, si deslizas el reproductor, va con él.',
@@ -8335,6 +8371,17 @@ const joinEs = a => a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + '
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const voiceAvailable = () => (NATIVE && !!nativeLib) || (!!SR && STANDALONE);
 async function listenOnce() {
+  /* 5.1: Nova listens inside Órbita (Android's speech recognition, with what it understands at the bottom) */
+  if (NATIVE && typeof earCan === 'function' && earCan()) {
+    const r = await earListen();
+    /* (if it's the phone's speech recognition that has no permission for the microphone: the Google window, which asks for it) */
+    if (r && !r.fallback && !r.text && (r.code === 'denied' || r.code === 'norec')) { r.fallback = r.code; diag('escuchar en Órbita: el reconocimiento de voz del móvil no pudo (' + r.code + ') → ventana de Google'); }
+    if (r && !r.fallback) {
+      if (!r.text && r.code === 'lang') toast('Para entenderte sin internet, el móvil necesita el español descargado: app de Google › Ajustes › Voz › Reconocimiento de voz sin conexión.', 8000);
+      return r.text || '';
+    }
+    /* (without speech recognition on the phone, or without permission for the microphone: the Google window) */
+  }
   if (NATIVE && nativeLib) {
     /* 3.4: without internet (or if you choose it), the phone's own offline recognizer */
     const offline = LS.get('sttOffline', false) || navigator.onLine === false;
@@ -10145,7 +10192,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }
