@@ -105,7 +105,7 @@ fun OrbitaBase() {
 /** (Para las pruebas) los textos que Android tiene de la barra de abajo, en el orden en que los dibuja. */
 internal fun baseTexts(max: Int): List<String> {
     val out = ArrayList<String>()
-    fun walk(ns: List<MNode>) { for (n in ns) { if (out.size >= max) return; if (n.e == "t" && n.s.isNotBlank()) out.add(n.s); walk(n.kids) } }
+    fun walk(ns: List<MNode>) { for (n in ns) { if (out.size >= max) return; if ((n.e == "t" || n.e == "ph") && n.s.isNotBlank()) out.add(n.s); walk(n.kids) } }
     for (f in Base.fixed) walk(Base.parts[f.k] ?: emptyList())
     return out
 }

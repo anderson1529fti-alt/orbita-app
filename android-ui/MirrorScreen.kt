@@ -172,7 +172,9 @@ internal data class MNode(
     // 5.0 · la letra: de qué vez es (gn), y de cada verso, si es un hueco (gap) y su offsetTop de la web (ot)
     val gap: Boolean = false, val ot: Float = 0f, val gn: Int = 0,
     // 5.3 · un botón apretado con el dedo: la web lo encoge un poco («scale»), desde su centro
-    val sc: Float = 1f
+    val sc: Float = 1f,
+    // 5.3 · lo que se mueve solo (por el nombre de su animación de CSS): lo mueve Android
+    val an: List<MAnim> = emptyList()
 )
 
 private val NO_F = emptyList<Float>()
@@ -271,7 +273,8 @@ private fun mNode(o: JSONObject, st: List<MStyle>, depth: Int): MNode {
         o.optJSONArray("fx").let { a -> if (a != null && a.length() == 3) List(3) { a.optDouble(it, if (it == 0) 0.0 else 1.0).toFloat() } else NO_F }, o.optInt("sw", 0), o.optInt("lt") == 1,
         mKids(o.optJSONArray("c"), st, depth + 1),
         gap = o.optInt("gp") == 1, ot = o.f("ot"), gn = o.optInt("gn", 0),
-        sc = o.f("sc", 1f).let { if (it > 0f && it < 4f) it else 1f }
+        sc = o.f("sc", 1f).let { if (it > 0f && it < 4f) it else 1f },
+        an = mAnims(o.optJSONArray("an"))
     )
 }
 
@@ -358,7 +361,7 @@ internal fun MPart(p: MPos, nodes: List<MNode>, top: Float, bottom: Float) {
 /** Varias piezas, cada una en su sitio exacto (las medidas son las de la web; los textos se centran en su renglón). */
 @Composable
 internal fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float, modifier: Modifier) {
-    Layout(content = { for (i in kids.indices) { val c = kids[i]; key(if (c.k > 0) c.k else -1 - i) { MAny(c) } } }, modifier = modifier) { ms, _ ->
+    Layout(content = { for (i in kids.indices) { val c = kids[i]; key(if (c.k > 0) c.k else -1 - i) { if (c.an.isNotEmpty()) MAnimBox(c) { MAny(c) } else MAny(c) } } }, modifier = modifier) { ms, _ ->
         val d = density
         val x0 = (ox * d).roundToInt()
         val y0 = (oy * d).roundToInt()
@@ -397,6 +400,7 @@ private fun MAny(c: MNode) {
         "ph" -> MPh(c)
         "img" -> MImg(c)
         "eqa" -> MEqAnim()
+        "rcbars" -> MRcBars(c)
         "hole" -> Spacer(Modifier)
         // 4.9 · un visualizador: lo dibuja Android (en pantalla completa, además, se gira y se acerca con los dedos)
         "viz" -> VizBox(c.v, Modifier.mDecor(c), gestures = c.v == "vizFS")

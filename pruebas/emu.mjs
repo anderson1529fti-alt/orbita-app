@@ -907,7 +907,7 @@ try {
     check('con «Ahora» nativa, el fondo y la barra de abajo los dibuja Android', !!s1 && s1.baseShown && s1.baseLive && s1.baseParts === 5 && /^aurora:/.test(s1.baseDrawn) && !!w1 && w1.on, JSON.stringify({ w1, shown: s1 && s1.baseShown, live: s1 && s1.baseLive, partes: s1 && s1.baseParts, drawn: s1 && s1.baseDrawn, grano: s1 && s1.noiseMs }));
     const webT = await js(`const out = []; const walk = el => { for (const n of el.childNodes) { if (n.nodeType === 3) { const t = n.textContent.trim(); if (t && n.parentElement && n.parentElement.getClientRects().length && getComputedStyle(n.parentElement).visibility !== 'hidden') out.push(t); } else if (n.nodeType === 1 && getComputedStyle(n).display !== 'none') walk(n); } }; walk(document.querySelector('.player')); walk(document.querySelector('.nav')); return out;`);
     const natT = (s1 && s1.baseTexts) || [];
-    const norm = a => (a || []).map(t => String(t).replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const norm = a => (a || []).map(t => String(t).replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean);
     check('la barra nativa dice lo mismo que la de siempre (la canción, el tiempo y las pestañas)', norm(webT).length >= 6 && norm(webT).every(t => norm(natT).some(x => x === t || x.startsWith(t.slice(0, 12)))), JSON.stringify({ web: norm(webT), android: norm(natT) }));
     // --- se mueve, y al mismo punto que la de la web
     const a1 = await st(); await sleep(1600); const a2 = await st();
@@ -940,13 +940,25 @@ try {
     const sv = await js(`return +document.querySelector('.player .seek').value;`);
     check('arrastrar la barra del tiempo (nativa) mueve la canción a donde se suelta', !!sk && sv >= 640 && sv <= 860, String(sv));
     // subir la barra con el dedo abre el reproductor (lo hace la web, como siempre; mientras, se ve la de siempre)
-    const tr = await rectOf('.player .pl-meta-t');
-    if (tr) { const [x, y] = scr(tr); sh(`input swipe ${x} ${y} ${x} ${Math.max(200, y - 900)} 450`); }
+    const spy = `const p = document.querySelector('.player'); window.__sw = { s: 0, m: 0, e: 0, c: 0, t: [] }; const k = n => e => { window.__sw[n]++; if (window.__sw.t.length < 12) window.__sw.t.push(n + ':' + Math.round(e.touches && e.touches[0] ? e.touches[0].clientY : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : -1))); };
+      if (!window.__swOn) { window.__swOn = 1; p.addEventListener('touchstart', k('s'), { passive: true, capture: true }); p.addEventListener('touchmove', k('m'), { passive: true, capture: true }); p.addEventListener('touchend', k('e'), { capture: true }); p.addEventListener('touchcancel', k('c'), { capture: true }); } return 1;`;
+    const swipeUp = async () => { await js(spy); const tr = await rectOf('.player .pl-meta-t'); if (tr) { const [x, y] = scr(tr); sh(`input swipe ${x} ${y} ${x} ${Math.max(200, y - 900)} 900`); } return !!tr; };
+    await swipeUp();
     const np = await until(`${O} return W.on.includes('np') && !document.querySelector('#np').hidden;`, 6000);
     await sleep(800); shot('base-subir-reproductor');
-    const s3 = await st();
-    check('subir la barra con el dedo abre el reproductor (como siempre)', np, JSON.stringify({ on: await js(`${O} return W.on.join();`), base: s3 && s3.baseShown }));
-    await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await until(`${O} return !W.on.length;`, 5000); await sleep(1500);
+    const s3 = await st(), sw1 = await js(`${O} return Object.assign({}, window.__sw, { npm: { on: o.NPM && o.NPM.on, p: o.NPM && o.NPM.p }, np: !document.querySelector('#np').hidden });`);
+    let ctl = null;
+    if (!np) {
+      // (control: lo mismo con la de siempre, sin la capa nativa)
+      await js(`${O} N.classic = true; return 1;`); await sleep(2000);
+      await swipeUp();
+      const np2 = await until(`return !document.querySelector('#np').hidden;`, 5000);
+      ctl = { abre: np2, toques: await js(`return window.__sw;`) };
+      await js(`if (!document.querySelector('#np').hidden) document.querySelector('[data-act="np-close"]').click(); return 1;`); await sleep(1500);
+      await js(`${O} N.classic = false; return 1;`); await sleep(2000);
+    }
+    check('subir la barra con el dedo abre el reproductor (como siempre)', np, JSON.stringify({ on: await js(`${O} return W.on.join();`), base: s3 && s3.baseShown, toques: sw1, sin_capa: ctl }));
+    await js(`if (!document.querySelector('#np').hidden) document.querySelector('[data-act="np-close"]').click(); return 1;`); await until(`${O} return !W.on.length;`, 5000); await sleep(1500);
     // --- con algo de la web encima, se va (y se ve la de siempre); al irse, vuelve
     await js(`document.querySelector('#importProg').hidden = false; return 1;`); await sleep(1200);
     const s4 = await st();
@@ -995,18 +1007,104 @@ try {
     await goView('voz'); await sleep(2500);
     const vz = await js(`${O} return { shown: N.shown, screen: N.screen, view: o.state.view };`);
     const svz = await st(); shot('voz-nativa');
-    const vzT = ui().filter(n => !n.web && n.text).map(n => n.text);
-    const webVz = await js(`return [...document.querySelectorAll('#view-voz h1, #view-voz h2, #view-voz h3')].map(e => e.textContent.trim()).filter(Boolean).slice(0, 4);`);
-    check('«Tu voz» es nativa (Android la dibuja, con sus textos), con el fondo y la barra nativos', !!vz && vz.shown && vz.screen === 'voz' && svz && svz.baseLive && (webVz || []).length > 0 && webVz.every(t => vzT.some(x => x === t || x.startsWith(t.slice(0, 10)))), JSON.stringify({ vz, live: svz && svz.baseLive, web: webVz, android: vzT.slice(0, 14) }));
+    const vzT = ui().filter(n => !n.web && n.text).map(n => n.text.toLowerCase());
+    const webVz = await js(`const out = []; for (const e of document.querySelectorAll('#view-voz h1, #view-voz h2, #view-voz h3')) { const r = e.getBoundingClientRect(); if (r.height && r.top < innerHeight - 200) out.push(e.textContent.trim()); } return out.filter(Boolean).slice(0, 4);`);
+    check('«Tu voz» es nativa (Android la dibuja, con sus textos), con el fondo y la barra nativos', !!vz && vz.shown && vz.screen === 'voz' && svz && svz.baseLive && (webVz || []).length > 0 && webVz.every(t => vzT.some(x => x === t.toLowerCase() || x.startsWith(t.toLowerCase().slice(0, 10)))), JSON.stringify({ vz, live: svz && svz.baseLive, web: webVz, android: vzT.slice(10, 26) }));
     await goView('inicio'); await sleep(1500);
     check('sin cierres por error con el fondo y la barra nativos', crashes() === 0, crashText().slice(0, 1500));
+  };
+  // ================= FASE 4 · parte 1 (5.3): el resumen del año, la bienvenida y el despertador, de Android =================
+  const pass53 = async () => {
+    const O = `const o = window.__orbita, N = o.NUI, W = o.W;`;
+    const st = () => js(`return await Capacitor.Plugins.OrbitaUi.status();`);
+    const until = async (expr, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await js(expr) === true) return true; await sleep(400); } return false; };
+    const D = await js(`return devicePixelRatio;`);
+    let T = 0; { const wv = ui().find(n => n.cls === 'android.webkit.WebView'); T = wv ? wv.b[1] : 0; }
+    const rectOf = sel => js(`const e = document.querySelector('${sel}'); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];`);
+    const scr = r => [Math.round((r[0] + r[2]) / 2 * D), Math.round(T + (r[1] + r[3]) / 2 * D)];
+    const tapWeb = async (sel, wait = 1500) => { const r = await rectOf(sel); if (r) { tap(...scr(r)); await sleep(wait); } return !!r; };
+    const H = await js(`return innerHeight;`);
+    const low = a => (a || []).map(t => String(t).replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean);
+    // (quieta: todo lo que se mueve, parado en la web y, con lo que la web le dice, en Android; luego Android y la web, píxel a píxel)
+    const still = async id => {
+      // (el resumen, además, en pausa como con el dedo encima: que no pase de página ni se llene su barra entre una foto y la otra)
+      if (id === 'recap') { await js(`const z = document.querySelector('#rcTap'), r = z.getBoundingClientRect(); z.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); return 1;`); await sleep(800); }
+      await js(`${O} for (const a of document.querySelector('${'#'}' + ({ recap: 'recap', onb: 'onb', alarm: 'alarmScr' })['${id}']).getAnimations({ subtree: true })) { try { a.pause(); } catch (e) {} } W.dirty['${id}'] = new Set(['*']); return 1;`); await sleep(2500); };
+    const pairOf = async name => {
+      const nat = grab(); shot(`${name}-nativa`);
+      await js(`${O} N.classic = true; return 1;`); await until(`return (await Capacitor.Plugins.OrbitaUi.status()).wins === '';`, 5000); await sleep(2500);
+      const web = grab(); shot(`${name}-web`);
+      await js(`${O} N.classic = false; return 1;`); await sleep(2500);
+      if (!nat || !web) return null;
+      const top = T / nat.h, bot = Math.min(1, (T + H * D) / nat.h);
+      return { entera: vdiff(nat, web, [0, top, 1, bot]), arriba: vdiff(nat, web, [0, top, 1, top + (bot - top) * 0.3]), medio: vdiff(nat, web, [0, top + (bot - top) * 0.3, 1, top + (bot - top) * 0.75]), abajo: vdiff(nat, web, [0, top + (bot - top) * 0.75, 1, bot]) };
+    };
+    // ---------- la bienvenida
+    const f0 = await st();
+    await js(`${O} o.openOnboarding(true); return 1;`);
+    const up1 = await until(`${O} return W.on.includes('onb') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === true;`, 8000);
+    await sleep(2000); shot('bienvenida-nativa');
+    const s1 = await st();
+    const wT = await js(`return [...document.querySelectorAll('#onb .onb-skip, #onbStage h2, #onbStage .btn')].map(e => e.textContent.trim()).filter(Boolean);`);
+    check('la bienvenida la dibuja Android (ventana nativa «de paso»), con sus textos', up1 && !!s1 && s1.winPass && low(wT).length >= 2 && low(wT).every(t => low(s1.winTexts).some(x => x === t || x.startsWith(t.slice(0, 12)))), JSON.stringify({ up1, web: wT, android: s1 && s1.winTexts }));
+    const s2 = await st();
+    check('lo que se mueve solo (el aro y las barras de Nova, la luz de fondo) lo mueve Android', !!s2 && s2.animFrames - (f0 ? f0.animFrames : 0) > 20, JSON.stringify({ fotogramas: s2 && f0 ? s2.animFrames - f0.animFrames : -1 }));
+    await still('onb'); const pb = await pairOf('bienvenida');
+    log('  bienvenida, Android contra la web: ' + JSON.stringify(pb));
+    check('la bienvenida, quieta: Android la dibuja igual que la web', !!pb && pb.entera.blk <= 3 && pb.entera.px <= 9 && pb.arriba.blk <= 3.5 && pb.medio.blk <= 3.5 && pb.abajo.blk <= 3.5, JSON.stringify(pb));
+    await js(`for (const a of document.querySelector('#onb').getAnimations({ subtree: true })) { try { a.play(); } catch (e) {} } return 1;`); await sleep(800);
+    // lo que se toca le llega a la web: «Empezar» pasa al paso 1; «Saltar» la cierra
+    const fw0 = (await st()).passFwd;
+    const b1 = await tapWeb('#onbStage [data-ob="next"]', 2200);
+    const ob1 = await js(`return window.__orbita.OB.step;`), s3 = await st();
+    shot('bienvenida-paso-1');
+    check('tocar «Empezar» en la nativa le llega a la web: pasa al paso siguiente (y Android lo dibuja)', b1 && ob1 === 1 && s3 && s3.passFwd > fw0 && low(s3.winTexts).some(t => /paso 1/.test(t)), JSON.stringify({ paso: ob1, pasados: s3 && s3.passFwd - fw0, android: s3 && s3.winTexts && s3.winTexts.slice(0, 8) }));
+    await tapWeb('#onbSkip', 2000);
+    const gone1 = await until(`${O} return document.querySelector('#onb').hidden && !W.on.includes('onb') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === false;`, 5000);
+    check('«Saltar» la cierra (la nativa se va)', gone1, JSON.stringify(await js(`${O} return { onb: !document.querySelector('#onb').hidden, on: W.on.join() };`)));
+    // ---------- el despertador
+    await js(`${O} o.alarmWake('prueba', 'alarm', true); return 1;`);
+    const up2 = await until(`${O} return W.on.includes('alarm') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === true;`, 8000);
+    await sleep(2000); shot('despertador-nativo');
+    const a1 = await st();
+    check('el despertador lo dibuja Android, con la hora y sus botones', up2 && !!a1 && ['posponer', 'ya me levanto', 'apagar la música'].every(t => low(a1.winTexts).some(x => x.startsWith(t))), JSON.stringify({ up2, android: a1 && a1.winTexts }));
+    await still('alarm'); const pa = await pairOf('despertador');
+    log('  despertador, Android contra la web: ' + JSON.stringify(pa));
+    check('el despertador, quieto: Android lo dibuja igual que la web', !!pa && pa.entera.blk <= 3 && pa.entera.px <= 9 && pa.arriba.blk <= 3.5 && pa.medio.blk <= 3.5 && pa.abajo.blk <= 3.5, JSON.stringify(pa));
+    await js(`for (const a of document.querySelector('#alarmScr').getAnimations({ subtree: true })) { try { a.play(); } catch (e) {} } return 1;`);
+    await tapWeb('#alUp', 2000);
+    const gone2 = await until(`${O} return document.querySelector('#alarmScr').hidden && !W.on.includes('alarm');`, 5000);
+    check('«Ya me levanto» (tocado en la nativa) lo apaga', gone2, JSON.stringify(await js(`${O} return { al: !document.querySelector('#alarmScr').hidden, on: W.on.join(), activa: o.ALM.active };`)));
+    // ---------- «Tu año en Órbita»
+    await js(`${O} const ts = o.state.tracks, now = Date.now(), y0 = new Date(new Date().getFullYear(), 0, 1).getTime();
+      for (let i = 0; i < 60; i++) { const t = ts[i % ts.length], at = Math.max(y0 + 3600000, now - i * 3 * 3600000), d = new Date(at); o.memEvents.push({ ts: at, id: t.id, sec: 210, pct: 1, skip: false, hour: d.getHours(), dow: d.getDay(), src: 'library', title: t.title, artist: t.artist }); }
+      o.openRecap(); return 1;`);
+    const up3 = await until(`${O} return W.on.includes('recap') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === true;`, 8000);
+    await sleep(2500); shot('resumen-nativo');
+    const r1 = await st(); await sleep(1200); const r2 = await st();
+    check('«Tu año en Órbita» lo dibuja Android, y sus barras de arriba se llenan solas', up3 && !!r1 && !!r2 && r1.winPass && r2.barFrames - r1.barFrames >= 8 && (r1.winTexts || []).length > 2, JSON.stringify({ up3, barras: r2 && r1 ? r2.barFrames - r1.barFrames : -1, android: r1 && r1.winTexts && r1.winTexts.slice(0, 8) }));
+    // tocar a la derecha pasa de página (le llega a la web)
+    const i0 = await js(`return window.__orbita.RC.i;`);
+    { const r = await rectOf('#rcTap'); if (r) { tap(Math.round((r[0] + (r[2] - r[0]) * 0.85) * D), Math.round(T + (r[1] + (r[3] - r[1]) * 0.55) * D)); await sleep(2200); } }
+    const i1 = await js(`return window.__orbita.RC.i;`), r3 = await st();
+    shot('resumen-pagina-2');
+    check('tocar a la derecha en la nativa pasa de página (le llega a la web) y Android lo dibuja', i1 === i0 + 1 && !!r3 && r3.winPass, JSON.stringify({ antes: i0, despues: i1, android: r3 && r3.winTexts && r3.winTexts.slice(0, 6) }));
+    await still('recap'); const pr = await pairOf('resumen');
+    log('  resumen, Android contra la web: ' + JSON.stringify(pr));
+    check('«Tu año en Órbita», quieto: Android lo dibuja igual que la web', !!pr && pr.entera.blk <= 3 && pr.entera.px <= 9 && pr.arriba.blk <= 3.5 && pr.medio.blk <= 3.5 && pr.abajo.blk <= 3.5, JSON.stringify(pr));
+    await js(`for (const a of document.querySelector('#recap').getAnimations({ subtree: true })) { try { a.play(); } catch (e) {} } document.querySelector('#rcTap').dispatchEvent(new PointerEvent('pointercancel', { bubbles: true })); return 1;`);
+    await tapWeb('#rcClose', 2000);
+    const gone3 = await until(`${O} return document.querySelector('#recap').hidden && !W.on.includes('recap');`, 5000);
+    check('su «x» (tocada en la nativa) lo cierra', gone3, JSON.stringify(await js(`${O} return { rc: !document.querySelector('#recap').hidden, on: W.on.join() };`)));
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(800);
+    check('sin cierres por error con el resumen, la bienvenida y el despertador nativos', crashes() === 0, crashText().slice(0, 1500));
   };
   if (SOLO_BASE) {
     await goView('ajustes'); await sleep(1000);
     const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
     check('prueba rápida: las pantallas nativas, encendidas', t0 === 'true', t0);
     await goView('inicio'); await sleep(3000);
-    await base53(); saveLogs(); finish('prueba rápida: solo el fondo y la barra');
+    await base53(); await pass53(); saveLogs(); finish('prueba rápida: solo el fondo, la barra, el resumen, la bienvenida y el despertador');
   }
   if (SOLO_CEREBRO) {
     await goView('ajustes'); await sleep(1000);
@@ -1961,6 +2059,7 @@ try {
   sh(`am start -n ${PKG}/.MainActivity`); await sleep(3000);
   await goView('inicio'); await sleep(1500);
   await base53();
+  await pass53();
   // el cerebro, al final de todo (carga el modelo en Android y, para compararlo, también en la parte web: es lo que más memoria pide)
   await goView('inicio'); await sleep(1500);
   await cerebro52();

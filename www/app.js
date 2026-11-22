@@ -6246,7 +6246,7 @@ function nuiEvent(e) {
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); NUI.baseOk = (+s.v || 0) >= 12 && !mirBad('base'); NUI.vozOk = (+s.v || 0) >= 12; if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); NUI.baseOk = (+s.v || 0) >= 12 && !mirBad('base'); NUI.vozOk = (+s.v || 0) >= 12; NUI.passOk = (+s.v || 0) >= 12; if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6652,9 +6652,40 @@ function mPseudo(el, cs, r, which, ctx, kids) {
   if (isNaN(top)) { const y = parseFloat(q.bottom); top = isNaN(y) ? 0 : r.height - bt - bb - y - h; }
   const m = /matrix\(([^)]+)\)/.exec(q.transform); if (m) { const p = m[1].split(',').map(Number); left += p[4] || 0; top += p[5] || 0; }
   const n = { x: mF(r.left + bl + left - ctx.ox), y: mF(r.top + bt + top - ctx.oy), w: mF(w), h: mF(h) }; mBox(n, q);
+  const an = mAnims(el, which); if (an) n.an = an;   // (5.3 · the halo of Nova turns)
   if (mPaints(n)) kids.push(n);
 }
 const M_TEXT_IN = { text: 1, search: 1, password: 1, email: 1, url: 1, tel: 1, number: 1 };
+/* (5.3) the CSS animations of always that Android knows how to do on its own, by their name: the aro of Nova and the
+   wheel that waits (spin), the light that floats behind «Tu año», the welcome and the alarm (rcFloat), the bars of Nova
+   (obBar) and how things come in (rcIn, rcPop). Of each one, where it goes (and, the ones that end, finished here: who
+   sees them is Android, from where they were) */
+const M_KF = new Set(['spin', 'rcFloat', 'obBar', 'rcIn', 'rcPop']);
+const M_TF = { linear: [0, 0, 1, 1], ease: [0.25, 0.1, 0.25, 1], 'ease-in': [0.42, 0, 1, 1], 'ease-out': [0, 0, 0.58, 1], 'ease-in-out': [0.42, 0, 0.58, 1] };
+const MANIM = { '': new WeakMap(), '::before': new WeakMap(), '::after': new WeakMap() };
+function mEase(s) { s = String(s || '').trim(); if (M_TF[s]) return M_TF[s]; const m = /^cubic-bezier\(([^)]+)\)$/.exec(s); if (m) { const q = m[1].split(',').map(Number); if (q.length === 4 && q.every(Number.isFinite)) return q.map(v => mF(v)); } return M_TF.ease; }
+function mAnims(el, pseudo) {
+  let list;
+  try { list = pseudo ? el.getAnimations({ subtree: true }).filter(a => a.effect && a.effect.target === el && a.effect.pseudoElement === pseudo) : el.getAnimations(); } catch { return null; }
+  list = list.filter(a => a.animationName && M_KF.has(a.animationName) && a.playState !== 'idle');
+  const rec = MANIM[pseudo || ''], had = rec.get(el) || {}, keep = {}, out = [], now = performance.now();
+  if (!list.length && !Object.keys(had).length) return null;
+  let cs = null;
+  for (const a of list) {
+    const k = a.animationName, tm = a.effect.getTiming(), fin = tm.iterations !== Infinity;
+    const fill = { none: 0, forwards: 1, backwards: 2, both: 3 }[tm.fill] ?? 0;
+    if (fin && a.playState === 'finished') { const r = had[k]; if (r && now - r.start < r.dl + r.d * r.n + 50) { keep[k] = r; out.push(Object.assign({}, r.o, { t: mF(now - r.start) })); } continue; }
+    if (!cs) cs = getComputedStyle(el, pseudo || null);
+    const names = cs.animationName.split(',').map(x => x.trim()), tfs = mSplit(cs.animationTimingFunction || ''), i = Math.max(0, names.indexOf(k));
+    const t = +a.currentTime || 0, d = +tm.duration || 0, dl = +tm.delay || 0;
+    const o = { k, d: mF(d), dl: mF(dl), n: fin ? tm.iterations : -1, al: /alternate/.test(tm.direction) ? 1 : 0, rv: /reverse/.test(tm.direction) ? 1 : 0, e: mEase(tfs[i % Math.max(1, tfs.length)]), f: fill, t: mF(t) };
+    if (a.playState === 'paused') o.p = 1;
+    if (fin && a.playState === 'running') { keep[k] = { start: now - t, dl, d, n: tm.iterations, o }; try { a.finish(); } catch {} }
+    out.push(o);
+  }
+  if (Object.keys(keep).length) rec.set(el, keep); else rec.delete(el);
+  return out.length ? out : null;
+}
 /* (5.3) how much something is grown or shrunk from its centre, by «scale» or by a «transform» that only does that
    (from anywhere else, or turned, or moved: it is read as it is seen) */
 function mScaleOf(el, cs) {
@@ -6667,6 +6698,22 @@ function mScaleOf(el, cs) {
   if (!(Math.abs(o[0] - w / 2) < 0.6 && Math.abs((o.length > 1 ? o[1] : o[0]) - h / 2) < 0.6)) return null;
   return { p, v };
 }
+/* (5.3) the elements being read put back to their size (see mWalk) */
+const M_SC = new Set();
+/* (5.3) a piece and what is inside it, read grown or shrunk «k» times from (cx, cy): back to its size */
+function mUnscale(n, cx, cy, k) {
+  if (typeof n.x === 'number') { n.x = mF(cx + (n.x - cx) * k); n.y = mF(cy + (n.y - cy) * k); n.w = mF(n.w * k); n.h = mF(n.h * k); }
+  if (n.mw) n.mw = mF(n.mw * k);
+  if (n.tb) n.tb = n.tb.map(v => mF(v * k));
+  for (const c of n.c || []) mUnscale(c, cx, cy, k);
+}
+/* (5.3) where something is without its «transform» (what turns or floats): from its place in the page */
+function mLayoutRect(el) {
+  const op = el.offsetParent; if (!op || typeof el.offsetLeft !== 'number') return null;
+  const pr = op.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+  const left = pr.left + op.clientLeft + el.offsetLeft - (op === document.body ? 0 : op.scrollLeft), top = pr.top + op.clientTop + el.offsetTop - (op === document.body ? 0 : op.scrollTop);
+  return { left, top, width: w, height: h, right: left + w, bottom: top + h };
+}
 /* (5.3) the elements whose «style» the reading itself touched a moment (and left as it was): not a change */
 const M_OWN = new Set();
 const mOwn = m => m.type === 'attributes' && m.attributeName === 'style' && M_OWN.has(m.target);
@@ -6677,22 +6724,34 @@ function mWalk(el, ctx, out) {
   if (ctx.skip && (ctx.skip === el || (ctx.skip instanceof Set && ctx.skip.has(el)))) return;
   const cs = getComputedStyle(el);
   if (cs.display === 'none' || (el.style && el.style.visibility === 'hidden')) return;
+  // (5.3 · the CSS animations that Android does on its own; one that turns or floats is placed where it is without
+  //  turning or floating, and Android moves it)
+  const an = mAnims(el, null), tfA = !!an && an.some(a => a.k === 'spin' || a.k === 'rcFloat');
   // (something that grows or shrinks from its centre: a button pressed with the finger, which the web shrinks a little
-  //  with «scale» and lets go with a spring; the heart when you like a song, and its ring… It is read as it is without
-  //  it and Android draws it grown or shrunk the same, from its centre; the change of a moment isn't a change for the
-  //  watchers)
-  if (!M_OWN.has(el)) {
+  //  with «scale» and lets go with a spring; the heart when you like a song, and its ring… It is read as it is seen and
+  //  put back to its size (nothing is touched in the page: that would stop its animation); Android draws it grown or
+  //  shrunk the same, from its centre)
+  if (!tfA && !M_SC.has(el)) {
     const sv = mScaleOf(el, cs);
     if (sv) {
-      const at = out.length, pv = el.style.getPropertyValue(sv.p), pp = el.style.getPropertyPriority(sv.p);
-      el.style.setProperty(sv.p, 'none', 'important'); if (!M_OWN.size) queueMicrotask(() => M_OWN.clear()); M_OWN.add(el);
-      try { mWalk(el, ctx, out); } finally { if (pv) el.style.setProperty(sv.p, pv, pp); else el.style.removeProperty(sv.p); }
-      if (out.length === at + 1) out[at].sc = +sv.v.toFixed(3);
+      const at = out.length, q = el.getBoundingClientRect();
+      M_SC.add(el); try { mWalk(el, ctx, out); } finally { M_SC.delete(el); }
+      if (out.length === at + 1) { mUnscale(out[at], q.left + q.width / 2 - ctx.ox, q.top + q.height / 2 - ctx.oy, 1 / sv.v); out[at].sc = +sv.v.toFixed(3); }
       return;
     }
   }
-  const r = el.getBoundingClientRect();
+  const r = tfA ? mLayoutRect(el) || el.getBoundingClientRect() : el.getBoundingClientRect();
   const n = { x: mF(r.left - ctx.ox), y: mF(r.top - ctx.oy), w: mF(r.width), h: mF(r.height) };
+  if (an) n.an = an;
+  // (5.3 · the bars of «Tu año en Órbita»: Android fills the one of the page that is up on its own, at the same pace)
+  if (el.id === 'rcBars' && typeof RC === 'object' && RC.slides) {
+    mBox(n, cs); n.e = 'rcbars';
+    const sl = RC.slides[RC.i], i0 = el.querySelector('i'), b0 = i0 && i0.firstElementChild, ci = i0 ? getComputedStyle(i0) : null;
+    const f = sl && sl.last ? 1 : Math.max(0, Math.min(1, ((RC.paused ? RC.pausedAt || performance.now() : performance.now()) - RC.t0) / (RC.dur || 1)));
+    n.v = { n: RC.slides.length, i: RC.i || 0, f: mF(f), d: mF(RC.dur || 1), p: RC.paused || (sl && sl.last) ? 1 : 0, tc: ci ? mCol(ci.backgroundColor) : 0x38FFFFFF, fc: b0 ? mCol(getComputedStyle(b0).backgroundColor) : 0xFFFFFFFF, g: mF(parseFloat(cs.columnGap) || 4), r: mF(ci ? parseFloat(ci.borderTopLeftRadius) || 0 : 3), bh: mF(i0 ? i0.getBoundingClientRect().height : 3) };
+    if (+cs.opacity < 1) n.o = mF(+cs.opacity);
+    out.push(n); return;
+  }
   // the light behind the cover of the player: Android moves it with the music on its own
   if (el.id === 'npHalo') { mBox(n, cs); delete n.o; n.e = 'halo'; n.lt = PL.on && plOK() ? 1 : 0; if (n.lt || +cs.opacity > 0) out.push(n); return; }
   if (+cs.opacity === 0) return;
@@ -6758,8 +6817,9 @@ function mWalk(el, ctx, out) {
   }
   mPseudo(el, cs, r, '::after', ctx, kids);
   if (tag === 'SUMMARY' && cs.listStyleType !== 'none') { const mk = hMark(el); if (mk) { n.mk = mk; n.mc = mCol(cs.color); if (el.parentElement && el.parentElement.open) n.mo = 1; } }
-  // a wrapper that paints nothing and can't be touched: only what is inside it counts
-  if (!mPaints(n) && !n.k && !n.e && !n.mk && !n.d) { for (const k of kids) out.push(k); return; }
+  // a wrapper that paints nothing and can't be touched (nor moves on its own, nor is grown or shrunk): only what is
+  // inside it counts
+  if (!mPaints(n) && !n.k && !n.e && !n.mk && !n.d && !n.an && !M_SC.has(el)) { for (const k of kids) out.push(k); return; }
   if (kids.length) n.c = kids;
   out.push(n);
 }
@@ -6899,11 +6959,16 @@ const WIN = {
   news: { el: '#newsOverlay' },
   ly: { el: '#lyOverlay' },
   edit: { el: '#editOverlay' },
-  viz: { el: '#vizFull', viz: true }
+  viz: { el: '#vizFull', viz: true },
+  /* 5.3 · «Tu año en Órbita», la bienvenida y el despertador: Android los dibuja (en partes: lo de arriba y lo de en medio
+     cambian solos), y lo que se toca en ellos le llega a la web tal cual (ella ya sabe pasar de página, saltar, apagar…) */
+  recap: { el: '#recap', pass: true, parts: ['.rc-top', '#rcStage'] },
+  onb: { el: '#onb', pass: true, parts: ['.onb-top', '#onbStage'] },
+  alarm: { el: '#alarmScr', pass: true, parts: ['.al-in'] }
 };
 /* windows that go as always (and, while one of them is up, every window does) */
-const WIN_WEB = ['#ytOverlay', '#vizFull', '#recap', '#onb', '#alarmScr'];
-const W = { on: [], key: '', keys: {}, dirty: {}, t: 0, poll: 0, els: {}, obs: {}, sy: {}, drag: false, vals: new Map(), sent: {}, held: false, seq: 0, log: [] };
+const WIN_WEB = ['#ytOverlay', '#vizFull'];
+const W = { on: [], key: '', keys: {}, dirty: {}, t: 0, poll: 0, els: {}, obs: {}, sy: {}, drag: false, vals: new Map(), sent: {}, held: false, seq: 0, log: [], anim: {}, rc: '' };
 /* what was sent to Android and when (the last few: the tests read it) */
 function wLog(o) { o.t = Math.round(performance.now()); W.log.push(o); if (W.log.length > 40) W.log.shift(); }
 /* Android takes its layer of windows away and forgets them (also after closing the player with the finger) */
@@ -6920,11 +6985,12 @@ function winReady(id, el) {
 function winStack() {
   if (!NUI.on || !NUI.winOk || NUI.classic || innerWidth > 760 || root.classList.contains('booting') || !state.ready) return [];
   for (const s of WIN_WEB) if (!(s === '#vizFull' && NUI.vizOk) && winIsOpen($(s))) return null;
+  for (const id in WIN) if (WIN[id].pass && !NUI.passOk && winIsOpen($(WIN[id].el))) return null;   // (with an Android of before, as always)
   const up = [];
   for (const id in WIN) { if (WIN[id].viz && !NUI.vizOk) continue; const el = $(WIN[id].el); if (winIsOpen(el)) { if (!winReady(id, el)) return null; up.push([id, +getComputedStyle(el).zIndex || 0]); } }
   return up.sort((a, b) => a[1] - b[1]).map(x => x[0]);
 }
-const winOpen = () => Object.values(WIN).some(d => (!d.viz || NUI.vizOk) && winIsOpen($(d.el)));
+const winOpen = () => Object.values(WIN).some(d => (!d.viz || NUI.vizOk) && (!d.pass || NUI.passOk) && winIsOpen($(d.el)));
 /* once per frame (from the loop of the native screens) */
 function winTick() {
   if (!NUI_PLUGIN || !NUI.winOk) return;
@@ -6941,6 +7007,10 @@ function winTick() {
   if (!ids.length) { if (W.held && !W.drag) winGone('tras el dedo'); return; }
   const now = performance.now();
   if (now - W.poll > 3000) { W.poll = now; for (const id of ids) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); }
+  // (5.3 · what moves for a moment in a window that Android draws while the web gets the finger: read again, frame by
+  //  frame, until it stops; and the bars of «Tu año», when it changes page or is paused)
+  for (const id of ids) { const a = W.anim[id]; if (a && a.size) { const d = (W.dirty[id] = W.dirty[id] || new Set()); for (const k of a) d.add(k); a.clear(); } }
+  if (ids.includes('recap') && typeof RC === 'object') { const rk = [RC.i, RC.paused, RC.slides && RC.slides.length, RC.dur, RC.t0].join(); if (rk !== W.rc) { W.rc = rk; const b = $('#rcBars'); if (b) winMarkEl(b); } }
   // (values that change with nothing changing in the page: the bar of the song while it plays)
   for (const [el, v] of W.vals) { if (!el.isConnected) { W.vals.delete(el); continue; } if (el.value !== v) { W.vals.set(el, el.value); winMarkEl(el); } }
   if (!W.t && ids.some(id => W.dirty[id] && W.dirty[id].size)) W.t = requestAnimationFrame(() => { W.t = 0; winSync(false); });
@@ -6967,10 +7037,12 @@ function winWatch(id) {
         if (m.type === 'attributes' && m.attributeName === 'style' && (t.id === 'npHalo' || t.id === 'npBg')) continue;
         if (mOwn(m)) continue;
         if (m.type === 'attributes' && NUI.lyOk && t.closest && t.closest('#lyScroll')) continue;
+        if (m.type === 'attributes' && m.attributeName === 'style' && id === 'recap' && t.closest && t.closest('#rcBars')) continue;
         winMarkEl(t);
       }
     });
     W.obs[id].observe(el, { subtree: true, childList: true, characterData: true, attributes: true });
+    if (WIN[id].pass) el.addEventListener('scroll', e => { if (W.on.includes(id) && e.target && e.target.nodeType === 1) winMarkEl(e.target); }, { capture: true, passive: true });
   } catch {}
   const sc = WIN[id].scroller && el.querySelector(WIN[id].scroller);
   if (sc) sc.addEventListener('scroll', () => { if (!W.on.includes(id)) return; const y = sc.scrollTop; if (Math.abs(y - (W.sy[id] || 0)) < 1) return; W.sy[id] = y; NUI_PLUGIN.winScroll({ id, y }).catch(() => {}); }, { passive: true });
@@ -6987,7 +7059,9 @@ function winSync(force) {
     const all = force || dirty.has('*');
     if (force || !W.keys[id]) W.keys[id] = {};
     const K = W.keys[id];
-    mFinish(el);
+    // (5.3 · in the ones Android draws while the web gets the finger, what moves for a moment — a colour that changes, a
+    //  button that springs back — is followed frame by frame; how things come in, Android does on its own)
+    if (!def.pass) mFinish(el);
     const els = new Map(), parts = {}, sEl = def.scroller ? el.querySelector(def.scroller) : null;
     const read = (part, r, skip) => {
       const k = hKey(part); els.set(part, k);
@@ -6996,9 +7070,13 @@ function winSync(force) {
       try { mWalk(part, ctx, c); } catch (e) { diag('ventana nativa «' + id + '»: ' + (e && e.message || e)); return k; }
       const v = { st: ctx.st, c }, js = JSON.stringify(v);
       if (js !== K[k]) { K[k] = js; parts[k] = v; }
+      if (def.pass) try { if (part.getAnimations({ subtree: true }).some(a => a.playState === 'running' && !(a.animationName && M_KF.has(a.animationName)) && a.effect && a.effect.getTiming().iterations !== Infinity && !(skip && [...(skip instanceof Set ? skip : [skip])].some(x => x && x.contains(a.effect.target))))) (W.anim[id] = W.anim[id] || new Set()).add(k); } catch {}
       return k;
     };
-    const r0 = el.getBoundingClientRect(), fixed = [[read(el, r0, sEl), mF(r0.left), mF(r0.top), mF(r0.width), mF(r0.height)]];
+    const subs = def.parts ? def.parts.map(q => el.querySelector(q)).filter(x => x && x.getClientRects().length) : [];
+    const skip0 = subs.length ? new Set(sEl ? [...subs, sEl] : subs) : sEl;
+    const r0 = el.getBoundingClientRect(), fixed = [[read(el, r0, skip0), mF(r0.left), mF(r0.top), mF(r0.width), mF(r0.height)]];
+    for (const x of subs) { const q = x.getBoundingClientRect(); fixed.push([read(x, q), mF(q.left), mF(q.top), mF(q.width), mF(q.height)]); }
     let sc = null;
     if (sEl) {
       // the part that scrolls, piece by piece, measured from the top of what it holds
@@ -7011,7 +7089,7 @@ function winSync(force) {
     W.els[id] = els;
     for (const k of Object.keys(K)) if (![...els.values()].some(v => String(v) === k)) delete K[k];
     const shape = JSON.stringify([fixed, sc && [sc.x, sc.y, sc.w, sc.h, sc.total, sc.order]]);
-    if (force || Object.keys(parts).length || shape !== W.sent[id]) { W.sent[id] = shape; wins[id] = { fixed, sc, parts }; changed = true; }
+    if (force || Object.keys(parts).length || shape !== W.sent[id]) { W.sent[id] = shape; wins[id] = { fixed, sc, parts }; if (def.pass) wins[id].pass = 1; changed = true; }
   }
   if (NUI.hEls.size > 2500) for (const [k, el] of NUI.hEls) if (!el.isConnected) NUI.hEls.delete(k);
   if (changed || force) W.held = true;
@@ -7279,6 +7357,7 @@ function baseWant() {
 /* how the background is now (and where its movement goes: the web's own animation says it) */
 function baseBg() {
   let moving = false, t = 0;
+  const base = mCol(getComputedStyle(document.body).backgroundColor) || 0xFF06050B;   // (this first: what is read after is as it is now)
   // (the animation of always, kept: looking for it among all of the page's is only done when it is gone, and not often)
   try {
     let a = BASE.drift;
@@ -7286,7 +7365,7 @@ function baseBg() {
     if (a && a.playState !== 'idle') { t = +a.currentTime || 0; moving = a.playState === 'running'; }
   } catch {}
   const m = LOOK.bg === 'portada' ? /url\("?([^")]*)"?\)/.exec(($('#bgCover') || { style: {} }).style.backgroundImage || '') : null;
-  return { h: hue, s: sat, mode: LOOK.bg, base: mCol(getComputedStyle(document.body).backgroundColor) || 0xFF06050B, cover: m ? m[1] : '', moving, t: Math.round(t), fade: !matchMedia('(prefers-reduced-motion: reduce)').matches };
+  return { h: hue, s: sat, mode: LOOK.bg, base, cover: m ? m[1] : '', moving, t: Math.round(t), fade: !matchMedia('(prefers-reduced-motion: reduce)').matches };
 }
 function baseMark(el) {
   let k = '*';
@@ -7336,7 +7415,8 @@ function baseTick() {
   // (how the background is: read four times a second; Android moves it on its own and is told again every 5 s)
   if (first || now - BASE.bgRead > 250) {
     BASE.bgRead = now;
-    const bg = baseBg(), bk = JSON.stringify([bg.h, bg.s, bg.mode, bg.base, bg.cover, bg.moving, bg.fade]);
+    // (still, where it is counts: if it stops somewhere else, it is said at once; moving, Android follows it alone)
+    const bg = baseBg(), bk = JSON.stringify([bg.h, bg.s, bg.mode, bg.base, bg.cover, bg.moving, bg.fade, bg.moving ? 0 : bg.t]);
     if (first || bk !== BASE.bgKey || now - BASE.bgAt > 5000) { BASE.bgKey = bk; BASE.bgAt = now; o.bg = bg; }
   }
   if (first || BASE.dirty.size) Object.assign(o, baseSync(first));
