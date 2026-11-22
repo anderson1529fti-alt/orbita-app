@@ -654,6 +654,8 @@ try {
     check('el reconocimiento de voz de prueba se instala y es el del móvil', /Success/.test(ins) && /pruebavoz/.test(sh('settings get secure voice_recognition_service')), ins.trim().split('\n').pop());
     await goView('inicio'); await sleep(1500);
     const input = () => js(`return document.querySelector('#djInput').value;`);
+    // (mirar la pantalla puede tardar con el aro moviéndose: se mira hasta tres veces)
+    const find = async (pred, n = 3) => { for (let k = 0; k < n; k++) { const f = ui().find(pred); if (f) return f; await sleep(300); } return null; };
     const clearIn = () => js(`document.querySelector('#djInput').value = ''; return 1;`);
     // ---- la primera vez: el recuadro explica lo del permiso, Android lo pide; «No permitir» → la ventana de Google de siempre
     await clearIn();
@@ -713,30 +715,34 @@ try {
     const e2 = await untilSt(s => !s.earOn, 4000); const i2 = await input();
     check('al callarte, lo dicho le llega a Nova y el recuadro se va', i2 === frase && !!e2 && !e2.earOn && e2.earLast === 'ok', JSON.stringify({ i2, ultimo: e2 && e2.earLast }));
     // ---- «Listo» termina antes: se queda con lo dicho hasta entonces
-    guion('lento:pon algo de jazz suave por favor'); await clearIn(); await sleep(400);
+    const jazz = 'pon algo de jazz suave por favor y que dure toda la tarde de hoy';
+    guion('lento:' + jazz); await clearIn(); await sleep(400);
     await js(`${O} o.voiceAsk(); return 1;`);
     const e3 = await untilSt(s => s.earOn && s.earPartials >= 1, 6000);
-    nodes = ui(); const listo = nodes.find(n => !n.web && n.text === 'Listo');
+    const listo = await find(n => !n.web && n.text === 'Listo');
     if (listo) tap(...center(listo));
     await until(`return document.querySelector('#djInput').value.length > 0;`, 6000); await sleep(400);
     const i3 = await input(); const e4 = await st();
-    const jazz = 'pon algo de jazz suave por favor';
     check('«Listo» termina antes y le manda lo dicho hasta entonces', !!listo && i3.length > 0 && i3.length < jazz.length && jazz.startsWith(i3) && !!e4 && e4.earLast === 'ok', JSON.stringify({ i3, listo: !!listo, ultimo: e4 && e4.earLast, antes: e3 && e3.earWords }));
-    // ---- «Cancelar»: no le llega nada a Nova
-    await clearIn(); await sleep(300);
+    // ---- «Cancelar»: no le llega nada a Nova (una frase muy larga, para que dé tiempo a tocarlo)
+    guion('lento:' + jazz); await clearIn(); await sleep(300);
     await js(`${O} o.voiceAsk(); return 1;`);
     await untilSt(s => s.earOn && s.earPartials >= 1, 6000);
-    nodes = ui(); const canc = nodes.find(n => !n.web && n.text === 'Cancelar');
+    const canc = await find(n => !n.web && n.text === 'Cancelar');
     if (canc) tap(...center(canc));
     const e5 = await untilSt(s => !s.earOn, 4000); await sleep(800); const i5 = await input();
-    check('«Cancelar» no le manda nada a Nova', !!canc && i5 === '' && !!e5 && e5.earLast === 'cancel', JSON.stringify({ i5, ultimo: e5 && e5.earLast }));
+    check('«Cancelar» no le manda nada a Nova', !!canc && i5 === '' && !!e5 && e5.earLast === 'cancel', JSON.stringify({ i5, boton: !!canc, ultimo: e5 && e5.earLast }));
+    const quieto = async () => { if (((await st()) || {}).earOn) { await js(`try { await Capacitor.Plugins.OrbitaUi.listenCancel(); } catch (e) {} return 1;`); await sleep(1000); } };
+    await quieto();
     // ---- «atrás» mientras escucha: deja de escuchar (y la app sigue a la vista)
+    await clearIn(); await sleep(300);
     await js(`${O} o.voiceAsk(); return 1;`);
     await untilSt(s => s.earOn && s.earPartials >= 1, 6000);
     sh('input keyevent KEYCODE_BACK');
     const e6 = await untilSt(s => !s.earOn, 4000); await sleep(800); const i6 = await input();
     const top = sh('dumpsys activity activities | grep -m1 topResumedActivity');
     check('«atrás» mientras escucha: deja de escuchar, no le manda nada y la app sigue', i6 === '' && !!e6 && e6.earLast === 'cancel' && new RegExp(PKG).test(top), JSON.stringify({ i6, ultimo: e6 && e6.earLast, arriba: top.trim().slice(-60) }));
+    await quieto();
     // ---- no oye nada; sin internet; ocupado: lo dice en el recuadro, y nada a Nova
     for (const [g, code, txt] of [['nada', 'timeout', 'no oye nada'], ['red', 'net', 'sin internet'], ['ocupado', 'busy', 'ocupado (lo intenta dos veces)']]) {
       guion(g); await clearIn(); await sleep(300);
@@ -760,7 +766,7 @@ try {
     await js(`${O} const ids = o.state.tracks.slice(0, 6).map(t => t.id); o.playQueue(ids, 0); return 1;`); await sleep(1200);
     await js(`${O} o.act().pause(); document.querySelector('[data-act="np-open"]').click(); return 1;`);
     await until(`${O} return W.on.join() === 'np';`, 8000); await sleep(800);
-    nodes = ui(); const npMic = nodes.find(n => !n.web && n.text === 'Háblale');
+    const npMic = await find(n => !n.web && n.text === 'Háblale');
     await clearIn();
     if (npMic) tap(...center(npMic)); else await js(`document.querySelector('#npMic').click(); return 1;`);
     const n1 = await untilSt(s => s.earOn, 5000); await sleep(400); shot('voz-desde-el-reproductor');
@@ -770,7 +776,7 @@ try {
     await js(`document.querySelector('[data-act="np-close"]').click(); return 1;`); await sleep(1500);
     guion('qué está sonando');
     await js(`${O} o.openChat ? o.openChat() : document.querySelector('#openChat').click(); return 1;`); await sleep(2000);
-    nodes = ui(); const chMic = nodes.find(n => !n.web && n.desc === 'Háblale');
+    const chMic = await find(n => !n.web && n.desc === 'Háblale');
     const before = await js(`return (document.querySelector('#chatLog') || {}).textContent || '';`);
     if (chMic) tap(...center(chMic)); else await js(`document.querySelector('#chatMic').click(); return 1;`);
     await untilSt(s => s.earOn, 5000);
