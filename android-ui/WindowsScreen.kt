@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -49,7 +50,7 @@ internal data class WFix(val k: Int, val x: Float, val y: Float, val w: Float, v
 internal data class WScroll(val k: Int, val x: Float, val y: Float, val w: Float, val h: Float, val total: Float, val order: List<MPos>, val y0: Float)
 
 @Immutable
-internal data class WDef(val id: String, val fixed: List<WFix>, val sc: WScroll?)
+internal data class WDef(val id: String, val fixed: List<WFix>, val sc: WScroll?, val pass: Boolean = false)
 
 internal fun wDef(id: String, o: JSONObject): WDef {
     val fixed = ArrayList<WFix>()
@@ -70,7 +71,7 @@ internal fun wDef(id: String, o: JSONObject): WDef {
         sc = WScroll(so.optInt("k"), so.optDouble("x", 0.0).toFloat(), so.optDouble("y", 0.0).toFloat(), so.optDouble("w", 0.0).toFloat(), so.optDouble("h", 0.0).toFloat(),
             so.optDouble("total", 0.0).toFloat(), order, so.optDouble("y0", 0.0).toFloat())
     }
-    return WDef(id, fixed, sc)
+    return WDef(id, fixed, sc, o.optInt("pass") == 1)
 }
 
 /** (Para las pruebas) los textos que Android tiene de cada ventana, en el orden en que los dibuja. */
@@ -111,16 +112,20 @@ fun OrbitaWindows() {
 @Composable
 private fun WinView(w: WDef) {
     val sc = w.sc
-    Layout(content = {
+    // 5.3 · las ventanas «de paso» (el resumen del año, la bienvenida, el despertador): lo que se toca le llega a la web tal
+    // cual (WinFrame se lo pasa); aquí solo se escribe y se arrastran barras
+    CompositionLocalProvider(LocalMPass provides w.pass) {
+    // (en las «de paso», lo que lee TalkBack es lo de la web, que es lo que recibe el dedo)
+    Layout(modifier = if (w.pass) Modifier.fillMaxSize().clearAndSetSemantics { } else Modifier.fillMaxSize(), content = {
         for (f in w.fixed) key(f.k) {
             // (un toque fuera de los botones le llega a la web en su sitio: lo oscuro de alrededor cierra la ventana)
-            val tap = Modifier.pointerInput(f.k) {
+            val tap = if (w.pass) Modifier else Modifier.pointerInput(f.k) {
                 detectTapGestures(onTap = { o -> UiState.send("mAt") { it.put("k", f.k); it.put("x", (o.x / density).toDouble()); it.put("y", (o.y / density).toDouble()) } })
             }
             MGroup(UiState.winParts["${w.id}.${f.k}"] ?: emptyList(), 0f, 0f, f.w, f.h, tap)
         }
         if (sc != null) key("sc") { WinScroller(w.id, sc) }
-    }, modifier = Modifier.fillMaxSize()) { ms, cs ->
+    }) { ms, cs ->
         val d = density
         val n = ms.size
         val ps = ArrayList<androidx.compose.ui.layout.Placeable>(n)
@@ -132,6 +137,7 @@ private fun WinView(w: WDef) {
             ps.add(ms[i].measure(Constraints.fixed(pw, ph))); at.add(intArrayOf(l, t))
         }
         layout(cs.maxWidth, cs.maxHeight) { for (i in 0 until n) ps[i].place(at[i][0], at[i][1]) }
+    }
     }
 }
 

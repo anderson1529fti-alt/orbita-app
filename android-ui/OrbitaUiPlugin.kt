@@ -65,6 +65,17 @@ internal class WinFrame(ctx: android.content.Context, private val web: () -> Vie
             val h = UiState.ytHole()
             through = h != null && h.contains(androidx.compose.ui.geometry.Offset(ev.x, ev.y))
             if (through) UiState.ytFwd++
+            else {
+                // 5.3 · la ventana de más arriba en ese punto: si es «de paso» (el resumen del año, la bienvenida, el
+                // despertador, el aviso de importar), lo que no es de aquí (escribir, una barra que se arrastra) le llega
+                // entero a la web, que la tiene debajo; fuera de las ventanas «de paso» pequeñas, lo de debajo (la
+                // pantalla nativa), como si no estuvieran
+                val w = UiState.winAt(ev.x, ev.y, resources.displayMetrics.density)
+                if (w != null && w.pass) {
+                    if (super.dispatchTouchEvent(ev)) return true
+                    through = true; UiState.passFwd++
+                } else if (w == null && UiState.wins.isNotEmpty() && UiState.wins.all { it.pass }) return false
+            }
         }
         if (!through) return super.dispatchTouchEvent(ev)
         val wv = web()
@@ -81,6 +92,14 @@ internal class WinFrame(ctx: android.content.Context, private val web: () -> Vie
 
 /** Lo que enseñan las pantallas nativas. Lo escribe la app (por el plugin) y lo lee Compose. */
 object UiState {
+    /** 5.3 · ¿la ventana de arriba es «de paso»? (lo que se toca en ella va a la web) · cuántos toques se le han pasado */
+    fun winPass(): Boolean = wins.lastOrNull()?.pass == true
+    /** La ventana de más arriba que tiene ese punto (en px de la capa), o null. */
+    internal fun winAt(x: Float, y: Float, d: Float): WDef? {
+        for (w in wins.asReversed()) for (f in w.fixed) if (x >= f.x * d && x < (f.x + f.w) * d && y >= f.y * d && y < (f.y + f.h) * d) return w
+        return null
+    }
+    @Volatile var passFwd = 0
     /** 5.0 · el dedo empezó en la letra del reproductor: no baja el reproductor (como en la web: .np-lyrics se salta). */
     @Volatile var npNoDrag = false
     // ---- 5.0 · el videoclip: dónde tiene la web su vídeo y dónde está su sitio en el reproductor nativo (px de la capa)
@@ -143,7 +162,7 @@ object UiState {
     private val pageScrolls = HashMap<String, ScrollState>()
     fun pageScroll(name: String): ScrollState = pageScrolls.getOrPut(name) { ScrollState(0) }
     // ---- 4.7 · «Buscar» y «Ajustes»: la pantalla entera, tal como la dibuja la web (MirrorScreen.kt)
-    val MIRROR = setOf("buscar", "ajustes")
+    val MIRROR = setOf("buscar", "ajustes", "voz")
     /** Dónde va cada parte de cada una, y lo que mide la pantalla entera (en «px» de la web). */
     internal val mirOrder = mutableStateMapOf<String, List<MPos>>()
     internal val mirTotal = mutableStateMapOf<String, Float>()
@@ -254,6 +273,8 @@ class OrbitaUiPlugin : Plugin() {
 
     override fun load() {
         UiState.emit = { _, o -> try { notifyListeners("ui", o) } catch (ignored: Throwable) { } }
+        // 5.3 · el grano del fondo, preparado ya (unos milisegundos, fuera del hilo de la pantalla)
+        try { val d = activity.resources.displayMetrics.density; Thread({ try { Noise.make(d) } catch (ignored: Throwable) { } }, "orbita-grano").start() } catch (ignored: Throwable) { }
         // 5.1 · lo que va entendiendo y cómo acabó, a la app (lo que se va entendiendo, como mucho cada 150 ms)
         var partAt = 0L
         Ear.onPartial = { t ->
@@ -435,6 +456,77 @@ class OrbitaUiPlugin : Plugin() {
         if (clear) { UiState.wins = emptyList(); UiState.winParts.clear(); UiState.ytDock = null }
     }
 
+    // ---- 5.3 · la capa de abajo: el fondo y la barra de abajo. Justo encima de la web (debajo de la pantalla nativa, las
+    // ventanas y el oído), del tamaño de la web entera
+    private var baseHost: ComposeView? = null
+    private fun ensureBaseHost() {
+        if (baseHost != null) return
+        val v = ComposeView(activity)
+        v.setContent { OrbitaBase() }
+        v.visibility = View.GONE
+        // (lo que se toca aquí le llega a la web: lo que lee TalkBack, también lo de la web, que es lo que se toca)
+        v.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        val wv = bridge.webView
+        val parent = wv.parent as ViewGroup
+        parent.addView(v, parent.indexOfChild(wv) + 1, ViewGroup.LayoutParams(maxOf(1, wv.width), maxOf(1, wv.height)))
+        baseHost = v
+        placeBase()
+        wv.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> try { placeBase() } catch (ignored: Throwable) { } }
+    }
+    private fun placeBase() {
+        val v = baseHost ?: return
+        val wv = bridge.webView
+        val lp = v.layoutParams
+        if (lp.width != wv.width || lp.height != wv.height) { lp.width = maxOf(1, wv.width); lp.height = maxOf(1, wv.height); v.layoutParams = lp }
+        v.x = wv.x; v.y = wv.y
+    }
+
+    /**
+     * 5.3 · El fondo y la barra de abajo: {on} (si se ve), {fixed} (dónde va cada parte de la barra), {parts} (lo que ha
+     * cambiado de cada una) y {bg} (cómo es el fondo y por dónde va su movimiento).
+     */
+    @PluginMethod
+    fun base(call: PluginCall) {
+        val on = call.getBoolean("on", false) == true
+        var fixed: List<WFix>? = null
+        val parts = HashMap<Int, List<MNode>>()
+        var bg: Bg? = null
+        try {
+            val fa = call.getArray("fixed")
+            if (fa != null) {
+                val out = ArrayList<WFix>()
+                for (i in 0 until fa.length()) {
+                    val a = fa.optJSONArray(i) ?: continue
+                    out.add(WFix(a.optInt(0), a.optDouble(1, 0.0).toFloat(), a.optDouble(2, 0.0).toFloat(), a.optDouble(3, 0.0).toFloat(), a.optDouble(4, 0.0).toFloat()))
+                }
+                fixed = out
+            }
+            val po = call.getObject("parts")
+            if (po != null) { val ks = po.keys(); while (ks.hasNext()) { val k = ks.next(); val o = po.optJSONObject(k) ?: continue; parts[k.toInt()] = mParsePart(o) } }
+            val b = call.getObject("bg")
+            if (b != null) bg = Bg(b.optDouble("h", 6.0).toFloat(), b.optDouble("s", 1.0).toFloat(), b.optString("mode", "aurora"), b.optLong("base", 0xFF06050BL).toInt(),
+                b.optString("cover", ""), b.optBoolean("moving", false), b.optDouble("t", 0.0), android.os.SystemClock.uptimeMillis(), b.optBoolean("fade", true))
+        } catch (t: Throwable) { call.reject("La barra de abajo no se entiende: " + t.message, "UI"); return }
+        activity.runOnUiThread {
+            try {
+                ensureBaseHost(); placeBase()
+                if (fixed != null) {
+                    Base.fixed = fixed
+                    val keep = fixed.map { it.k }.toSet()
+                    for (k in Base.parts.keys.toList()) if (k !in keep) Base.parts.remove(k)
+                }
+                for ((k, v) in parts) Base.parts[k] = v
+                if (bg != null) Base.bg = bg
+                Base.syncs++
+                Base.on = on
+                baseHost?.visibility = if (on) View.VISIBLE else View.GONE
+                call.resolve()
+            } catch (t: Throwable) {
+                call.reject("No he podido poner el fondo y la barra: " + t.message, "UI")
+            }
+        }
+    }
+
     private fun ensureHost() {
         if (host != null) return
         val v = ComposeView(activity)
@@ -447,7 +539,7 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         val r = JSObject()
-        r.put("available", true); r.put("v", 11)
+        r.put("available", true); r.put("v", 12)
         try {
             r.put("covers", UiState.covers.size); r.put("songs", UiState.tracks.size)
             r.put("screen", UiState.screen); r.put("msgs", UiState.chatMsgs.size); r.put("shown", host?.visibility == View.VISIBLE)
@@ -465,6 +557,10 @@ class OrbitaUiPlugin : Plugin() {
             r.put("earOn", Ear.on); r.put("earStep", Ear.step); r.put("earWords", Ear.words); r.put("earLevel", Ear.level.toDouble()); r.put("earMax", Ear.maxLevel.toDouble())
             r.put("earSessions", Ear.sessions); r.put("earLast", Ear.last); r.put("earPartials", Ear.partials); r.put("earLevels", Ear.levels); r.put("earPermCards", Ear.permCards); r.put("earAsking", Ear.asking)
             r.put("brainThreads", Mind.threads); r.put("brainLoad", Mind.loadMs); r.put("brainCalls", Mind.calls)
+            // 5.3 · la capa de abajo (el fondo y la barra): si se ve, cuántas veces ha llegado, qué fondo dibuja y sus partes
+            r.put("winPass", UiState.winPass()); r.put("passFwd", UiState.passFwd); r.put("animFrames", MAnimStat.frames); r.put("barFrames", MAnimStat.bars); r.put("rgLast", MAnimStat.rg); r.put("rcLast", MAnimStat.rc); r.put("baseShown", baseHost?.visibility == View.VISIBLE); r.put("baseOn", Base.on); r.put("baseLive", Base.live); r.put("baseSyncs", Base.syncs); r.put("baseFrames", Base.frames)
+            r.put("baseDrawn", Base.drawn); r.put("baseParts", Base.fixed.size); r.put("noiseMs", Base.noiseMs); r.put("baseTexts", JSArray(baseTexts(30)))
+            r.put("bgDrift", driftAt(Base.bg, android.os.SystemClock.uptimeMillis()).toDouble())
             r.put("ytDock", UiState.ytDock != null); r.put("ytSlot", UiState.ytSlot != null); r.put("ytFwd", UiState.ytFwd)
             r.put("lyDrawn", Ly.drawn); r.put("lyIdx", Ly.shown); r.put("lyY", Ly.y.toDouble()); r.put("lyFill", Ly.fill.toDouble()); r.put("lyTaps", Ly.taps); r.put("lyGen", Ly.g); r.put("lyAt", Ly.i)
             UiState.wins.firstOrNull { it.sc != null }?.let { r.put("winY", UiState.winY(it.id, dpr).toDouble()) }

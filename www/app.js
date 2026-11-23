@@ -626,7 +626,7 @@ class NativeDeck extends EventTarget {
   get src() { return this._src; }
   set src(v) {
     v = String(v || ''); this._src = v; const my = ++this._gen;
-    this.paused = true; this._t = 0; this._tAt = performance.now(); this._dur = NaN; this._native = null; this._startAt = 0;
+    this.paused = true; this._t = 0; this._tAt = performance.now(); this._dur = NaN; this._native = null; this._startAt = 0; this._skAt = 0;
     this._ended = false; this._gapless = null; this._playingSent = false; this.error = null;
     if (!v) { NA_PLUGIN.stop({ slot: this.slot }).catch(() => {}); this._loaded = Promise.resolve(null); return; }
     this._loaded = (async () => {
@@ -647,7 +647,7 @@ class NativeDeck extends EventTarget {
   }
   set currentTime(v) {
     v = Math.max(0, +v || 0); this._t = v; this._tAt = performance.now(); this._ended = false;
-    if (this._native) NA_PLUGIN.seek({ slot: this.slot, pos: v }).catch(() => {}); else this._startAt = v;
+    if (this._native) { this._skAt = this._tAt; NA_PLUGIN.seek({ slot: this.slot, pos: v }).catch(() => {}); } else this._startAt = v;
   }
   get duration() { return this._dur; }
   get volume() { return this._vol; }
@@ -681,10 +681,12 @@ class NativeDeck extends EventTarget {
     if (e.type === 'loaded') { if (e.dur > 0) { this._dur = e.dur; this._emit('loadedmetadata'); this._emit('durationchange'); } }
     else if (e.type === 'pos') {
       if (this.paused) return;
-      this._t = e.pos; this._tAt = performance.now(); if (e.dur > 0 && !isFinite(this._dur)) { this._dur = e.dur; this._emit('loadedmetadata'); }
+      const stale = !!this._skAt && performance.now() - this._skAt < 2000 && Math.abs(e.pos - this.currentTime) > 1.5;
+      if (!stale) { this._skAt = 0; this._t = e.pos; this._tAt = performance.now(); }
+      if (e.dur > 0 && !isFinite(this._dur)) { this._dur = e.dur; this._emit('loadedmetadata'); }
       if (!this._playingSent) { this._playingSent = true; this._emit('playing'); naOk(); }
-      this._emit('timeupdate');
-    } else if (e.type === 'seeked') { this._t = e.pos; this._tAt = performance.now(); this._emit('seeked'); }
+      if (!stale) this._emit('timeupdate');
+    } else if (e.type === 'seeked') { this._skAt = 0; this._t = e.pos; this._tAt = performance.now(); this._emit('seeked'); }
     else if (e.type === 'ended') { this._t = isFinite(this._dur) ? this._dur : this._t; this.paused = true; this._ended = true; this._playingSent = false; this._emit('pause'); this._emit('ended'); }
     else if (e.type === 'jump') {
       /* a button of the notification (next / previous) already changed the song in the engine: the app catches up */
@@ -2065,6 +2067,8 @@ function renderQueue() {
   }, { passive: false });
   const upEnd = e => {
     if (!d || d.k !== 'up' || !d.on) { d = null; return; }
+    const ct = e && e.changedTouches && e.changedTouches[0];
+    if (ct && Math.abs(ct.clientY - d.ly) > 2) npDragTo((d.base - ct.clientY) / NPM.top);
     NPM.noClick = Date.now(); npDragFlush();
     const v = flick(e);
     if ((NPM.p > 0.3 && v < 0.3) || v < -0.45) npAnimate(1, npOpened, npFlingMs(1, v)); else { NPM.flingMs = npFlingMs(0, v); closeNP(); }
@@ -2082,6 +2086,8 @@ function renderQueue() {
   }, { passive: false });
   const downEnd = e => {
     if (!d || d.k !== 'down' || !d.on) { d = null; return; }
+    const ct = e && e.changedTouches && e.changedTouches[0];
+    if (ct && Math.abs(ct.clientY - d.ly) > 2) npDragTo(1 - (ct.clientY - d.base) / NPM.top);
     npDragFlush();
     const v = flick(e);
     if ((NPM.p < 0.7 && v > -0.3) || v > 0.5) { NPM.flingMs = npFlingMs(0, v); closeNP(); } else npAnimate(1, npOpened, npFlingMs(1, v));
@@ -4125,7 +4131,7 @@ Salida de sonido: ${st.bt ? 'Bluetooth' : 'el móvil'}${st.lat >= 0 ? ` · tarda
 Reproductor: ${st.player === 'kotlin' ? 'el de Android (Kotlin y Media3)' + (st.service ? '' : ', sin servicio aún') : 'el de la 4.1 (Java)'}${naAdopted ? ` · recogió la música ${naAdopted} ${naAdopted === 1 ? 'vez' : 'veces'}` : ''}${st.serviceError ? `
 El servicio de música no arrancó: ${st.serviceError}` : ''}${st.crash ? `
 Último cierre por error: ${st.crash}` : ''}`; } catch {} }
-  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + (NUI.brainOk ? '; cerebro de comprensión' + (NB.nat ? ` (${(NB.natInfo || {}).threads || '?'} núcleos)` : NB.natFail ? ' (no arrancó: ' + NB.natFail + ')' : '') : NUI_PLUGIN && NUI.on && mirBad('brain') ? '; cerebro de comprensión: el de la parte web (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
+  txt += `\nPantallas nativas: ${!NUI_PLUGIN ? 'no hay (versión de respaldo)' : NUI.on ? (NUI.homeOk ? '«Ahora», ' : '') + '«Mi música»' + (NUI.pgOk ? ', «Mis listas», «Tú»' : '') + (NUI.mirOk ? ', «Buscar»' + (mirBad('buscar') ? ' (apartada: falló)' : '') + ', «Ajustes»' + (mirBad('ajustes') ? ' (apartada: falló)' : '') : '') + (NUI.chatOk ? ' y la conversación con Nova' : '') + (NUI.winOk ? '; ventanas y reproductor a pantalla completa' + (NUI.passOk ? ' (también el resumen del año, la bienvenida, el despertador y el aviso de importar)' : '') : '') + (NUI.vizOk ? '; visualizadores' : NUI_PLUGIN && NUI.on && mirBad('viz') ? '; visualizadores: los de siempre (fallaron)' : '') + (NUI.lyOk ? '; letra' : NUI_PLUGIN && NUI.on && mirBad('ly') ? '; letra: la de siempre (falló)' : '') + (NUI.ytOk ? '; videoclip' : NUI_PLUGIN && NUI.on && mirBad('yt') ? '; videoclip: el de siempre (falló)' : '') + (NUI.earOk ? '; escuchar' : NUI_PLUGIN && NUI.on && mirBad('ear') ? '; escuchar: con la ventana de Google (falló)' : '') + (NUI.baseOk ? '; fondo y barra de abajo' + (BASE.on ? ' (a la vista)' : '') : NUI_PLUGIN && NUI.on && mirBad('base') ? '; fondo y barra de abajo: los de siempre (fallaron)' : '') + (NUI.vozOk ? ', «Tu voz»' : '') + (NUI.brainOk ? '; cerebro de comprensión' + (NB.nat ? ` (${(NB.natInfo || {}).threads || '?'} núcleos)` : NB.natFail ? ' (no arrancó: ' + NB.natFail + ')' : '') : NUI_PLUGIN && NUI.on && mirBad('brain') ? '; cerebro de comprensión: el de la parte web (falló)' : '') + ' (Kotlin y Compose)' + (VIZ_NAT ? ', visualizador de Android: ' + VIZ_NAT : '') + (W.on.length ? ', ventana a la vista: ' + W.on.join(' + ') : '') + (NUI.homeOk && state.heroMode === 'viz' && !NUI.vizOk ? '; «Ahora» con visualizador: la de siempre' : '') + (NUI.shown ? ', a la vista: ' + (NUI.screen === 'chat' ? 'la conversación' : NUI.screen === 'inicio' ? '«Ahora»' : NUI.screen === 'listas' ? '«Mis listas»' : NUI.screen === 'tu' ? '«Tú»' : NUI.screen === 'buscar' ? '«Buscar»' : NUI.screen === 'ajustes' ? '«Ajustes»' : NUI.screen === 'voz' ? '«Tu voz»' : '«Mi música»') : '') : LS.get('nativeUiBroken', false) ? 'apagadas por un fallo: ' + (NUI.err || '?') : 'apagadas'}`;
   try { txt += `\nCerebros: ${brainCheckLine('nb') || 'comprensión sin probar'} | ${brainCheckLine('bb') || 'grande sin probar'}`; } catch {}
   try { if (TODO.o) txt += `\nTodo mi Órbita: van ${TODO.o.pos + 1} de ${TODO.o.order.length} (vuelta ${TODO.o.cycle || 1})`; txt += `\nDescubre: ${REC.on ? 'encendido' : 'apagado'} · ${REC.list.length} recomendaciones${REC.err ? ' · ' + REC.err : ''}`; } catch {}
   try { const an = [...anaCache.values()]; txt += `\nTonos: ${an.filter(a => a.key >= 0).length} de ${an.length} canciones analizadas`; } catch {}
@@ -6070,8 +6076,10 @@ function nuiFree() {
   const m = $('#main'), r = m.getBoundingClientRect(); if (r.width < 50 || r.height < 50) return false;
   if (W.on.includes('np')) return false;   // (the player, drawn natively, covers everything)
   // things that float over a part of the content area: the import progress, a notice of the app that is already up, the docked video
-  for (const id of ['importProg', 'toast', 'ytDock']) { const el = document.getElementById(id); if (el && !el.hidden) return false; }
-  for (const [fx, fy] of [[0.5, 0.2], [0.5, 0.55], [0.15, 0.9], [0.85, 0.08]]) { const el = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!el || !m.contains(el)) return false; }
+  // (5.3 · the import notice, drawn by Android on top of the native screen, isn't in the way)
+  const impN = NUI.passOk && NUI.winOk, imp = $('#importProg');
+  for (const id of impN ? ['toast', 'ytDock'] : ['importProg', 'toast', 'ytDock']) { const el = document.getElementById(id); if (el && !el.hidden) return false; }
+  for (const [fx, fy] of [[0.5, 0.2], [0.5, 0.55], [0.15, 0.9], [0.85, 0.08]]) { const el = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!el || !(m.contains(el) || (impN && imp && imp.contains(el)))) return false; }
   return true;
 }
 function nuiHide() {
@@ -6091,7 +6099,7 @@ function nuiWant() {
 const homeCan = () => NUI.homeOk && (state.heroMode !== 'viz' || NUI.vizOk);
 const nuiActive = () => NUI.on && (state.view === 'biblioteca' || (state.view === 'inicio' && NUI.homeOk) || pgCan(state.view) || !$('#chat').hidden || (NUI.winOk && (winOpen() || W.on.length > 0)));
 /* a screen of the new ones can go native: the plugin knows how (the mirrored ones need the 4.7 one) and it hasn't failed in this version */
-const pgCan = v => !!PAGES[v] && NUI.pgOk && (!PAGES[v].mirror || (NUI.mirOk && !mirBad(v)));
+const pgCan = v => !!PAGES[v] && NUI.pgOk && (!PAGES[v].need || NUI[PAGES[v].need]) && (!PAGES[v].mirror || (NUI.mirOk && !mirBad(v)));
 function nuiLoop() {
   if (NUI.raf || !NUI.on) return;
   const step = () => {
@@ -6119,7 +6127,8 @@ function nuiLoop() {
       else if (k !== NUI.rect) { NUI.rect = k; NUI_PLUGIN.rect(o).catch(() => {}); }
       if (scr === 'inicio') homeTick(); else if (PAGES[scr]) pgTick(scr);
     } else if (NUI.shown) nuiHide();
-    if (nuiActive()) NUI.raf = requestAnimationFrame(step);
+    try { baseTick(); } catch (e) { diag('fondo y barra nativos: ' + (e && e.message || e)); baseOff(); }
+    if (nuiActive()) NUI.raf = requestAnimationFrame(step); else baseOff();
   };
   NUI.raf = requestAnimationFrame(step);
 }
@@ -6147,6 +6156,8 @@ function nuiLook() {
   const o = { h: hue, s: sat, glowK: +LOOK.glow || 0, round: { redondo: 1, suave: 0.55, recto: 0.18 }[LOOK.round] ?? 1, tk: { s: 0.92, m: 1, l: 1.1 }[LOOK.text] ?? 1, titles: LOOK.titles || '', black: LOOK.bg === 'negro' };
   const k = JSON.stringify(o); if (k === NUI.lookKey) return; NUI.lookKey = k;
   NUI_PLUGIN.look(o).catch(() => {});
+  // (5.3 · what is read from the page changes colour with the tone without the page changing: read again, all of it)
+  try { BASE.dirty.add('*'); for (const id of W.on) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); if (NUI.shown && PAGES[NUI.screen] && PAGES[NUI.screen].mirror) pgMark(NUI.screen, '*'); } catch {}
 }
 /* The library and what surrounds it, read from the screen of always (so both always say the same) */
 function nuiSyncSoon() { if (!NUI.on || NUI.syncT) return; NUI.syncT = setTimeout(() => { NUI.syncT = 0; nuiSync(); }, 30); }
@@ -6201,6 +6212,7 @@ async function nuiPick() {
 }
 function nuiEvent(e) {
   if (!e || !e.type) return;
+  if (e.type === 'baseLive') { baseHideWeb(); return; }   // (5.3 · Android ya dibuja el fondo: el de la web, guardado)
   const t = e.id ? trackById(e.id) : null;
   if (e.type === 'play') { const ids = (e.ids || []).filter(id => trackById(id)); if (ids.length) playQueue(ids, Math.max(0, ids.indexOf((e.ids || [])[e.index]))); }
   else if (e.type === 'like') { if (t) toggleLike(t); }
@@ -6244,8 +6256,9 @@ function nuiEvent(e) {
 }
 if (NUI_PLUGIN) {
   try { NUI_PLUGIN.hide().catch(() => {}); } catch {}   // (the web part may have restarted while the native screen was up)
+  try { NUI_PLUGIN.winHide().catch(() => {}); } catch {}   // (5.3 · and its windows; the layer below, once it is known that this Android has it)
   try { NUI_PLUGIN.addListener('ui', e => { if (!NUI.on) return; try { nuiEvent(e); } catch (err) { diag('pantalla nativa: ' + (err && err.message || err)); } }); } catch {}
-  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
+  NUI.statusP = NUI_PLUGIN.status().then(s => { if (!s || !s.available) throw new Error('no disponible'); NUI.chatOk = (+s.v || 0) >= 3; NUI.homeOk = (+s.v || 0) >= 4; if (NUI.homeOk) homeWatch(); NUI.pgOk = (+s.v || 0) >= 5; NUI.mirOk = (+s.v || 0) >= 6; NUI.winOk = (+s.v || 0) >= 7; NUI.vizOk = (+s.v || 0) >= 8 && !mirBad('viz'); NUI.lyOk = (+s.v || 0) >= 9 && !mirBad('ly'); NUI.ytOk = (+s.v || 0) >= 9 && !mirBad('yt'); NUI.earOk = (+s.v || 0) >= 10 && !mirBad('ear'); NUI.brainOk = (+s.v || 0) >= 11 && !mirBad('brain'); NUI.baseOk = (+s.v || 0) >= 12 && !mirBad('base'); NUI.vozOk = (+s.v || 0) >= 12; NUI.passOk = (+s.v || 0) >= 12; if ((+s.v || 0) >= 12 && !BASE.on) NUI_PLUGIN.base({ on: false }).catch(() => {}); if (NUI.pgOk) for (const k in PAGES) if (!PAGES[k].mirror || NUI.mirOk) pgWatch(k); if (nuiActive()) nuiLoop(); }).catch(e => { if (NUI.on) nuiBroken(e); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && nuiActive()) nuiLoop(); });
 }
 /* Ajustes: the switch */
@@ -6253,7 +6266,7 @@ function renderNui() {
   const row = $('#nuiRow'); if (!row) return;
   row.hidden = !NUI_PLUGIN;
   setToggle($('#tNui'), NUI.on);
-  $('#nuiNote').textContent = NUI.on ? 'Activadas: todas las pantallas, el reproductor a pantalla completa, las ventanas, los visualizadores, la letra y la conversación con Nova los dibuja Android; Nova te escucha sin salir de Órbita y su cerebro de comprensión corre en Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
+  $('#nuiNote').textContent = NUI.on ? 'Activadas: todo lo que ves lo dibuja Android (las pantallas, el reproductor, las ventanas, la barra de abajo, el fondo, los visualizadores, la letra, la conversación con Nova, el resumen del año, la bienvenida y el despertador); Nova te escucha sin salir de Órbita y su cerebro de comprensión corre en Android. Si algo no se ve bien, apágalas y vuelven las de siempre.'
     : LS.get('nativeUiBroken', false) ? 'Se apagaron solas porque algo falló en este móvil (' + (NUI.err || 'error') + '). Puedes volver a probarlas.'
     : 'Apagadas: todo se ve con las pantallas de siempre.';
 }
@@ -6447,6 +6460,8 @@ const tuBlock = el => {
 const PAGES = {
   buscar: { view: '#view-buscar', mirror: true, parts: {} },
   ajustes: { view: '#view-ajustes', mirror: true, parts: {} },
+  /* 5.3 · «Tu voz», read whole like «Buscar» and «Ajustes» (with the plugin that knows it) */
+  voz: { view: '#view-voz', mirror: true, parts: {}, need: 'vozOk' },
   tu: {
     view: '#view-tu',
     where: el => el.closest('#tuOut') ? 'out' : el.closest('.head') ? 'head' : el.closest('.tu-links') ? 'links' : 'mem',
@@ -6530,6 +6545,8 @@ function mBox(n, cs) {
     if (g && g.some(x => x.t !== 'x')) { n.g = g; const gc = (cs.backgroundClip || '').split(',').map(x => x.trim()[0] || 'b').join(''); if (/[^b]/.test(gc)) n.gc = gc; }
   }
   // (blur, colour and light of a box: the background of the player)
+  // (5.3 · the ring of what has the focus, as the web draws it: «outline», a little outside its edge)
+  if (cs.outlineStyle && cs.outlineStyle !== 'none' && (parseFloat(cs.outlineWidth) || 0) > 0) { const oc = mCol(cs.outlineColor); if (oc) n.ol = [mF(parseFloat(cs.outlineWidth)), oc, mF(parseFloat(cs.outlineOffset) || 0)]; }
   if (cs.filter && cs.filter !== 'none') {
     const f = cs.filter, b = /blur\(([\d.]+)px\)/.exec(f), sa = /saturate\(([\d.]+)\)/.exec(f), br = /brightness\(([\d.]+)\)/.exec(f);
     if (b || sa || br) n.fx = [b ? mF(+b[1]) : 0, sa ? mF(+sa[1]) : 1, br ? mF(+br[1]) : 1];
@@ -6550,12 +6567,12 @@ function mBox(n, cs) {
   if (+cs.opacity < 1) n.o = mF(+cs.opacity);
   if (cs.overflowX === 'hidden' || cs.overflowY === 'hidden' || cs.overflowX === 'clip') n.cl = 1;
 }
-const mPaints = n => n.bg || n.g || n.bw || n.sh || n.o != null || n.cl;
+const mPaints = n => n.bg || n.g || n.bw || n.sh || n.o != null || n.cl || n.ol;
 /* how the letters of an element look, as an entry of the table of the part */
 function mStyle(cs, ctx) {
   const fam = (cs.fontFamily || '').split(',')[0], ff = /Unbounded/i.test(fam) ? 'd' : /Mono/i.test(fam) ? 'm' : 'b';
   const sw = parseFloat(cs.webkitTextStrokeWidth) || 0, fill = cs.webkitTextFillColor || cs.color;
-  const fl = (cs.fontStyle === 'italic' ? 1 : 0) + (/underline/.test(cs.textDecorationLine) ? 2 : 0) + (/line-through/.test(cs.textDecorationLine) ? 4 : 0);
+  const fl = (cs.fontStyle === 'italic' ? 1 : 0) + (/underline/.test(cs.textDecorationLine) ? 2 : 0) + (/line-through/.test(cs.textDecorationLine) ? 4 : 0) + (/tabular-nums/.test(cs.fontVariantNumeric || '') ? 8 : 0);
   const a = [mF(parseFloat(cs.fontSize) || 15), +cs.fontWeight || 400, ff, sw && !mCol(fill) ? mCol(cs.webkitTextStrokeColor) : mCol(fill) || mCol(cs.color), mF(parseFloat(cs.letterSpacing) || 0), fl, sw && !mCol(fill) ? mF(sw) : 0];
   const k = a.join('|'); let i = ctx.sk.get(k); if (i === undefined) { i = ctx.st.length; ctx.st.push(a); ctx.sk.set(k, i); }
   return i;
@@ -6649,18 +6666,106 @@ function mPseudo(el, cs, r, which, ctx, kids) {
   if (isNaN(top)) { const y = parseFloat(q.bottom); top = isNaN(y) ? 0 : r.height - bt - bb - y - h; }
   const m = /matrix\(([^)]+)\)/.exec(q.transform); if (m) { const p = m[1].split(',').map(Number); left += p[4] || 0; top += p[5] || 0; }
   const n = { x: mF(r.left + bl + left - ctx.ox), y: mF(r.top + bt + top - ctx.oy), w: mF(w), h: mF(h) }; mBox(n, q);
+  const an = mAnims(el, which); if (an) n.an = an;   // (5.3 · the halo of Nova turns)
   if (mPaints(n)) kids.push(n);
 }
 const M_TEXT_IN = { text: 1, search: 1, password: 1, email: 1, url: 1, tel: 1, number: 1 };
+/* (5.3) the CSS animations of always that Android knows how to do on its own, by their name: the aro of Nova and the
+   wheel that waits (spin), the light that floats behind «Tu año», the welcome and the alarm (rcFloat), the bars of Nova
+   (obBar) and how things come in (rcIn, rcPop). Of each one, where it goes (and, the ones that end, finished here: who
+   sees them is Android, from where they were) */
+const M_KF = new Set(['spin', 'rcFloat', 'obBar', 'rcIn', 'rcPop']);
+const M_TF = { linear: [0, 0, 1, 1], ease: [0.25, 0.1, 0.25, 1], 'ease-in': [0.42, 0, 1, 1], 'ease-out': [0, 0, 0.58, 1], 'ease-in-out': [0.42, 0, 0.58, 1] };
+const MANIM = { '': new WeakMap(), '::before': new WeakMap(), '::after': new WeakMap() };
+function mEase(s) { s = String(s || '').trim(); if (M_TF[s]) return M_TF[s]; const m = /^cubic-bezier\(([^)]+)\)$/.exec(s); if (m) { const q = m[1].split(',').map(Number); if (q.length === 4 && q.every(Number.isFinite)) return q.map(v => mF(v)); } return M_TF.ease; }
+function mAnims(el, pseudo) {
+  let list;
+  try { list = pseudo ? el.getAnimations({ subtree: true }).filter(a => a.effect && a.effect.target === el && a.effect.pseudoElement === pseudo) : el.getAnimations(); } catch { return null; }
+  list = list.filter(a => a.animationName && M_KF.has(a.animationName) && a.playState !== 'idle');
+  const rec = MANIM[pseudo || ''], had = rec.get(el) || {}, keep = {}, out = [], now = performance.now();
+  if (!list.length && !Object.keys(had).length) return null;
+  let cs = null;
+  for (const a of list) {
+    const k = a.animationName, tm = a.effect.getTiming(), fin = tm.iterations !== Infinity;
+    const fill = { none: 0, forwards: 1, backwards: 2, both: 3 }[tm.fill] ?? 0;
+    if (fin && a.playState === 'finished') { const r = had[k]; if (r && now - r.start < r.dl + r.d * r.n + 50) { keep[k] = r; out.push(Object.assign({}, r.o, { t: mF(now - r.start) })); } continue; }
+    if (!cs) cs = getComputedStyle(el, pseudo || null);
+    const names = cs.animationName.split(',').map(x => x.trim()), tfs = mSplit(cs.animationTimingFunction || ''), i = Math.max(0, names.indexOf(k));
+    const t = +a.currentTime || 0, d = +tm.duration || 0, dl = +tm.delay || 0;
+    const o = { k, d: mF(d), dl: mF(dl), n: fin ? tm.iterations : -1, al: /alternate/.test(tm.direction) ? 1 : 0, rv: /reverse/.test(tm.direction) ? 1 : 0, e: mEase(tfs[i % Math.max(1, tfs.length)]), f: fill, t: mF(t) };
+    if (a.playState === 'paused') o.p = 1;
+    if (fin && a.playState === 'running') { keep[k] = { start: now - t, dl, d, n: tm.iterations, o }; try { a.finish(); } catch {} }
+    out.push(o);
+  }
+  if (Object.keys(keep).length) rec.set(el, keep); else rec.delete(el);
+  return out.length ? out : null;
+}
+/* (5.3) how much something is grown or shrunk from its centre, by «scale» or by a «transform» that only does that
+   (from anywhere else, or turned, or moved: it is read as it is seen) */
+function mScaleOf(el, cs) {
+  let p = '', v = 1;
+  if (cs.scale && cs.scale !== 'none') { const a = cs.scale.split(/\s+/).map(parseFloat); if (a.length > 2 || (a.length === 2 && Math.abs(a[0] - a[1]) > 1e-4)) return null; p = 'scale'; v = a[0]; if (cs.transform && cs.transform !== 'none') return null; }
+  else if (cs.transform && cs.transform !== 'none') { const m = /^matrix\(([^)]+)\)$/.exec(cs.transform); if (!m) return null; const q = m[1].split(',').map(Number); if (Math.abs(q[1]) > 1e-4 || Math.abs(q[2]) > 1e-4 || Math.abs(q[0] - q[3]) > 1e-4 || Math.abs(q[4]) > 0.01 || Math.abs(q[5]) > 0.01) return null; p = 'transform'; v = q[0]; }
+  else return null;
+  if (!(v > 0) || Math.abs(v - 1) < 1e-3 || (cs.rotate && cs.rotate !== 'none') || (cs.translate && cs.translate !== 'none')) return null;
+  const o = cs.transformOrigin.split(' ').map(parseFloat), w = el.offsetWidth || (el.getBBox ? el.getBBox().width : 0), h = el.offsetHeight || (el.getBBox ? el.getBBox().height : 0);
+  if (!(Math.abs(o[0] - w / 2) < 0.6 && Math.abs((o.length > 1 ? o[1] : o[0]) - h / 2) < 0.6)) return null;
+  return { p, v };
+}
+/* (5.3) the elements being read put back to their size (see mWalk) */
+const M_SC = new Set();
+/* (5.3) a piece and what is inside it, read grown or shrunk «k» times from (cx, cy): back to its size */
+function mUnscale(n, cx, cy, k) {
+  if (typeof n.x === 'number') { n.x = mF(cx + (n.x - cx) * k); n.y = mF(cy + (n.y - cy) * k); n.w = mF(n.w * k); n.h = mF(n.h * k); }
+  if (n.mw) n.mw = mF(n.mw * k);
+  if (n.tb) n.tb = n.tb.map(v => mF(v * k));
+  for (const c of n.c || []) mUnscale(c, cx, cy, k);
+}
+/* (5.3) where something is without its «transform» (what turns or floats): from its place in the page */
+function mLayoutRect(el) {
+  const op = el.offsetParent; if (!op || typeof el.offsetLeft !== 'number') return null;
+  const pr = op.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+  const left = pr.left + op.clientLeft + el.offsetLeft - (op === document.body ? 0 : op.scrollLeft), top = pr.top + op.clientTop + el.offsetTop - (op === document.body ? 0 : op.scrollTop);
+  return { left, top, width: w, height: h, right: left + w, bottom: top + h };
+}
+/* (5.3) the elements whose «style» the reading itself touched a moment (and left as it was): not a change */
+const M_OWN = new Set();
+const mOwn = m => m.type === 'attributes' && m.attributeName === 'style' && M_OWN.has(m.target);
 /* one element (and what is inside it) → the pieces to draw, added to «out» */
 function mWalk(el, ctx, out) {
   const tag = el.tagName;
   if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEMPLATE' || tag === 'OPTION' || tag === 'BR') return;
-  if (ctx.skip && el === ctx.skip) return;
+  if (ctx.skip && (ctx.skip === el || (ctx.skip instanceof Set && ctx.skip.has(el)))) return;
   const cs = getComputedStyle(el);
   if (cs.display === 'none' || (el.style && el.style.visibility === 'hidden')) return;
-  const r = el.getBoundingClientRect();
+  // (5.3 · the CSS animations that Android does on its own; one that turns or floats is placed where it is without
+  //  turning or floating, and Android moves it)
+  const an = mAnims(el, null), tfA = !!an && an.some(a => a.k === 'spin' || a.k === 'rcFloat');
+  // (something that grows or shrinks from its centre: a button pressed with the finger, which the web shrinks a little
+  //  with «scale» and lets go with a spring; the heart when you like a song, and its ring… It is read as it is seen and
+  //  put back to its size (nothing is touched in the page: that would stop its animation); Android draws it grown or
+  //  shrunk the same, from its centre)
+  if (!tfA && !M_SC.has(el)) {
+    const sv = mScaleOf(el, cs);
+    if (sv) {
+      const at = out.length, q = el.getBoundingClientRect();
+      M_SC.add(el); try { mWalk(el, ctx, out); } finally { M_SC.delete(el); }
+      if (out.length === at + 1) { mUnscale(out[at], q.left + q.width / 2 - ctx.ox, q.top + q.height / 2 - ctx.oy, 1 / sv.v); out[at].sc = +sv.v.toFixed(3); }
+      return;
+    }
+  }
+  const r = tfA ? mLayoutRect(el) || el.getBoundingClientRect() : el.getBoundingClientRect();
   const n = { x: mF(r.left - ctx.ox), y: mF(r.top - ctx.oy), w: mF(r.width), h: mF(r.height) };
+  if (an) n.an = an;
+  // (5.3 · the bars of «Tu año en Órbita»: Android fills the one of the page that is up on its own, at the same pace)
+  if (el.id === 'rcBars' && typeof RC === 'object' && RC.slides) {
+    mBox(n, cs); n.e = 'rcbars';
+    const sl = RC.slides[RC.i], i0 = el.querySelector('i'), b0 = i0 && i0.firstElementChild, ci = i0 ? getComputedStyle(i0) : null;
+    const f = sl && sl.last ? 1 : Math.max(0, Math.min(1, ((RC.paused ? RC.pausedAt || performance.now() : performance.now()) - RC.t0) / (RC.dur || 1)));
+    n.v = { n: RC.slides.length, i: RC.i || 0, f: mF(f), d: mF(RC.dur || 1), p: RC.paused || (sl && sl.last) ? 1 : 0, tc: ci ? mCol(ci.backgroundColor) : 0x38FFFFFF, fc: b0 ? mCol(getComputedStyle(b0).backgroundColor) : 0xFFFFFFFF, g: mF(parseFloat(cs.columnGap) || 4), r: mF(ci ? parseFloat(ci.borderTopLeftRadius) || 0 : 3), bh: mF(i0 ? i0.getBoundingClientRect().height : 3) };
+    if (+cs.opacity < 1) n.o = mF(+cs.opacity);
+    out.push(n); return;
+  }
   // the light behind the cover of the player: Android moves it with the music on its own
   if (el.id === 'npHalo') { mBox(n, cs); delete n.o; n.e = 'halo'; n.lt = PL.on && plOK() ? 1 : 0; if (n.lt || +cs.opacity > 0) out.push(n); return; }
   if (+cs.opacity === 0) return;
@@ -6716,7 +6821,7 @@ function mWalk(el, ctx, out) {
   let c2 = ctx;
   const next = () => { if (c2 === ctx) c2 = Object.assign({}, ctx); return c2; };
   if (cs.cursor === 'pointer' && !ctx.hand) next().hand = true;
-  if (cs.overflowX !== 'visible') { const x = next(); x.clipR = Math.min(ctx.clipR, r.right - (parseFloat(cs.borderRightWidth) || 0) - (parseFloat(cs.paddingRight) || 0)); x.ell = cs.textOverflow === 'ellipsis'; }
+  if (cs.overflowX !== 'visible') { const x = next(); x.ell = cs.textOverflow === 'ellipsis'; x.clipR = Math.min(ctx.clipR, r.right - (parseFloat(cs.borderRightWidth) || 0) - (x.ell ? parseFloat(cs.paddingRight) || 0 : 0)); }
   if (cs.backgroundImage !== 'none' && /text/.test(cs.webkitBackgroundClip || '')) { const g = mGrad(cs.backgroundImage); if (g && g[0] && g[0].t === 'l') { const x = next(); x.tg = g[0]; x.tgr = r; } }
   mPseudo(el, cs, r, '::before', ctx, kids);
   const open = tag !== 'DETAILS' || el.open;
@@ -6726,8 +6831,9 @@ function mWalk(el, ctx, out) {
   }
   mPseudo(el, cs, r, '::after', ctx, kids);
   if (tag === 'SUMMARY' && cs.listStyleType !== 'none') { const mk = hMark(el); if (mk) { n.mk = mk; n.mc = mCol(cs.color); if (el.parentElement && el.parentElement.open) n.mo = 1; } }
-  // a wrapper that paints nothing and can't be touched: only what is inside it counts
-  if (!mPaints(n) && !n.k && !n.e && !n.mk && !n.d) { for (const k of kids) out.push(k); return; }
+  // a wrapper that paints nothing and can't be touched (nor moves on its own, nor is grown or shrunk): only what is
+  // inside it counts
+  if (!mPaints(n) && !n.k && !n.e && !n.mk && !n.d && !n.an && !M_SC.has(el)) { for (const k of kids) out.push(k); return; }
   if (kids.length) n.c = kids;
   out.push(n);
 }
@@ -6867,11 +6973,18 @@ const WIN = {
   news: { el: '#newsOverlay' },
   ly: { el: '#lyOverlay' },
   edit: { el: '#editOverlay' },
-  viz: { el: '#vizFull', viz: true }
+  viz: { el: '#vizFull', viz: true },
+  /* 5.3 · «Tu año en Órbita», la bienvenida y el despertador: Android los dibuja (en partes: lo de arriba y lo de en medio
+     cambian solos), y lo que se toca en ellos le llega a la web tal cual (ella ya sabe pasar de página, saltar, apagar…) */
+  recap: { el: '#recap', pass: true, full: true, parts: ['.rc-top', '#rcStage'] },
+  onb: { el: '#onb', pass: true, full: true, parts: ['.onb-top', '#onbStage'] },
+  alarm: { el: '#alarmScr', pass: true, full: true, parts: ['.al-in'] },
+  /* el aviso de que se están importando canciones (con su «Parar»): encima de la pantalla nativa, que sigue ahí */
+  imp: { el: '#importProg', pass: true }
 };
 /* windows that go as always (and, while one of them is up, every window does) */
-const WIN_WEB = ['#ytOverlay', '#vizFull', '#recap', '#onb', '#alarmScr'];
-const W = { on: [], key: '', keys: {}, dirty: {}, t: 0, poll: 0, els: {}, obs: {}, sy: {}, drag: false, vals: new Map(), sent: {}, held: false, seq: 0, log: [] };
+const WIN_WEB = ['#ytOverlay', '#vizFull'];
+const W = { on: [], key: '', keys: {}, dirty: {}, t: 0, poll: 0, els: {}, obs: {}, sy: {}, drag: false, vals: new Map(), sent: {}, held: false, seq: 0, log: [], anim: {}, rc: '' };
 /* what was sent to Android and when (the last few: the tests read it) */
 function wLog(o) { o.t = Math.round(performance.now()); W.log.push(o); if (W.log.length > 40) W.log.shift(); }
 /* Android takes its layer of windows away and forgets them (also after closing the player with the finger) */
@@ -6888,11 +7001,12 @@ function winReady(id, el) {
 function winStack() {
   if (!NUI.on || !NUI.winOk || NUI.classic || innerWidth > 760 || root.classList.contains('booting') || !state.ready) return [];
   for (const s of WIN_WEB) if (!(s === '#vizFull' && NUI.vizOk) && winIsOpen($(s))) return null;
+  for (const id in WIN) if (WIN[id].pass && !NUI.passOk && winIsOpen($(WIN[id].el))) return null;   // (with an Android of before, as always)
   const up = [];
   for (const id in WIN) { if (WIN[id].viz && !NUI.vizOk) continue; const el = $(WIN[id].el); if (winIsOpen(el)) { if (!winReady(id, el)) return null; up.push([id, +getComputedStyle(el).zIndex || 0]); } }
   return up.sort((a, b) => a[1] - b[1]).map(x => x[0]);
 }
-const winOpen = () => Object.values(WIN).some(d => (!d.viz || NUI.vizOk) && winIsOpen($(d.el)));
+const winOpen = () => Object.values(WIN).some(d => (!d.viz || NUI.vizOk) && (!d.pass || NUI.passOk) && winIsOpen($(d.el)));
 /* once per frame (from the loop of the native screens) */
 function winTick() {
   if (!NUI_PLUGIN || !NUI.winOk) return;
@@ -6909,6 +7023,10 @@ function winTick() {
   if (!ids.length) { if (W.held && !W.drag) winGone('tras el dedo'); return; }
   const now = performance.now();
   if (now - W.poll > 3000) { W.poll = now; for (const id of ids) (W.dirty[id] = W.dirty[id] || new Set()).add('*'); }
+  // (5.3 · what moves for a moment in a window that Android draws while the web gets the finger: read again, frame by
+  //  frame, until it stops; and the bars of «Tu año», when it changes page or is paused)
+  for (const id of ids) { const a = W.anim[id]; if (a && a.size) { const d = (W.dirty[id] = W.dirty[id] || new Set()); for (const k of a) d.add(k); a.clear(); } }
+  if (ids.includes('recap') && typeof RC === 'object') { const rk = [RC.i, RC.paused, RC.slides && RC.slides.length, RC.dur, RC.t0].join(); if (rk !== W.rc) { W.rc = rk; const b = $('#rcBars'); if (b) winMarkEl(b); } }
   // (values that change with nothing changing in the page: the bar of the song while it plays)
   for (const [el, v] of W.vals) { if (!el.isConnected) { W.vals.delete(el); continue; } if (el.value !== v) { W.vals.set(el, el.value); winMarkEl(el); } }
   if (!W.t && ids.some(id => W.dirty[id] && W.dirty[id].size)) W.t = requestAnimationFrame(() => { W.t = 0; winSync(false); });
@@ -6933,11 +7051,14 @@ function winWatch(id) {
       for (const m of list) {
         const t = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (!t) continue;
         if (m.type === 'attributes' && m.attributeName === 'style' && (t.id === 'npHalo' || t.id === 'npBg')) continue;
+        if (mOwn(m)) continue;
         if (m.type === 'attributes' && NUI.lyOk && t.closest && t.closest('#lyScroll')) continue;
+        if (m.type === 'attributes' && m.attributeName === 'style' && id === 'recap' && t.closest && t.closest('#rcBars')) continue;
         winMarkEl(t);
       }
     });
     W.obs[id].observe(el, { subtree: true, childList: true, characterData: true, attributes: true });
+    if (WIN[id].pass) el.addEventListener('scroll', e => { if (W.on.includes(id) && e.target && e.target.nodeType === 1) winMarkEl(e.target); }, { capture: true, passive: true });
   } catch {}
   const sc = WIN[id].scroller && el.querySelector(WIN[id].scroller);
   if (sc) sc.addEventListener('scroll', () => { if (!W.on.includes(id)) return; const y = sc.scrollTop; if (Math.abs(y - (W.sy[id] || 0)) < 1) return; W.sy[id] = y; NUI_PLUGIN.winScroll({ id, y }).catch(() => {}); }, { passive: true });
@@ -6954,7 +7075,9 @@ function winSync(force) {
     const all = force || dirty.has('*');
     if (force || !W.keys[id]) W.keys[id] = {};
     const K = W.keys[id];
-    mFinish(el);
+    // (5.3 · in the ones Android draws while the web gets the finger, what moves for a moment — a colour that changes, a
+    //  button that springs back — is followed frame by frame; how things come in, Android does on its own)
+    if (!def.pass) mFinish(el);
     const els = new Map(), parts = {}, sEl = def.scroller ? el.querySelector(def.scroller) : null;
     const read = (part, r, skip) => {
       const k = hKey(part); els.set(part, k);
@@ -6963,9 +7086,13 @@ function winSync(force) {
       try { mWalk(part, ctx, c); } catch (e) { diag('ventana nativa «' + id + '»: ' + (e && e.message || e)); return k; }
       const v = { st: ctx.st, c }, js = JSON.stringify(v);
       if (js !== K[k]) { K[k] = js; parts[k] = v; }
+      if (def.pass) try { if (part.getAnimations({ subtree: true }).some(a => a.playState === 'running' && !(a.animationName && M_KF.has(a.animationName)) && a.effect && a.effect.getTiming().iterations !== Infinity && !(skip && [...(skip instanceof Set ? skip : [skip])].some(x => x && x.contains(a.effect.target))))) (W.anim[id] = W.anim[id] || new Set()).add(k); } catch {}
       return k;
     };
-    const r0 = el.getBoundingClientRect(), fixed = [[read(el, r0, sEl), mF(r0.left), mF(r0.top), mF(r0.width), mF(r0.height)]];
+    const subs = def.parts ? def.parts.map(q => el.querySelector(q)).filter(x => x && x.getClientRects().length) : [];
+    const skip0 = subs.length ? new Set(sEl ? [...subs, sEl] : subs) : sEl;
+    const r0 = el.getBoundingClientRect(), fixed = [[read(el, r0, skip0), mF(r0.left), mF(r0.top), mF(r0.width), mF(r0.height)]];
+    for (const x of subs) { const q = x.getBoundingClientRect(); fixed.push([read(x, q), mF(q.left), mF(q.top), mF(q.width), mF(q.height)]); }
     let sc = null;
     if (sEl) {
       // the part that scrolls, piece by piece, measured from the top of what it holds
@@ -6978,7 +7105,7 @@ function winSync(force) {
     W.els[id] = els;
     for (const k of Object.keys(K)) if (![...els.values()].some(v => String(v) === k)) delete K[k];
     const shape = JSON.stringify([fixed, sc && [sc.x, sc.y, sc.w, sc.h, sc.total, sc.order]]);
-    if (force || Object.keys(parts).length || shape !== W.sent[id]) { W.sent[id] = shape; wins[id] = { fixed, sc, parts }; changed = true; }
+    if (force || Object.keys(parts).length || shape !== W.sent[id]) { W.sent[id] = shape; wins[id] = { fixed, sc, parts }; if (def.pass) wins[id].pass = 1; changed = true; }
   }
   if (NUI.hEls.size > 2500) for (const [k, el] of NUI.hEls) if (!el.isConnected) NUI.hEls.delete(k);
   if (changed || force) W.held = true;
@@ -7027,7 +7154,7 @@ function pgAfter(name) { for (const ms of [30, 400, 1500]) setTimeout(() => { co
 function pgWatch(name) {
   const P = PAGES[name], S = pgOf(name); if (S.obs) return;
   try {
-    S.obs = new MutationObserver(list => { for (const m of list) { const el = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (el) pgMark(name, P.mirror ? mirWhere(name, el) : P.where(el)); } });
+    S.obs = new MutationObserver(list => { for (const m of list) { if (mOwn(m)) continue; const el = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (el) pgMark(name, P.mirror ? mirWhere(name, el) : P.where(el)); } });
     // (a mirrored screen is drawn from everything it has: any attribute may change how it looks)
     S.obs.observe($(P.view), P.mirror ? { subtree: true, childList: true, characterData: true, attributes: true } : { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'class', 'aria-pressed', 'disabled', 'src', 'placeholder', 'open'] });
   } catch (e) { diag('pantalla nativa «' + name + '»: no puedo seguir los cambios (' + (e && e.message || e) + ')'); delete PAGES[name]; }
@@ -7204,6 +7331,167 @@ async function mindCall(msg) {
   } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
   finally { mindMark(false); }
 }
+
+/* ================== 5.3 · Phase 4, part 1: everything that is seen, by Android ==================
+   The layer at the very bottom: the background of the app (Android draws it: the same aurora, moving at the same point
+   as the web's, or still, or the cover, or pure black; with the same grain) and the bar at the bottom (the song that
+   plays and the tabs), read from the one of always like the screens. What is touched on the bar reaches the web as it
+   is (it already knows what to do, also opening the player with the finger); only the bar of the song is dragged there.
+   It goes up when everything on the screen is Android's (a native screen or the native player) and nothing of the web
+   is on top; otherwise the web's own, identical, is seen. If it ever closed the app, in this version, the web's. */
+const BASE = { on: false, keys: {}, dirty: new Set(), anim: new Set(), poll: 0, obs: null, vals: new Map(), els: new Map(), bgKey: '', bgAt: 0, bgRead: 0, drift: null, driftAt: 0, fixedKey: '', sure: false, openT: 0 };
+/* the parts of the bar, in the order they are drawn: the player (its box), its three pieces, and the tabs */
+function baseList() {
+  const pl = $('.player'), nav = $('.nav'), out = [];
+  if (pl && pl.getClientRects().length) {
+    const subs = ['.pl-track', '.pl-center .ctrls', '.seekrow', '.pl-right'].map(q => pl.querySelector(q)).filter(x => x && x.getClientRects().length);
+    out.push([pl, new Set(subs)]); for (const x of subs) out.push([x, null]);
+  }
+  if (nav && nav.getClientRects().length) out.push([nav, null]);
+  return out;
+}
+/* is everything on the screen Android's now, with nothing of the web on top? */
+function baseWant() {
+  if (!NUI_PLUGIN || !NUI.baseOk || !NUI.on || NUI.classic || innerWidth > 760 || root.classList.contains('booting') || !state.ready || document.hidden) return false;
+  if (!(NUI.shown || W.on.includes('np'))) return false;
+  if (W.key === '-' || W.drag || NPM.on || NPM.closing) return false;
+  if (W.on.some(id => WIN[id].full)) return false;
+  for (const id of NUI.passOk && NUI.winOk ? ['toast', 'ytDock', 'ytOverlay', 'dropOverlay'] : ['importProg', 'toast', 'ytDock', 'ytOverlay', 'dropOverlay']) { const el = document.getElementById(id); if (el && !el.hidden && el.getClientRects().length) return false; }
+  const it = $('#intro'); if (it && it.isConnected) { const cs = getComputedStyle(it); if (cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity > 0.01) return false; }
+  // (and nothing of the web over the bar: a menu, a notice… what is at its points is the bar's, or a native window's)
+  for (const el of [$('.player'), $('.nav')]) {
+    if (!el || !el.getClientRects().length) continue;
+    const r = el.getBoundingClientRect(), y = r.top + Math.min(r.height / 2, 20);
+    if (y < 0 || y >= innerHeight) continue;
+    for (const fx of [0.12, 0.5, 0.88]) {
+      const at = document.elementFromPoint(r.left + r.width * fx, y);
+      if (at && !el.contains(at) && !W.on.some(id => { const w = $(WIN[id].el); return !!w && w.contains(at); })) return false;
+    }
+  }
+  return true;
+}
+/* (5.3) While Android draws the background, the web's own is put away (hidden and its light stopped: it doesn't cost
+   anything every frame); where its movement would go is kept here, by the same rules as its CSS (stopped while the app
+   starts and with the player open; none with «Quieto», light animations or less motion); when the web's is needed
+   again, it is put just there and goes on. */
+const DRIFT = { t: 0, at: 0, run: false, none: true, hold: null };   // (hold: still at that point — only the tests use it)
+function driftNatural() {
+  if (root.classList.contains('lite') || LOOK.bg === 'quieto' || LOOK.bg === 'negro' || matchMedia('(prefers-reduced-motion: reduce)').matches) return 'none';
+  const np = $('#np');
+  if (root.classList.contains('booting') || (np && !np.hidden && !np.classList.contains('np-moving'))) return 'paused';
+  return 'running';
+}
+function driftNow() {
+  const now = performance.now(), nat = driftNatural();
+  if (DRIFT.hold != null && nat !== 'none') { DRIFT.t = DRIFT.hold; DRIFT.at = now; DRIFT.run = false; DRIFT.none = false; return DRIFT; }
+  if (nat === 'none') { DRIFT.t = 0; DRIFT.at = now; DRIFT.run = false; DRIFT.none = true; return DRIFT; }
+  if (DRIFT.none) { DRIFT.none = false; DRIFT.t = 0; DRIFT.at = now; }   // (it was off: it starts from the beginning, like the CSS one)
+  if (DRIFT.run) DRIFT.t += now - DRIFT.at;
+  DRIFT.at = now; DRIFT.run = nat === 'running';
+  return DRIFT;
+}
+function driftAnim() { try { return document.getAnimations().find(x => x.animationName === 'drift') || null; } catch { return null; } }
+function baseHideWeb() {
+  if (!BASE.on || root.classList.contains('nui-base')) return;
+  const a = driftAnim(), nat = driftNatural();
+  DRIFT.none = nat === 'none' || !a; DRIFT.t = a ? +a.currentTime || 0 : 0; DRIFT.at = performance.now(); DRIFT.run = !DRIFT.none && nat === 'running';
+  root.classList.add('nui-base'); BASE.drift = null;
+}
+function baseShowWeb() {
+  if (!root.classList.contains('nui-base')) return;
+  const d = driftNow();
+  root.classList.remove('nui-base');
+  try { const a = driftAnim(); if (a && !d.none) a.currentTime = d.t; } catch {}
+}
+/* how the background is now (and where its movement goes: the web's own animation says it) */
+function baseBg() {
+  let moving = false, t = 0;
+  const base = mCol(getComputedStyle(document.body).backgroundColor) || 0xFF06050B;   // (this first: what is read after is as it is now)
+  // (the animation of always, kept: looking for it among all of the page's is only done when it is gone, and not often)
+  if (root.classList.contains('nui-base')) { const d = driftNow(); t = d.t; moving = d.run; }
+  else try {
+    // (only if the light still has its animation: «Quieto» takes it away, and then it is where it starts)
+    const bgEl = $('.bg'), named = !!bgEl && /\bdrift\b/.test(getComputedStyle(bgEl, '::before').animationName || '');
+    let a = named ? BASE.drift : null;
+    if (!named) BASE.drift = null;
+    else if ((!a || a.playState === 'idle') && performance.now() - BASE.driftAt > 400) { BASE.driftAt = performance.now(); a = BASE.drift = document.getAnimations().find(x => x.animationName === 'drift') || null; }
+    if (a && a.playState !== 'idle') { t = +a.currentTime || 0; moving = a.playState === 'running'; }
+  } catch {}
+  const m = LOOK.bg === 'portada' ? /url\("?([^")]*)"?\)/.exec(($('#bgCover') || { style: {} }).style.backgroundImage || '') : null;
+  return { h: hue, s: sat, mode: LOOK.bg, base, cover: m ? m[1] : '', moving, t: Math.round(t), fade: !matchMedia('(prefers-reduced-motion: reduce)').matches };
+}
+function baseMark(el) {
+  let k = '*';
+  for (let x = el; x && x !== document.body; x = x.parentElement) { const v = BASE.els.get(x); if (v) { k = v; break; } }
+  BASE.dirty.add(k);
+}
+function baseWatch() {
+  if (BASE.obs) return;
+  try {
+    BASE.obs = new MutationObserver(list => { if (!BASE.on) return; for (const m of list) { if (mOwn(m)) continue; const t = m.target.nodeType === 1 ? m.target : m.target.parentElement; if (t) baseMark(t); } });
+    for (const el of [$('.player'), $('.nav')]) if (el) BASE.obs.observe(el, { subtree: true, childList: true, characterData: true, attributes: true });
+  } catch {}
+  addEventListener('resize', () => BASE.dirty.add('*'));
+}
+/* the parts of the bar that changed (all of them when it comes up) */
+function baseSync(force) {
+  const list = baseList(), fixed = [], parts = {}, els = new Map(), all = force || BASE.dirty.has('*');
+  for (const [el, skip] of list) {
+    const r = el.getBoundingClientRect(), k = hKey(el); els.set(el, k);
+    fixed.push([k, mF(r.left), mF(r.top), mF(r.width), mF(r.height)]);
+    if (!all && !BASE.dirty.has(k) && BASE.keys[k]) continue;
+    const ctx = { ox: r.left, oy: r.top, st: [], sk: new Map(), clipR: 1e9, ell: false, hand: false, tg: null, tgr: null, skip, vals: BASE.vals }, c = [];
+    try { mWalk(el, ctx, c); } catch (e) { diag('barra nativa: ' + (e && e.message || e)); continue; }
+    const v = { st: ctx.st, c }, js = JSON.stringify(v);
+    if (force || js !== BASE.keys[k]) { BASE.keys[k] = js; parts[k] = v; }
+    // (something moving in it that ends — the spring of a button let go, the heart, a colour changing slowly —: read
+    //  again in the next frame, until it ends; what moves forever isn't looked at)
+    try { if (el.getAnimations({ subtree: true }).some(a => a.playState === 'running' && a.effect && a.effect.getTiming().iterations !== Infinity)) BASE.anim.add(k); } catch {}
+  }
+  BASE.dirty.clear(); BASE.els = els;
+  for (const k of Object.keys(BASE.keys)) if (![...els.values()].some(v => String(v) === k)) delete BASE.keys[k];
+  const o = {}, fk = JSON.stringify(fixed);
+  if (force || fk !== BASE.fixedKey) { BASE.fixedKey = fk; o.fixed = fixed; }
+  if (Object.keys(parts).length) o.parts = parts;
+  return o;
+}
+/* once per frame, from the loop of the native screens */
+function baseTick() {
+  if (!NUI_PLUGIN || !NUI.baseOk) return;
+  if (!baseWant()) { baseOff(); return; }
+  baseWatch();
+  // (values that change with nothing changing in the page: the bar of the song while it plays)
+  for (const [el, v] of BASE.vals) { if (!el.isConnected) { BASE.vals.delete(el); continue; } if (el.value !== v) { BASE.vals.set(el, el.value); baseMark(el); } }
+  const now = performance.now(), first = !BASE.on, o = {};
+  if (now - BASE.poll > 3000) { BASE.poll = now; BASE.dirty.add('*'); }
+  for (const k of BASE.anim) BASE.dirty.add(k); BASE.anim.clear();
+  // (how the background is: read four times a second; Android moves it on its own and is told again every 5 s)
+  if (first || now - BASE.bgRead > 250) {
+    BASE.bgRead = now;
+    // (still, where it is counts: if it stops somewhere else, it is said at once; moving, Android follows it alone)
+    const bg = baseBg(), bk = JSON.stringify([bg.h, bg.s, bg.mode, bg.base, bg.cover, bg.moving, bg.fade, bg.moving ? 0 : bg.t]);
+    if (first || bk !== BASE.bgKey || now - BASE.bgAt > 5000) { BASE.bgKey = bk; BASE.bgAt = now; o.bg = bg; }
+  }
+  if (first) BASE.dirty.add('*');
+  if (first || BASE.dirty.size) Object.assign(o, baseSync(false));
+  if (!first && !Object.keys(o).length) return;
+  BASE.on = true; o.on = true;
+  if (first) baseOpenMark(true);
+  NUI_PLUGIN.base(o).catch(e => { diag('fondo y barra nativos: ' + (e && e.message || e)); NUI.baseOk = false; BASE.on = false; baseShowWeb(); });
+}
+function baseOff() {
+  if (!BASE.on) return;
+  BASE.on = false; BASE.anim.clear();   // (Android keeps what it has: when it comes back, only what changed is sent)
+  // (the web's background, back where Android's is; and Android's goes away once the web's is painted: two frames)
+  const hid = root.classList.contains('nui-base');
+  baseShowWeb();
+  const off = () => { if (!BASE.on) try { NUI_PLUGIN.base({ on: false }).catch(() => {}); } catch {} };
+  if (hid && !document.hidden) requestAnimationFrame(() => requestAnimationFrame(off)); else off();
+}
+/* (if the native background and bar ever closed the app while coming up, next time the web's, in this version) */
+(() => { try { if (LS.get('baseOpen', '')) { LS.set('baseOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.base = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('fondo y barra nativos: la app se cerró al ponerlos → esta versión usa los de siempre'); } } catch {} })();
+function baseOpenMark(on) { clearTimeout(BASE.openT); if (!on) { LS.set('baseOpen', ''); return; } if (BASE.sure) return; LS.set('baseOpen', '1'); BASE.openT = setTimeout(() => { LS.set('baseOpen', ''); BASE.sure = true; }, 12000); }
+document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(BASE.openT); LS.set('baseOpen', ''); } });
 
 /* ---------- Delegated actions ---------- */
 function armOrRun(btn, run) {
@@ -8219,6 +8507,12 @@ $('#vizWrap').addEventListener('dblclick', () => openVizFull());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) vizKick(); });
 $('#npMore').onclick = () => moreLikeThis();
 const NEWS = {
+  '5.3': [
+    '<b>Todo lo que ves lo dibuja Android</b>: ahora también el fondo (la aurora, que se mueve igual que siempre, la portada o el negro puro), la barra de abajo (la canción que suena y las pestañas) y «Tu voz».',
+    '«Tu año en Órbita», la bienvenida y el despertador también son de Android, con Nova y todo lo que se mueve; y el aviso de importar canciones ya no aparta la pantalla.',
+    'Se ve y se toca exactamente igual que antes: la barra del tiempo se arrastra, los botones se hunden al apretarlos y la barra entera se sube con el dedo para abrir el reproductor.',
+    'Es la primera parte de la fase 4. En la segunda, tus datos y lo que Nova decide pasan también a Android y se quita la parte web.'
+  ],
   '5.2': [
     '<b>El cerebro de comprensión de Nova corre en Android</b>: el que entiende lo que le dices con tus palabras («qué temazo», «pásala que me aburre»…) ya no va dentro de la parte web. Lo mueve Android con varios núcleos del móvil: entiende exactamente lo mismo, piensa más rápido y la parte web ya no carga con el modelo.',
     'Es el mismo cerebro que ya tenías: no hay que descargar nada. Si no lo tienes, se instala como siempre en Ajustes › Tu DJ.',
@@ -10279,7 +10573,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { nbWebProbe, mindCall, mindCan, NB_TEST, voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { get BASE() { return BASE; }, DRIFT, baseWant, baseBg, baseList, baseShowWeb, LOOK, nbWebProbe, mindCall, mindCan, NB_TEST, voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }

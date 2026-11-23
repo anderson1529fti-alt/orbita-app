@@ -170,7 +170,13 @@ internal data class MNode(
     val fx: List<Float>, val sw: Int, val lt: Boolean,
     val kids: List<MNode>,
     // 5.0 · la letra: de qué vez es (gn), y de cada verso, si es un hueco (gap) y su offsetTop de la web (ot)
-    val gap: Boolean = false, val ot: Float = 0f, val gn: Int = 0
+    val gap: Boolean = false, val ot: Float = 0f, val gn: Int = 0,
+    // 5.3 · un botón apretado con el dedo: la web lo encoge un poco («scale»), desde su centro
+    val sc: Float = 1f,
+    // 5.3 · lo que se mueve solo (por el nombre de su animación de CSS): lo mueve Android
+    val an: List<MAnim> = emptyList(),
+    // 5.3 · el aro de lo que tiene el foco («outline»): su grosor, su color y cuánto se separa del borde
+    val olw: Float = 0f, val olc: Int = 0, val olo: Float = 0f
 )
 
 private val NO_F = emptyList<Float>()
@@ -268,7 +274,10 @@ private fun mNode(o: JSONObject, st: List<MStyle>, depth: Int): MNode {
         o.f("mk"), o.c("mc"), o.optInt("mo") == 1,
         o.optJSONArray("fx").let { a -> if (a != null && a.length() == 3) List(3) { a.optDouble(it, if (it == 0) 0.0 else 1.0).toFloat() } else NO_F }, o.optInt("sw", 0), o.optInt("lt") == 1,
         mKids(o.optJSONArray("c"), st, depth + 1),
-        gap = o.optInt("gp") == 1, ot = o.f("ot"), gn = o.optInt("gn", 0)
+        gap = o.optInt("gp") == 1, ot = o.f("ot"), gn = o.optInt("gn", 0),
+        sc = o.f("sc", 1f).let { if (it > 0f && it < 4f) it else 1f },
+        an = mAnims(o.optJSONArray("an")),
+        olw = o.optJSONArray("ol")?.optDouble(0, 0.0)?.toFloat() ?: 0f, olc = o.optJSONArray("ol")?.optLong(1, 0L)?.toInt() ?: 0, olo = o.optJSONArray("ol")?.optDouble(2, 0.0)?.toFloat() ?: 0f
     )
 }
 
@@ -290,6 +299,13 @@ internal fun mParsePart(o: JSONObject): List<MNode> {
  * solo se vuelven a dibujar las piezas que lo usan (las barras, las listas desplegables…), no las 600 de «Ajustes».
  */
 internal val LocalMSkin = compositionLocalOf<Skin?> { null }
+
+/**
+ * 5.3 · Piezas «de paso»: se dibujan aquí pero lo que se toca en ellas le llega a la web tal cual (la barra de abajo, el
+ * resumen del año, la bienvenida, el despertador). Las barras que se arrastran, las cajas de escribir y las listas
+ * desplegables siguen siendo de aquí.
+ */
+internal val LocalMPass = compositionLocalOf { false }
 
 @Composable
 internal fun rememberMirrorSkin(): Skin {
@@ -348,7 +364,7 @@ internal fun MPart(p: MPos, nodes: List<MNode>, top: Float, bottom: Float) {
 /** Varias piezas, cada una en su sitio exacto (las medidas son las de la web; los textos se centran en su renglón). */
 @Composable
 internal fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float, modifier: Modifier) {
-    Layout(content = { for (i in kids.indices) { val c = kids[i]; key(if (c.k > 0) c.k else -1 - i) { MAny(c) } } }, modifier = modifier) { ms, _ ->
+    Layout(content = { for (i in kids.indices) { val c = kids[i]; key(if (c.k > 0) c.k else -1 - i) { if (c.an.isNotEmpty()) MAnimBox(c) { MAny(c) } else MAny(c) } } }, modifier = modifier) { ms, _ ->
         val d = density
         val x0 = (ox * d).roundToInt()
         val y0 = (oy * d).roundToInt()
@@ -365,7 +381,9 @@ internal fun MGroup(kids: List<MNode>, ox: Float, oy: Float, w: Float, h: Float,
         layout(max(0, ((ox + w) * d).roundToInt() - x0), max(0, ((oy + h) * d).roundToInt() - y0)) {
             for (i in 0 until n) {
                 val c = kids[i]; val p = ps[i]
-                if (c.e == "t") p.place((c.x * d).roundToInt() - x0, ((c.y + c.h / 2f) * d - p.height / 2f).roundToInt() - y0)
+                // (5.3 · lo que la web agranda o encoge desde su centro: un botón apretado, el corazón… igual aquí)
+                if (c.sc != 1f) { val s = c.sc; p.placeWithLayer((c.x * d).roundToInt() - x0, if (c.e == "t") ((c.y + c.h / 2f) * d - p.height / 2f).roundToInt() - y0 else (c.y * d).roundToInt() - y0) { scaleX = s; scaleY = s } }
+                else if (c.e == "t") p.place((c.x * d).roundToInt() - x0, ((c.y + c.h / 2f) * d - p.height / 2f).roundToInt() - y0)
                 else p.place((c.x * d).roundToInt() - x0, (c.y * d).roundToInt() - y0)
             }
         }
@@ -385,6 +403,7 @@ private fun MAny(c: MNode) {
         "ph" -> MPh(c)
         "img" -> MImg(c)
         "eqa" -> MEqAnim()
+        "rcbars" -> MRcBars(c)
         "hole" -> Spacer(Modifier)
         // 4.9 · un visualizador: lo dibuja Android (en pantalla completa, además, se gira y se acerca con los dedos)
         "viz" -> VizBox(c.v, Modifier.mDecor(c), gestures = c.v == "vizFS")
@@ -516,7 +535,7 @@ private fun blurredCover(key: String, src: ImageBitmap, wPx: Float, hPx: Float, 
 }
 
 private fun Modifier.mDecor(c: MNode): Modifier {
-    if (c.bg == 0 && c.g.isEmpty() && (c.bc == 0 || c.bw.size != 4) && c.sh.isEmpty() && c.mk <= 0f) return this
+    if (c.bg == 0 && c.g.isEmpty() && (c.bc == 0 || c.bw.size != 4) && c.sh.isEmpty() && c.mk <= 0f && (c.olw <= 0f || c.olc == 0)) return this
     return this.drawWithCache {
         val d = density
         val w = size.width; val h = size.height
@@ -529,6 +548,10 @@ private fun Modifier.mDecor(c: MNode): Modifier {
         // las capas del fondo, de la de abajo a la de arriba: degradados e imágenes
         val layers = ArrayList<androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit>()
         val cf = fxColor(c.fx)
+        // 5.3 · «filter: blur()» en lo que no es una imagen (el halo de Nova, la luz de fondo del resumen…): la forma, desenfocada
+        // como en CSS (una gaussiana de esa desviación)
+        val fxBlur = if (c.fx.size == 3) c.fx[0] else 0f
+        val mf = if (fxBlur > 0.2f) BlurMaskFilter(max(0.5f, (fxBlur * d - 0.5f) / 0.57735f), BlurMaskFilter.Blur.NORMAL) else null
         for (i in c.g.indices.reversed()) {
             val L = c.g[i]
             val pad = i < c.gc.length && c.gc[i] != 'b'
@@ -558,7 +581,8 @@ private fun Modifier.mDecor(c: MNode): Modifier {
             }
             val b = mBrush(L, if (pad) innerBox else full) ?: continue
             val p = if (pad) inner else outer
-            layers.add { drawPath(p, b) }
+            if (mf == null) layers.add { drawPath(p, b) }
+            else layers.add { drawIntoCanvas { cv -> val pt = Paint(); b.applyTo(size, pt, 1f); pt.asFrameworkPaint().isAntiAlias = true; pt.asFrameworkPaint().maskFilter = mf; cv.drawPath(p, pt) } }
         }
         val shadows = c.sh.map { s ->
             val p = Paint()
@@ -588,7 +612,10 @@ private fun Modifier.mDecor(c: MNode): Modifier {
                     }
                 }
             }
-            if (c.bg != 0) drawPath(outer, Color(c.bg))
+            if (c.bg != 0) {
+                if (mf == null) drawPath(outer, Color(c.bg))
+                else drawIntoCanvas { cv -> val pt = Paint(); pt.color = Color(c.bg); pt.asFrameworkPaint().isAntiAlias = true; pt.asFrameworkPaint().maskFilter = mf; cv.drawPath(outer, pt) }
+            }
             for (l in layers) l()
             if (c.bc != 0 && c.bw.size == 4) {
                 if (uniform && bw[0] > 0f) {
@@ -602,6 +629,11 @@ private fun Modifier.mDecor(c: MNode): Modifier {
                 }
             }
             if (mark != null) drawPath(mark, Color(c.mc))
+            // 5.3 · el aro del foco: por fuera del borde, a su distancia, siguiendo sus esquinas
+            if (c.olw > 0f && c.olc != 0) {
+                val ow = c.olw * d; val e = c.olo * d + ow / 2f
+                drawPath(rr(-e, -e, w + e, h + e, q, -e), Color(c.olc), style = Stroke(ow))
+            }
         }
     }
 }
@@ -627,7 +659,8 @@ private fun MBoxNode(c: MNode) {
     if (c.label.isNotEmpty()) m = m.semantics { contentDescription = c.label }
     // (las imágenes de fondo: el fondo del reproductor)
     for (L in c.g) if (L.t == "u") { val dens = LocalDensity.current.density; LaunchedEffect(L.u) { needArt(L.u, bgSide(c), dens) } }
-    if (c.sw > 0) {
+    val pass = LocalMPass.current
+    if (c.sw > 0 && !pass) {
         // la portada del reproductor: hacia los lados se va con el dedo (como en la de siempre) y, al soltarla, pasa de canción
         val off = remember { Animatable(0f) }
         val scope = rememberCoroutineScope()
@@ -652,7 +685,7 @@ private fun MBoxNode(c: MNode) {
             }
         }.graphicsLayer { translationX = off.value * 0.35f; rotationZ = off.value / density * 0.02f }
     }
-    if (c.e == "dr" && c.k > 0) {
+    if (c.e == "dr" && c.k > 0 && !pass) {
         // una banda del ecualizador: se arrastra arriba y abajo; dos toques seguidos la dejan a 0
         val last = remember { LongArray(2) }
         m = m.pointerInput(c.k) {
@@ -680,7 +713,7 @@ private fun MBoxNode(c: MNode) {
                 }
             }
         }
-    } else if (c.k > 0) {
+    } else if (c.k > 0 && !pass) {
         // (lo pequeño se encoge un poco al tocarlo, como los botones de la web; una fila entera, no)
         m = m.press(if (c.w < 230f && c.h < 90f) 0.96f else 1f) { mSend("hTap", c.k) }
     }
@@ -696,6 +729,7 @@ internal fun mStyleOf(st: MStyle, brush: Brush? = null, color: Color = Color(st.
     val fam = when (st.ff) { "d" -> Display; "m" -> Mono; else -> Body }
     var ts = style(st.fs, color, fam, FontWeight(st.fw.coerceIn(100, 900)), 1.25f, if (st.fs > 0f) st.ls / st.fs else 0f, TextAlign.Start, brush)
     if ((st.fl and 1) != 0) ts = ts.copy(fontStyle = FontStyle.Italic)
+    if ((st.fl and 8) != 0) ts = ts.copy(fontFeatureSettings = "tnum")   // (5.3 · números de ancho fijo: la hora del despertador)
     if ((st.fl and 6) != 0) ts = ts.copy(textDecoration = if ((st.fl and 6) == 6) TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough)) else if ((st.fl and 2) != 0) TextDecoration.Underline else TextDecoration.LineThrough)
     if (st.sw > 0f) ts = ts.copy(drawStyle = Stroke(width = st.sw * LocalDensity.current.density))
     return ts
@@ -795,6 +829,7 @@ private fun MRange(c: MNode) {
         if (!fin && now - last[0] < 45) return
         last[0] = now
         mSend("mRg", c.k) { it.put("v", (Math.round(x * 1000.0) / 1000.0)); if (fin) it.put("fin", 1) }
+        MAnimStat.rg = "${c.k}:${Math.round(x * 1000.0) / 1000.0}:${if (fin) 1 else 0}"
     }
     var m: Modifier = Modifier
     if (c.label.isNotEmpty()) m = m.semantics { contentDescription = c.label }
