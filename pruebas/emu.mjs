@@ -1278,6 +1278,7 @@ try {
   };
   // ================= Fase 4, parte 2 · Órbita sin la parte web (lo que ya hace Android solo) =================
   const nat60 = async () => {
+    const until = async (expr, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await js(expr) === true) return true; await sleep(500); } return false; };
     const NI = `return await Capacitor.Plugins.OrbitaUi.natInfo();`;
     // lo de la app de siempre, para comparar: cuántas canciones guarda (las de prueba no se guardan: se fabrican)
     const before = await js(`const o = window.__orbita; return { songs: o.state.tracks.filter(t => !t.demo).length, ids: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.id), titles: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.title) };`);
