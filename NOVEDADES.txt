@@ -7,6 +7,7 @@ Fase 4, parte 1
 - «Tu año en Órbita», la bienvenida y el despertador también los dibuja Android, con todo lo que se mueve (el aro y las barras de Nova, la luz del fondo, cómo entra cada cosa, las barras de arriba del resumen). Se tocan igual: pasar de página, mantener para pausar, saltar, posponer…
 - El aviso de importar canciones también es nativo, y la pantalla ya no se aparta mientras importas.
 - Arreglado: subir el reproductor con el dedo cuando el móvil va cargado podía acabar cerrándolo; ahora cuenta dónde sueltas.
+- Arreglado: al soltar la barra del tiempo, el tiempo ya no vuelve atrás un instante antes de ir a donde la dejaste.
 - Se ve exactamente igual que antes. Si algo no se ve bien, en Ajustes › Pantallas nativas se apaga y vuelve lo de siempre.
 - En la segunda parte de la fase 4, tus datos y lo que Nova decide pasan también a Android y se quita la parte web.
 

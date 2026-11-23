@@ -979,7 +979,14 @@ try {
     const back = await until(`return (await Capacitor.Plugins.OrbitaUi.status()).baseLive === true;`, 5000);
     check('con algo de la web encima, la capa nativa se va; y vuelve cuando se va', !!s4 && !s4.baseShown && back, JSON.stringify({ con_algo: s4 && s4.baseShown, vuelve: back }));
     // --- cada fondo, quieto en el mismo punto: Android y la web, píxel a píxel
-    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    // (la música, parada de verdad: si sigue, la barra cambia entre una foto y la otra; y si la tecla no la paró, se dice)
+    const hush = async why => {
+      sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+      if (await until(`${O} return o.decks.every(d => d.paused) && !o.mixing;`, 4000)) return;
+      log('  (' + why + ': la tecla de pausa no paró la música: ' + JSON.stringify(await js(`${O} const t = o.current(); return { A: o.A, mezcla: !!o.mixing, platos: o.decks.map(d => d.paused), cancion: t && t.title, t: +o.act().currentTime.toFixed(1) };`)) + '; la paro desde la app)');
+      await js(`${O} if (!o.act().paused) o.togglePlay(); return 1;`); await until(`${O} return o.decks.every(d => d.paused);`, 4000);
+    };
+    await hush('fondo y barra');
     await goView('ajustes'); await sleep(1800);
     const pr = await rectOf('.player'); const H = await js(`return innerHeight;`);
     const setBg = async v => { await js(`const b = document.querySelector('#lkBg [data-v="${v}"]'); if (b) b.click(); return 1;`); await sleep(1500); };
@@ -1007,7 +1014,7 @@ try {
     await setBg('quieto'); await pair('quieto', ['quieto:']);
     await setBg('negro'); await pair('negro', ['negro']);
     await js(`${O} const t = o.state.tracks.find(x => x.title === 'Luz de las siete'); if (t) o.playQueue([t.id], 0); return !!t;`); await sleep(2500);
-    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    await hush('portada');
     await setBg('portada'); await freeze(23000); await pair('portada', ['portada:', ':portada']);
     log('  fondo y barra, Android contra la web: ' + JSON.stringify(par));
     const okF = (p, px, blk) => !!p && p.px <= px && p.blk <= blk;
