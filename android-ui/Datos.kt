@@ -101,6 +101,12 @@ object Lib {
         return if (f.isFile) f.absolutePath else null
     }
 
+    /** El archivo de la portada grande (o de la pequeña si no hay grande). */
+    fun bigCoverFile(t: Track): File? {
+        for (m in listOf(t.cover, t.thumb)) { val rel = Json.s(m?.get("\$blob")); if (rel.isNotEmpty()) { val f = Store.file(rel); if (f.isFile) return f } }
+        return null
+    }
+
     /** El archivo de la portada pequeña (o de la grande si no hay pequeña). */
     fun coverFile(t: Track): File? {
         for (m in listOf(t.thumb, t.cover)) { val rel = Json.s(m?.get("\$blob")); if (rel.isNotEmpty()) { val f = Store.file(rel); if (f.isFile) return f } }

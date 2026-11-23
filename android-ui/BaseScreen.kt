@@ -9,6 +9,7 @@ import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -98,6 +99,14 @@ fun OrbitaBase() {
     val shown = live && on
     LaunchedEffect(shown) { if (shown) UiState.send("baseLive") { } }
     if (!live) return
+    // (fase 4, parte 2 · la Órbita nativa: la barra es de Android de verdad, y se toca y se lee aquí)
+    if (Nativo.on) {
+        Box(Modifier.fillMaxSize()) {
+            Backdrop(bg, noise, if (bg.mode == "portada") coverBmp else null, wantCover)
+            Box(Modifier.align(Alignment.BottomCenter)) { NatBar(rememberSkin(), Bar.inset.toFloat()) }
+        }
+        return
+    }
     CompositionLocalProvider(LocalMSkin provides sk, LocalMPass provides true) {
         // (lo que se toca aquí le llega a la web: lo que lee TalkBack, también lo de la web)
         Box(Modifier.fillMaxSize().clearAndSetSemantics { }) {

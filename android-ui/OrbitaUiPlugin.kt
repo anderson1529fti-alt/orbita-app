@@ -346,6 +346,9 @@ class OrbitaUiPlugin : Plugin() {
         r.put("hue", UiState.look.h.toDouble()); r.put("toast", UiState.toast); r.put("toastN", UiState.toastN)
         r.put("log", JSArray(synchronized(Nativo) { ArrayList(Nativo.log) }.takeLast(30)))
         r.put("migra", Migra.state); r.put("migraDetail", Migra.detail)
+        r.put("barTitle", Bar.track?.title ?: ""); r.put("barPlaying", Bar.playing); r.put("barPos", Bar.pos); r.put("barDur", Bar.dur)
+        r.put("shuffle", Bar.shuffle); r.put("repeat", Bar.repeat); r.put("baseLive", Base.live); r.put("baseOn", Base.on)
+        r.put("inset", Bar.inset); r.put("dens", activity.resources.displayMetrics.density.toDouble()); r.put("webH", bridge.webView.height); r.put("webY", bridge.webView.y.toDouble())
         return r
     }
 
@@ -356,10 +359,22 @@ class OrbitaUiPlugin : Plugin() {
         val dens = activity.resources.displayMetrics.density
         val inset = try { androidx.core.view.ViewCompat.getRootWindowInsets(wv)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0 } catch (t: Throwable) { 0 }
         dpr = dens; x = 0f; y = 0f; w = wv.width / dens
-        h = maxOf(100f, wv.height / dens - (152f + 60.77f + inset / dens))
+        h = maxOf(100f, wv.height / dens - (Bar.PLAYER + Bar.NAV + inset / dens))
         place()
         UiState.screen = screen
         host?.visibility = View.VISIBLE
+    }
+
+    /** El fondo y la barra de abajo de la Órbita nativa (la barra, de Android de verdad: se toca y se lee). */
+    internal fun nativoBase(bg: Bg) {
+        ensureBaseHost(); placeBase()
+        val wv = bridge.webView
+        val dens = activity.resources.displayMetrics.density
+        val inset = try { androidx.core.view.ViewCompat.getRootWindowInsets(wv)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0 } catch (t: Throwable) { 0 }
+        Bar.inset = (inset / dens).toDouble()
+        Base.bg = bg; Base.fixed = emptyList(); Base.parts.clear(); Base.on = true
+        baseHost?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        baseHost?.visibility = View.VISIBLE
     }
 
     override fun load() {

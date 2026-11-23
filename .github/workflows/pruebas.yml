@@ -79,6 +79,19 @@ jobs:
             echo "(descargas: otra vez en 60 s)"; sleep 60
           done
           [ $ok = 1 ]
+      # (solo cuando se pide: las piezas con las que se compila la app, para comprobar el código antes de mandarlo)
+      - name: Clases para compilar en local
+        if: hashFiles('pruebas/clases') != ''
+        continue-on-error: true
+        run: |
+          mkdir -p salida/clases/src
+          cd android
+          ./gradlew -I ../pruebas/clases.gradle :app:volcarClases --no-daemon -q 2>&1 | tail -n 20
+          cp "$(ls -d $ANDROID_HOME/platforms/android-*/android.jar | sort -V | tail -n 1)" ../salida/clases/android.jar
+          find app/build -name R.jar | grep -i debug | head -n 1 | xargs -I{} cp {} ../salida/clases/R.jar
+          cp -r app/src/main/java/. ../salida/clases/src/
+          { cat build.gradle variables.gradle app/build.gradle 2>/dev/null | grep -iE "kotlin|compose|sdk|agp|gradle" ; } > ../salida/clases/versiones.txt || true
+          du -sh ../salida/clases; ls -la ../salida/clases > ../salida/clases-lista.txt
       # (solo para las pruebas: un reconocimiento de voz de mentira, con guion, para probar «Háblale» en el emulador; no
       # va en la app)
       - name: Voz de prueba

@@ -1,0 +1,25 @@
+// (solo para comprobar el código en local: copia las clases con las que se compila la app a salida/clases)
+allprojects { p ->
+  p.afterEvaluate {
+    if (p.path == ':app') {
+      p.tasks.register('volcarClases') {
+        doLast {
+          def out = new File(p.rootDir, '../salida/clases')
+          out.mkdirs()
+          def cfg = p.configurations.getByName('debugCompileClasspath')
+          def view = cfg.incoming.artifactView { v ->
+            v.attributes { a -> a.attribute(org.gradle.api.attributes.Attribute.of('artifactType', String), 'android-classes-jar') }
+            v.lenient(true)
+          }
+          int i = 0
+          view.artifacts.each { ar ->
+            def f = ar.file
+            def name = ar.id.componentIdentifier.displayName.replaceAll('[^A-Za-z0-9._-]', '_') + '-' + (i++) + '.jar'
+            java.nio.file.Files.copy(f.toPath(), new File(out, name).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+          }
+          println("clases: " + i)
+        }
+      }
+    }
+  }
+}

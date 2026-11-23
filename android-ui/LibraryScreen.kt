@@ -260,11 +260,11 @@ private fun needCover(id: String) {
 }
 
 @Composable
-private fun Cover(t: UiTrack, sk: Skin) {
-    val shape = sk.r(10f)
+internal fun Cover(t: UiTrack, sk: Skin, side: Float = 46f, rad: Float = 10f) {
+    val shape = sk.r(rad)
     val bmp = if (t.cover) UiState.covers[t.id] else null
     if (t.cover && bmp == null) LaunchedEffect(t.id) { needCover(t.id) }
-    Box(Modifier.size(46.dp).clip(shape), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(side.dp).clip(shape), contentAlignment = Alignment.Center) {
         if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else {
             // sin portada: la inicial sobre un degradado con el color de la canción

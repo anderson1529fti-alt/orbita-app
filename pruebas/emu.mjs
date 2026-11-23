@@ -1281,7 +1281,7 @@ try {
     const until = async (expr, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await js(expr) === true) return true; await sleep(500); } return false; };
     const NI = `return await Capacitor.Plugins.OrbitaUi.natInfo();`;
     // lo de la app de siempre, para comparar: cuántas canciones guarda (las de prueba no se guardan: se fabrican)
-    const before = await js(`const o = window.__orbita; return { songs: o.state.tracks.filter(t => !t.demo).length, ids: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.id), titles: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.title) };`);
+    const before = await js(`const o = window.__orbita; return { songs: o.state.tracks.filter(t => !t.demo).length, ids: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.id), titles: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.title), all: o.state.tracks.filter(t => !t.demo).map(t => t.id), arts: o.state.tracks.filter(t => !t.demo && (t.thumb || t.cover)).length };`);
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
     await js(`await Capacitor.Plugins.OrbitaUi.dataMigrate({ force: false }); return 1;`).catch(() => null);
     // a la nativa: la página de siempre ni arranca
@@ -1292,8 +1292,10 @@ try {
     const s1 = await js(NI); shot('nativa-musica');
     check('Órbita sin la parte web: arranca Android solo, con los datos ya en Android, y enseña «Música»', up && n1 && !!s1 && s1.on && s1.ready && s1.shown && s1.screen === 'biblioteca' && (await js(`return location.pathname;`)) === '/nativo.html' && (await js(`return typeof window.__orbita;`)) === 'undefined', JSON.stringify({ up, n1, err: await js(`return window.__natErr || '';`), s: s1 && { on: s1.on, ready: s1.ready, shown: s1.shown, screen: s1.screen, migra: s1.migra, log: s1.log } }).slice(0, 900));
     check('con las mismas canciones que la app de siempre', !!s1 && !!before && s1.lib === before.songs && s1.songs === before.songs, JSON.stringify({ web: before && before.songs, android: s1 && [s1.lib, s1.songs] }));
-    const cv = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.covers > 0;`, 15000);
-    check('y sus portadas (de sus archivos, ya en Android)', cv, JSON.stringify(await js(NI).then(s => s && s.covers)));
+    // (las portadas que pide la lista al verse: aquí, todas de una vez)
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'needCovers', o: { ids: ${JSON.stringify(before ? before.all : [])} } }); return 1;`).catch(() => null);
+    const cv = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.covers >= ${before ? before.arts : 1} && s.covers > 0;`, 15000);
+    check('y sus portadas (de sus archivos, ya en Android)', cv, JSON.stringify({ web: before && before.arts, android: await js(NI).then(s => s && s.covers) }));
     // tocar una canción: suena, con el motor de siempre, y sigue la lista sola
     const ids = before ? before.ids : [];
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'play', o: { ids: ${JSON.stringify(ids)}, index: 0 } }); return 1;`);
@@ -1302,10 +1304,23 @@ try {
     const pa = sA && sA.pos && +sA.pos.pos, pb = sB && sB.pos && +sB.pos.pos;
     shot('nativa-suena');
     check('tocar una canción la pone a sonar (el motor avanza) y Android sabe cuál es', p1 && pb > pa + 1 && sessState().includes('PLAYING'), JSON.stringify({ now: sB && sB.now, pos: [pa, pb], sesion: sessState().slice(0, 120), log: sB && sB.log && sB.log.slice(-4) }));
+    // la barra de abajo nativa: dice lo que suena, y sus botones (tocados de verdad) hacen lo de siempre
+    const sb = await js(NI);
+    check('la barra de abajo es de Android y dice lo que suena (con el fondo de siempre detrás)', !!sb && sb.baseLive && sb.barTitle === (before.titles[0] || '') && sb.barPlaying, JSON.stringify(sb && { baseLive: sb.baseLive, barTitle: sb.barTitle, web: before.titles[0], playing: sb.barPlaying }));
+    // (dónde está cada botón: abajo del todo, las pestañas y encima la barra, con sus medidas de CSS)
+    const k = sb ? sb.dens : 2.625, bottom = sb ? sb.webY + sb.webH - sb.inset * k : 0, plTop = bottom - (60.77 + 152) * k;
+    const W0 = 1080, cx = W0 / 2;
+    const playXY = [Math.round(cx - 22 * k), Math.round(plTop + (8 + 56 + 6 + 23) * k)], nextXY = [Math.round(cx + 25 * k), playXY[1]];
+    shot('nativa-barra');
+    tap(...playXY); const pz = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.barPlaying === false;`, 5000);
+    tap(...playXY); const pp = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.barPlaying === true;`, 5000);
+    check('su play (tocado de verdad) pausa, y otra vez vuelve a sonar', pz && pp, JSON.stringify({ pz, pp, playXY }));
+    const q0 = (await js(NI)).qi; tap(...nextXY); const nn = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.qi === ${q0 + 1};`, 6000);
+    check('«siguiente» (tocado de verdad) pasa a la siguiente', nn, JSON.stringify({ antes: q0, ahora: (await js(NI)).qi, nextXY }));
     // al final de la canción, la siguiente (la sigue el motor solo)
-    const durA = sB && sB.pos && +sB.pos.dur;
-    if (durA > 8) { await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'test-seek', o: { pos: ${Math.max(0, durA - 4)} } }); return 1;`).catch(() => null); }
-    const nx = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.qi === 1 && s.now === ${JSON.stringify(ids[1] || '')};`, 20000);
+    const qN = (await js(NI)).qi;
+    { const s2 = await js(NI), d2 = s2 && s2.pos ? +s2.pos.dur : 0; if (d2 > 8) await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'test-seek', o: { pos: ${Math.max(0, d2 - 4)} } }); return 1;`).catch(() => null); }
+    const nx = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.qi === ${qN + 1};`, 20000);
     check('al acabar, la siguiente de la lista (el motor sigue solo y Android lo sabe)', nx, JSON.stringify(await js(NI).then(s => s && { qi: s.qi, now: s.now, log: s.log.slice(-5) })));
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1000);
     check('sin cierres por error en la Órbita nativa', crashes() === 0, crashText().slice(0, 1500));

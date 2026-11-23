@@ -31,6 +31,8 @@ object Nativo {
         if (on) return
         on = true; this.act = act; this.ui = ui
         Store.init(act)
+        // (lo que la parte web dejó puesto en esta misma sesión no vale: aquí manda Android)
+        UiState.covers.clear(); UiState.asked.clear(); UiState.coverOrder.clear()
         UiState.emit = { type, o -> main.post { try { onUi(type, o) } catch (t: Throwable) { note("ui $type: ${t.message}") } } }
         if (!Migra.done()) { note("traspaso de los datos"); Migra.run(act, false) { ok, msg -> note("traspaso: $ok $msg"); boot() } }
         else boot()
@@ -44,6 +46,8 @@ object Nativo {
                 pushLibrary()
                 Player.init()
                 ui?.nativoShow(Prefs.str("startView", "inicio").let { if (it == "biblioteca") it else "biblioteca" })
+                ui?.nativoBase(bgNow())
+                Player.barSync()
                 ready = true
                 note("listo: ${Lib.tracks.size} canciones")
             }
@@ -60,6 +64,15 @@ object Nativo {
         UiState.look = UiLook(h.toFloat(), maxOf(0.2, s).toFloat(), Prefs.num("lkGlow", 1.0).toFloat(), round, tk, Prefs.str("lkTitles", "orbita"), Prefs.str("lkBg", "aurora") == "negro")
     }
 
+    /** El fondo de ahora (como lo pide la web: su tono, su clase y si se mueve). */
+    fun bgNow(): Bg {
+        val l = UiState.look
+        val mode = Prefs.str("lkBg", "aurora").let { if (it in listOf("aurora", "quieto", "portada", "negro")) it else "aurora" }
+        val lite = Prefs.str("anim", "full") == "lite"
+        return Bg(l.h, l.s, mode, if (mode == "negro") 0xFF000000.toInt() else 0xFF06050B.toInt(), if (mode == "portada") (Player.current()?.id ?: "") else "",
+            mode == "aurora" && !lite, 0.0, android.os.SystemClock.uptimeMillis(), true)
+    }
+
     fun pushLibrary() {
         val hide = Prefs.bool("hideDemos", false)
         UiState.tracks = Lib.tracks.filter { !(it.demo && hide) }.map { t ->
@@ -71,22 +84,22 @@ object Nativo {
         UiState.nowId = Player.current()?.id ?: ""
     }
 
-    /** Las portadas que pide la pantalla: del archivo, al tamaño al que se ven. */
-    private fun covers(ids: List<String>) {
+    /** Las portadas que pide la pantalla: del archivo, al tamaño al que se ven (las grandes, de la portada grande). */
+    private fun covers(ids: List<String>, sideDp: Int = 46, tag: String = "") {
         val d = act?.resources?.displayMetrics?.density ?: 2.6f
-        val side = maxOf(32, Math.ceil(46.0 * d).toInt())
+        val side = maxOf(32, Math.ceil(sideDp * d.toDouble()).toInt())
         bg.execute {
             val got = ArrayList<Pair<String, androidx.compose.ui.graphics.ImageBitmap>>()
             for (id in ids) {
                 val t = Lib.byId(id) ?: continue
-                val f = Lib.coverFile(t) ?: continue
+                val f = (if (sideDp > 100) Lib.bigCoverFile(t) else Lib.coverFile(t)) ?: continue
                 try {
                     val o = BitmapFactory.Options(); o.inJustDecodeBounds = true; BitmapFactory.decodeFile(f.absolutePath, o)
                     var s = 1; while (o.outWidth / (s * 2) >= side && o.outHeight / (s * 2) >= side) s *= 2
                     val o2 = BitmapFactory.Options(); o2.inSampleSize = s
                     val b = BitmapFactory.decodeFile(f.absolutePath, o2) ?: continue
                     val sc = if (b.width > side * 2 || b.height > side * 2) android.graphics.Bitmap.createScaledBitmap(b, side, side, true) else b
-                    got.add(id to sc.asImageBitmap())
+                    got.add(id + tag to sc.asImageBitmap())
                 } catch (ignored: Throwable) { }
             }
             main.post {
@@ -100,11 +113,23 @@ object Nativo {
     fun onUi(type: String, o: JSONObject) {
         when (type) {
             "needCovers" -> { val a = o.optJSONArray("ids"); if (a != null) covers(List(a.length()) { a.optString(it) }) }
+            "needArt" -> { val a = o.optJSONArray("urls"); if (a != null) covers(List(a.length()) { a.optString(it) }, o.optInt("side", 46), o.optString("tag", "")) }
+            "baseLive" -> {}
             "play" -> {
                 val a = o.optJSONArray("ids") ?: return
                 Player.playQueue(List(a.length()) { a.optString(it) }, o.optInt("index", 0))
             }
-            "like" -> { val t = Lib.byId(o.optString("id")) ?: return; t.liked = !t.liked; Lib.save(t); pushLibrary() }
+            "like" -> { val t = Lib.byId(o.optString("id")) ?: return; t.liked = !t.liked; Lib.save(t); pushLibrary(); Player.barSync() }
+            "toggle" -> Player.toggle()
+            "next" -> Player.next(false)
+            "prev" -> Player.prev()
+            "seek" -> Player.seek(o.optDouble("pos", 0.0))
+            "shuffle" -> Player.setShuffle(!Prefs.bool("shuffle", false))
+            "repeat" -> Player.cycleRepeat()
+            "tab" -> {
+                val v = o.optString("view")
+                if (v == "biblioteca") ui?.nativoShow(v) else toast("Esta pantalla aún no está en la Órbita nativa.")
+            }
             "pref" -> {
                 if (o.has("filter")) UiState.filter = o.optString("filter", "all")
                 if (o.has("sort")) { UiState.sort = o.optString("sort", "recent"); Prefs.set("sort", UiState.sort) }
@@ -133,6 +158,67 @@ object Player {
             override fun audio(o: JSONObject) { main.post { onAudio(o) } }
             override fun spectrum(b64: String) {}
         }
+        tick()
+    }
+
+    // el tiempo de la barra, cuatro veces por segundo (lo que de verdad se oye)
+    private fun tick() {
+        main.postDelayed({
+            try {
+                if (current() != null) {
+                    val p = NovaCore.position(slot)
+                    Bar.pos = p.optDouble("pos", 0.0); Bar.dur = p.optDouble("dur", 0.0).let { if (it > 0) it else current()?.duration ?: 0.0 }
+                    val pl = p.optBoolean("playing"); if (pl != Bar.playing) { Bar.playing = pl; playing = pl }
+                }
+            } catch (ignored: Throwable) { }
+            tick()
+        }, 250)
+    }
+
+    /** Lo que dice la barra de abajo: la canción, si suena, aleatorio, repetir. */
+    fun barSync() {
+        val t = current()
+        Bar.track = t?.let { UiTrack(it.id, it.title, it.artist, it.album, it.folder, it.duration, it.addedAt, it.plays, it.lastPlayed, it.liked, it.demo, it.mine, it.dev, Lib.coverFile(it) != null, Momento.phHue(it).toFloat()) }
+        Bar.shuffle = Prefs.bool("shuffle", false)
+        Bar.repeat = Prefs.str("repeat", "off")
+        Bar.playing = playing
+    }
+
+    fun toggle() {
+        val t = current() ?: return
+        if (playing) { NovaCore.pause(slot); playing = false } else { NovaCore.play(slot); playing = true }
+        Bar.playing = playing
+        Nativo.note((if (playing) "sigue: " else "pausa: ") + t.title)
+    }
+
+    /** La siguiente (a mano: también con «repetir toda la lista», al final vuelve a la primera). */
+    fun next(auto: Boolean) {
+        if (queue.isEmpty()) return
+        if (qi + 1 < queue.size) { Bar.dir = 1; qi++; loadCurrent() }
+        else if (Prefs.str("repeat", "off") == "all") { Bar.dir = 1; qi = 0; loadCurrent() }
+    }
+
+    /** La anterior (o la misma desde el principio, si ya lleva más de 3 segundos). */
+    fun prev() {
+        if (queue.isEmpty()) return
+        val pos = try { NovaCore.position(slot).optDouble("pos", 0.0) } catch (t: Throwable) { 0.0 }
+        if (pos > 3 || qi == 0) { NovaCore.eng().seek(slot, 0.0); return }
+        Bar.dir = -1; qi--; loadCurrent()
+    }
+
+    fun seek(pos: Double) { if (current() == null) return; NovaCore.eng().seek(slot, maxOf(0.0, pos)); Bar.pos = pos }
+
+    fun setShuffle(on: Boolean) {
+        Prefs.set("shuffle", on)
+        // (como en la web: lo que queda de la cola se baraja; lo que suena sigue)
+        if (on && qi >= 0 && queue.size > qi + 2) { val rest = queue.subList(qi + 1, queue.size).shuffled(); queue = queue.subList(0, qi + 1) + rest; syncPlaylist() }
+        barSync()
+    }
+
+    fun cycleRepeat() {
+        val r = when (Prefs.str("repeat", "off")) { "off" -> "all"; "all" -> "one"; else -> "off" }
+        Prefs.set("repeat", r)
+        barSync()
     }
 
     fun playQueue(ids: List<String>, start: Int) {
@@ -171,6 +257,7 @@ object Player {
         UiState.nowId = t.id
         playing = true
         Nativo.look()
+        barSync()
     }
 
     private fun onAudio(o: JSONObject) {
