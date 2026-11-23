@@ -453,7 +453,9 @@ try {
     // (en pausa: la canción, sus colores y su portada no cambian entre una foto y la otra)
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
     await js(`document.querySelector('#vizFull').classList.add('chrome'); return 1;`); await sleep(600);   // (sin el título encima)
-    for (const sc of scenes) {
+    const vizMeasure = async list => {
+    await js(`${O} N.classic = false; return 1;`); await sleep(1500);
+    for (const sc of list) {
       await js(`${O} o.vizSetScene('${sc}'); o.vizFreeze(${JSON.stringify(FZ)}); return 1;`);
       // que Android ya lo esté dibujando (y, si la canción tiene portada, con ella)
       const t0 = Date.now(); let sn = null, f0 = -1;
@@ -468,11 +470,15 @@ try {
       nats[sc] = { img: grab(), st: sn && { drawn: sn.vizDrawn, cover: sn.vizCover } }; shot(`viz-${sc}-nativa`);
     }
     await js(`${O} N.classic = true; return 1;`); await sleep(2000);
-    for (const sc of scenes) {
+    for (const sc of list) {
       await js(`${O} o.vizSetScene('${sc}'); o.vizFreeze(${JSON.stringify(FZ)}); return 1;`); await sleep(2200);
       const web = grab(); shot(`viz-${sc}-web`);
       par[sc] = { ...vdiff(nats[sc].img, web, [0.04, 0.1, 0.96, 0.72]), ...nats[sc].st };
     }
+    };
+    await vizMeasure(scenes);
+    const vzAgain = scenes.filter(sc => !par[sc] || par[sc].blk == null);
+    if (vzAgain.length) { log('  (visualizadores: sin foto de ' + vzAgain.join(', ') + ' (el emulador se atascó); otra vez)'); await vizMeasure(vzAgain); }
     await js(`${O} N.classic = false; o.vizFreeze(null); return 1;`); await sleep(2500);
     // (lo distintas que son dos estilos entre sí: así se sabe que la comparación distingue)
     fs.writeFileSync(`${OUT}/paridad-visualizadores.json`, JSON.stringify(par, null, 1));
@@ -1056,6 +1062,20 @@ try {
       if (id === 'recap') { await js(`const z = document.querySelector('#rcTap'), r = z.getBoundingClientRect(); z.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); return 1;`); await sleep(800); }
       await js(`${O} window.__stilled = []; for (const a of document.querySelector('${'#'}' + ({ recap: 'recap', onb: 'onb', alarm: 'alarmScr' })['${id}']).getAnimations({ subtree: true })) { if (a.playState === 'running') { try { a.pause(); window.__stilled.push(a); } catch (e) {} } } W.dirty['${id}'] = new Set(['*']); return 1;`); await sleep(2500); };
     const unstill = () => js(`for (const a of window.__stilled || []) { try { a.play(); } catch (e) {} } window.__stilled = []; return 1;`);
+    // (lo que le llega a la web del dedo; y si un toque no hace nada, otro, diciendo qué le llegó del primero: con el
+    //  emulador muy cargado, un toque puede llegar tan tarde que la web lo toma por «mantener el dedo»)
+    const fingers = `window.__ptr = []; if (!window.__ptrOn) { window.__ptrOn = 1; for (const t of ['pointerdown', 'pointerup', 'pointercancel', 'click', 'contextmenu']) document.addEventListener(t, e => { const g = e.target, n = g && (g.id || (typeof g.className === 'string' ? g.className.split(' ')[0] : g.tagName)); window.__ptr.push(t.replace('pointer', '') + ':' + n + '@' + Math.round(e.timeStamp) + (e.isTrusted ? '' : '(js)')); }, true); } return 1;`;
+    const tapPass = async (sel, doneExpr, wait = 2000) => {
+      await js(fingers); const p0 = (await st() || {}).passFwd || 0;
+      await tapWeb(sel, wait); let ok = await until(doneExpr, 5000), first = null;
+      if (!ok) {
+        first = await js(`const e = document.querySelector('${sel}'); const r = e && e.getBoundingClientRect(), at = r && document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2); return { debajo: at && (at.id || at.className), dedo: window.__ptr };`);
+        if (first) first.pasados = ((await st() || {}).passFwd || 0) - p0;
+        log('  (' + sel + ': el primer toque no hizo nada: ' + JSON.stringify(first) + '; otro)');
+        await js(fingers); await tapWeb(sel, wait); ok = await until(doneExpr, 5000);
+      }
+      return { ok, toques: first ? 2 : 1, primero: first };
+    };
     // (si el WebView no contesta a mitad de la comparación, se repite una vez)
     const pairTwice = async name => { let r = await pairOf(name); if (!r) { log('  (' + name + ': sin respuesta a mitad de la comparación; otra vez)'); await sleep(1500); r = await pairOf(name); } return r; };
     const pairOf = async name => {
@@ -1083,13 +1103,13 @@ try {
     await unstill(); await sleep(800);
     // lo que se toca le llega a la web: «Empezar» pasa al paso 1; «Saltar» la cierra
     const fw0 = (await st()).passFwd;
-    const b1 = await tapWeb('#onbStage [data-ob="next"]', 2200);
+    const b1 = await tapPass('#onbStage [data-ob="next"]', `return window.__orbita.OB.step === 1;`, 2200);
+    await until(`return (await Capacitor.Plugins.OrbitaUi.status()).winTexts.some(t => /paso 1/i.test(t));`, 4000);
     const ob1 = await js(`return window.__orbita.OB.step;`), s3 = await st();
     shot('bienvenida-paso-1');
-    check('tocar «Empezar» en la nativa le llega a la web: pasa al paso siguiente (y Android lo dibuja)', b1 && ob1 === 1 && s3 && s3.passFwd > fw0 && low(s3.winTexts).some(t => /paso 1/.test(t)), JSON.stringify({ paso: ob1, pasados: s3 && s3.passFwd - fw0, android: s3 && s3.winTexts && s3.winTexts.slice(0, 8) }));
-    await tapWeb('#onbSkip', 2000);
-    const gone1 = await until(`${O} return document.querySelector('#onb').hidden && !W.on.includes('onb') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === false;`, 5000);
-    check('«Saltar» la cierra (la nativa se va)', gone1, JSON.stringify(await js(`${O} return { onb: !document.querySelector('#onb').hidden, on: W.on.join() };`)));
+    check('tocar «Empezar» en la nativa le llega a la web: pasa al paso siguiente (y Android lo dibuja)', b1.ok && ob1 === 1 && s3 && s3.passFwd > fw0 && low(s3.winTexts).some(t => /paso 1/.test(t)), JSON.stringify({ paso: ob1, toques: b1.toques, primero: b1.primero, pasados: s3 && s3.passFwd - fw0, android: s3 && s3.winTexts && s3.winTexts.slice(0, 8) }));
+    const sk1 = await tapPass('#onbSkip', `${O} return document.querySelector('#onb').hidden && !W.on.includes('onb') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === false;`);
+    check('«Saltar» la cierra (la nativa se va)', sk1.ok, JSON.stringify({ toques: sk1.toques, primero: sk1.primero, ahora: await js(`${O} return { onb: !document.querySelector('#onb').hidden, on: W.on.join() };`) }));
     // ---------- el despertador
     await js(`${O} o.alarmWake('prueba', 'alarm', true); return 1;`);
     const up2 = await until(`${O} return W.on.includes('alarm') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === true;`, 8000);
@@ -1100,21 +1120,22 @@ try {
     log('  despertador, Android contra la web: ' + JSON.stringify(pa));
     check('el despertador, quieto: Android lo dibuja igual que la web', !!pa && pa.entera.blk <= 3 && pa.entera.px <= 9 && pa.arriba.blk <= 3.5 && pa.medio.blk <= 3.5 && pa.abajo.blk <= 3.5, JSON.stringify(pa));
     await unstill();
-    await tapWeb('#alUp', 2000);
-    const gone2 = await until(`${O} return document.querySelector('#alarmScr').hidden && !W.on.includes('alarm');`, 5000);
-    check('«Ya me levanto» (tocado en la nativa) lo apaga', gone2, JSON.stringify(await js(`${O} return { al: !document.querySelector('#alarmScr').hidden, on: W.on.join(), activa: o.ALM.active };`)));
+    const up2t = await tapPass('#alUp', `${O} return document.querySelector('#alarmScr').hidden && !W.on.includes('alarm');`);
+    check('«Ya me levanto» (tocado en la nativa) lo apaga', up2t.ok, JSON.stringify({ toques: up2t.toques, primero: up2t.primero, ahora: await js(`${O} return { al: !document.querySelector('#alarmScr').hidden, on: W.on.join(), activa: o.ALM.active };`) }));
     // ---------- «Tu año en Órbita»
     await js(`${O} const ts = o.state.tracks, now = Date.now(), y0 = new Date(new Date().getFullYear(), 0, 1).getTime();
       for (let i = 0; i < 60; i++) { const t = ts[i % ts.length], at = Math.max(y0 + 3600000, now - i * 3 * 3600000), d = new Date(at); o.memEvents.push({ ts: at, id: t.id, sec: 210, pct: 1, skip: false, hour: d.getHours(), dow: d.getDay(), src: 'library', title: t.title, artist: t.artist }); }
       o.openRecap(); return 1;`);
     const up3 = await until(`${O} return W.on.includes('recap') && (await Capacitor.Plugins.OrbitaUi.status()).winPass === true;`, 8000);
     await sleep(2500); shot('resumen-nativo');
-    // (las barras de arriba: cuánto blanco hay en su fila, en dos fotos seguidas de lo que dibuja Android)
+    // (las barras de arriba: cuánto blanco hay en su fila, en dos fotos seguidas de lo que dibuja Android, con una página
+    //  recién empezada — con Nova terminando de hablar, la web la deja llena y espera — y Android ya en esa página)
+    const fresh = await until(`const s = await Capacitor.Plugins.OrbitaUi.status(), R = window.__orbita.RC; return !R.paused && String(s.rcLast || '').split(':')[0] === String(R.i) && (performance.now() - R.t0) / R.dur < 0.4;`, 25000);
     const rb = await rectOf('#rcBars');
     const white = img => { if (!img || !rb) return -1; const y = Math.round(T + (rb[1] + rb[3]) / 2 * D); let n = 0; for (let x = 0; x < img.w; x++) { const i = (y * img.w + x) * 4; if (img.d[i] > 200 && img.d[i + 1] > 200 && img.d[i + 2] > 200) n++; } return n; };
     const r1 = await st(), g1 = grab(); const rw1 = await js(`const R = window.__orbita.RC; return R.i + ':' + Math.min(1, (performance.now() - R.t0) / R.dur).toFixed(2) + ':' + (R.paused ? 1 : 0);`); await sleep(1500); const g2 = grab(), r2 = await st();
     const w1 = white(g1), w2 = white(g2), rcs = await js(`const R = window.__orbita.RC; return { i: R.i, paused: R.paused, f: Math.min(1, (performance.now() - R.t0) / R.dur) };`);
-    check('«Tu año en Órbita» lo dibuja Android, y sus barras de arriba se llenan solas', up3 && !!r1 && !!r2 && r1.winPass && (r1.winTexts || []).length > 2 && (w2 > w1 + 4 || (rcs && rcs.f >= 1)), JSON.stringify({ up3, blanco: [w1, w2], web: rcs, web_antes: rw1, android_barras: [r1 && r1.rcLast, r2 && r2.rcLast], android: r1 && r1.winTexts && r1.winTexts.slice(0, 8) }));
+    check('«Tu año en Órbita» lo dibuja Android, y sus barras de arriba se llenan solas', up3 && fresh && !!r1 && !!r2 && r1.winPass && (r1.winTexts || []).length > 2 && w2 > w1 + 4, JSON.stringify({ up3, fresca: fresh, blanco: [w1, w2], web: rcs, web_antes: rw1, android_barras: [r1 && r1.rcLast, r2 && r2.rcLast], android: r1 && r1.winTexts && r1.winTexts.slice(0, 8) }));
     // tocar a la derecha pasa de página (le llega a la web)
     await sleep(600);
     const i0 = await js(`return window.__orbita.RC.i;`), pf0 = (await st()).passFwd;
@@ -1128,13 +1149,8 @@ try {
     log('  resumen, Android contra la web: ' + JSON.stringify(pr));
     check('«Tu año en Órbita», quieto: Android lo dibuja igual que la web', !!pr && pr.entera.blk <= 3 && pr.entera.px <= 9 && pr.arriba.blk <= 3.5 && pr.medio.blk <= 3.5 && pr.abajo.blk <= 3.5, JSON.stringify(pr));
     await unstill(); await js(`document.querySelector('#rcTap').dispatchEvent(new PointerEvent('pointercancel', { bubbles: true })); return 1;`); await sleep(600);
-    const fingers = `window.__ptr = []; if (!window.__ptrOn) { window.__ptrOn = 1; for (const t of ['pointerdown', 'pointerup', 'pointercancel', 'click']) document.addEventListener(t, e => { const g = e.target, n = g && (g.id || (typeof g.className === 'string' ? g.className.split(' ')[0] : g.tagName)); window.__ptr.push(t.replace('pointer', '') + ':' + n + '@' + Math.round(e.timeStamp) + (e.isTrusted ? '' : '(js)')); }, true); } return 1;`;
-    const xInfo = async () => js(`${O} const r = document.querySelector('#rcClose').getBoundingClientRect(), cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, at = document.elementFromPoint(cx, cy); return { abierto: !document.querySelector('#recap').hidden, on: W.on.join(), pagina: o.RC.i, x: [Math.round(cx), Math.round(cy)], debajo: at && (at.id || at.className), dedo: window.__ptr };`);
-    await js(fingers); const pf3 = (await st() || {}).passFwd;
-    await tapWeb('#rcClose', 2000);
-    let gone3 = await until(`${O} return document.querySelector('#recap').hidden && !W.on.includes('recap');`, 5000), taps3 = 1, first3 = null;
-    if (!gone3) { first3 = await xInfo(); first3.pasados = ((await st() || {}).passFwd || 0) - (pf3 || 0); log('  (la «x»: el primer toque no lo cerró: ' + JSON.stringify(first3) + '; otro)'); await js(fingers); await tapWeb('#rcClose', 2000); gone3 = await until(`${O} return document.querySelector('#recap').hidden && !W.on.includes('recap');`, 5000); taps3 = 2; }
-    check('su «x» (tocada en la nativa) lo cierra', gone3, JSON.stringify({ toques: taps3, primero: first3, ahora: gone3 ? 'cerrado' : await xInfo() }));
+    const x3 = await tapPass('#rcClose', `${O} return document.querySelector('#recap').hidden && !W.on.includes('recap');`);
+    check('su «x» (tocada en la nativa) lo cierra', x3.ok, JSON.stringify({ toques: x3.toques, primero: x3.primero, ahora: await js(`${O} return { abierto: !document.querySelector('#recap').hidden, on: W.on.join(), pagina: o.RC.i };`) }));
     // (que nada de esto se quede abierto para lo que viene después)
     await js(`${O} if (!document.querySelector('#recap').hidden) o.closeRecap(); if (!document.querySelector('#onb').hidden) o.closeOnboarding(); return 1;`); await sleep(800);
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(800);
