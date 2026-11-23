@@ -28,6 +28,7 @@ const SOLO_VOZ = fs.existsSync('pruebas/solo-voz');
 const SOLO_CEREBRO = fs.existsSync('pruebas/solo-cerebro');
 const SOLO_BASE = fs.existsSync('pruebas/solo-base');
 const SOLO_DATOS = fs.existsSync('pruebas/solo-datos');
+const SOLO_NATIVO = fs.existsSync('pruebas/solo-nativo');
 // la pantalla en crudo (sin PNG: así se puede comparar aquí mismo, píxel a píxel)
 const grab = () => {
   const r = spawnSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64e6 }); const b = r.stdout;
@@ -82,7 +83,7 @@ async function cdpConnect() {
       adb(`forward tcp:9222 localabstract:webview_devtools_remote_${pid}`);
       try {
         const list = await (await fetch('http://127.0.0.1:9222/json')).json();
-        const page = list.find(p => p.type === 'page' && /localhost|capacitor/.test(p.url)) || list.find(p => p.type === 'page');
+        const page = list.find(p => p.type === 'page' && /localhost|capacitor/.test(p.url) && !/migrar\.html/.test(p.url)) || list.find(p => p.type === 'page' && !/migrar\.html/.test(p.url));
         if (page) {
           ws = new WebSocket(page.webSocketDebuggerUrl);
           await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = () => no(new Error('ws')); });
@@ -1275,6 +1276,46 @@ try {
       db.close(); localStorage.removeItem('orbita:pruebaMigra'); return 1;`);
     check('sin cierres por error con el traspaso de los datos', crashes() === 0, crashText().slice(0, 1500));
   };
+  // ================= Fase 4, parte 2 · Órbita sin la parte web (lo que ya hace Android solo) =================
+  const nat60 = async () => {
+    const NI = `return await Capacitor.Plugins.OrbitaUi.natInfo();`;
+    // lo de la app de siempre, para comparar: cuántas canciones guarda (las de prueba no se guardan: se fabrican)
+    const before = await js(`const o = window.__orbita; return { songs: o.state.tracks.filter(t => !t.demo).length, ids: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.id), titles: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.title) };`);
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    await js(`await Capacitor.Plugins.OrbitaUi.dataMigrate({ force: false }); return 1;`).catch(() => null);
+    // a la nativa: la página de siempre ni arranca
+    await js(`localStorage.setItem('orbita:_modo', '"nativo"'); location.reload(); return 1;`).catch(() => null);
+    await sleep(6000); await cdpConnect();
+    const up = await until(`return !!window.__nat || !!window.__natErr;`, 30000);
+    const n1 = up ? await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.ready === true;`, 30000) : false;
+    const s1 = await js(NI); shot('nativa-musica');
+    check('Órbita sin la parte web: arranca Android solo, con los datos ya en Android, y enseña «Música»', up && n1 && !!s1 && s1.on && s1.ready && s1.shown && s1.screen === 'biblioteca' && (await js(`return location.pathname;`)) === '/nativo.html' && (await js(`return typeof window.__orbita;`)) === 'undefined', JSON.stringify({ up, n1, err: await js(`return window.__natErr || '';`), s: s1 && { on: s1.on, ready: s1.ready, shown: s1.shown, screen: s1.screen, migra: s1.migra, log: s1.log } }).slice(0, 900));
+    check('con las mismas canciones que la app de siempre', !!s1 && !!before && s1.lib === before.songs && s1.songs === before.songs, JSON.stringify({ web: before && before.songs, android: s1 && [s1.lib, s1.songs] }));
+    const cv = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.covers > 0;`, 15000);
+    check('y sus portadas (de sus archivos, ya en Android)', cv, JSON.stringify(await js(NI).then(s => s && s.covers)));
+    // tocar una canción: suena, con el motor de siempre, y sigue la lista sola
+    const ids = before ? before.ids : [];
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'play', o: { ids: ${JSON.stringify(ids)}, index: 0 } }); return 1;`);
+    const p1 = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.playing && s.now === ${JSON.stringify(ids[0] || '')};`, 10000);
+    await sleep(3000); const sA = await js(NI); await sleep(2500); const sB = await js(NI);
+    const pa = sA && sA.pos && +sA.pos.pos, pb = sB && sB.pos && +sB.pos.pos;
+    shot('nativa-suena');
+    check('tocar una canción la pone a sonar (el motor avanza) y Android sabe cuál es', p1 && pb > pa + 1 && sessState().includes('PLAYING'), JSON.stringify({ now: sB && sB.now, pos: [pa, pb], sesion: sessState().slice(0, 120), log: sB && sB.log && sB.log.slice(-4) }));
+    // al final de la canción, la siguiente (la sigue el motor solo)
+    const durA = sB && sB.pos && +sB.pos.dur;
+    if (durA > 8) { await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'test-seek', o: { pos: ${Math.max(0, durA - 4)} } }); return 1;`).catch(() => null); }
+    const nx = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.qi === 1 && s.now === ${JSON.stringify(ids[1] || '')};`, 20000);
+    check('al acabar, la siguiente de la lista (el motor sigue solo y Android lo sabe)', nx, JSON.stringify(await js(NI).then(s => s && { qi: s.qi, now: s.now, log: s.log.slice(-5) })));
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1000);
+    check('sin cierres por error en la Órbita nativa', crashes() === 0, crashText().slice(0, 1500));
+    // y de vuelta a la de siempre (para lo que viene después)
+    await js(`localStorage.removeItem('orbita:_modo'); location.replace('index.html'); return 1;`).catch(() => null);
+    await sleep(8000); await webStart(true);
+  };
+  if (SOLO_NATIVO) {
+    await goView('inicio'); await sleep(3000);
+    await nat60(); saveLogs(); finish('prueba rápida: solo la Órbita nativa');
+  }
   if (SOLO_DATOS) {
     await goView('inicio'); await sleep(3000);
     await datos60(); saveLogs(); finish('prueba rápida: solo el traspaso de los datos');

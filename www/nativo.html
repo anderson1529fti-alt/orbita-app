@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><title>Órbita</title>
+<style>html,body{margin:0;height:100%;background:#06050b}</style>
+</head><body>
+<script>
+/* Fase 4, parte 2 · Órbita sin la parte web: todo lo hace Android. Esta página solo lo enciende (y deja a las pruebas
+   preguntarle a Android cómo va). */
+(async () => {
+  for (let k = 0; k < 50 && !(window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.OrbitaUi); k++) await new Promise(r => setTimeout(r, 100));
+  try { window.__nat = await Capacitor.Plugins.OrbitaUi.nativo({}); } catch (e) { window.__natErr = String(e && e.message || e); }
+})();
+</script>
+</body></html>

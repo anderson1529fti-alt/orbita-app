@@ -316,6 +316,52 @@ class OrbitaUiPlugin : Plugin() {
         }.start()
     }
 
+    // ---------------------------------------------------------------- fase 4, parte 2 · Órbita sin la parte web
+    /** La página de arranque de la Órbita nativa lo pide: desde aquí todo lo lleva Android ([Nativo]). */
+    @PluginMethod
+    fun nativo(call: PluginCall) {
+        activity.runOnUiThread {
+            try { Nativo.start(activity, this); call.resolve(natInfoObj()) } catch (t: Throwable) { call.reject(t.message ?: "error") }
+        }
+    }
+
+    /** Para las pruebas: cómo va la Órbita nativa. */
+    @PluginMethod
+    fun natInfo(call: PluginCall) { activity.runOnUiThread { try { call.resolve(natInfoObj()) } catch (t: Throwable) { call.reject(t.message ?: "error") } } }
+
+    /** Para las pruebas: lo que se toca en una pantalla nativa, como si se hubiera tocado. */
+    @PluginMethod
+    fun natUi(call: PluginCall) {
+        val type = call.getString("type", "") ?: ""
+        val o = call.getObject("o", JSObject()) ?: JSObject()
+        activity.runOnUiThread { try { Nativo.onUi(type, o); call.resolve() } catch (t: Throwable) { call.reject(t.message ?: "error") } }
+    }
+
+    private fun natInfoObj(): JSObject {
+        val r = JSObject()
+        r.put("on", Nativo.on); r.put("ready", Nativo.ready); r.put("songs", UiState.tracks.size); r.put("lib", Lib.tracks.size)
+        r.put("covers", UiState.covers.size); r.put("screen", UiState.screen); r.put("shown", host?.visibility == View.VISIBLE)
+        r.put("now", UiState.nowId); r.put("qi", Player.qi); r.put("queue", JSArray(Player.queue.take(50))); r.put("playing", Player.playing)
+        r.put("pos", try { NovaCore.position(Player.slot) } catch (t: Throwable) { JSObject() })
+        r.put("hue", UiState.look.h.toDouble()); r.put("toast", UiState.toast); r.put("toastN", UiState.toastN)
+        r.put("log", JSArray(synchronized(Nativo) { ArrayList(Nativo.log) }.takeLast(30)))
+        r.put("migra", Migra.state); r.put("migraDetail", Migra.detail)
+        return r
+    }
+
+    /** Enseña una pantalla nativa, sin la web: a todo lo ancho, encima de la barra de abajo. */
+    internal fun nativoShow(screen: String) {
+        ensureHost()
+        val wv = bridge.webView
+        val dens = activity.resources.displayMetrics.density
+        val inset = try { androidx.core.view.ViewCompat.getRootWindowInsets(wv)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0 } catch (t: Throwable) { 0 }
+        dpr = dens; x = 0f; y = 0f; w = wv.width / dens
+        h = maxOf(100f, wv.height / dens - (152f + 60.77f + inset / dens))
+        place()
+        UiState.screen = screen
+        host?.visibility = View.VISIBLE
+    }
+
     override fun load() {
         try { Store.init(context) } catch (ignored: Throwable) { }
         UiState.emit = { _, o -> try { notifyListeners("ui", o) } catch (ignored: Throwable) { } }
