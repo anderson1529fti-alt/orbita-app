@@ -19,7 +19,7 @@ function finish(why) {
   } catch {}
   process.exit(0);
 }
-setTimeout(() => finish('pasó de 44 minutos'), 44 * 60000).unref();
+setTimeout(() => finish('pasó de 62 minutos'), 62 * 60000).unref();
 // (si existe pruebas/solo-ventanas: una prueba rápida, solo de las ventanas y el reproductor a pantalla completa)
 const SOLO = fs.existsSync('pruebas/solo-ventanas');
 const SOLO_VIZ = fs.existsSync('pruebas/solo-viz');

@@ -194,22 +194,34 @@ private fun Backdrop(bg: Bg, noise: Bitmap?, coverBmp: androidx.compose.ui.graph
     }
     LaunchedEffect(Unit) { first[0] = false }
     Box(Modifier.fillMaxSize()) {
-        // el color de debajo y la aurora (que se mueve)
+        // el color de debajo
         Canvas(Modifier.fillMaxSize()) {
-            tick
-            Base.frames++
             drawRect(Color(bg.base))
-            if (bg.mode == "negro") { Base.drawn = "negro"; return@Canvas }
-            val w = size.width; val h = size.height
-            val p = driftAt(bg, SystemClock.uptimeMillis())
+            if (bg.mode == "negro") Base.drawn = "negro"
+        }
+        if (bg.mode != "negro") {
+            // la aurora: su caja es un 25 % más grande por cada lado; se pinta UNA vez en su propia capa y lo que se mueve
+            // (se desplaza, gira y crece desde su centro) es la capa entera, como hace la web: moverla no cuesta casi nada
             val auroraAlpha = if (bg.mode == "portada") .35f else 1f
-            // (la caja de la aurora: un 25 % más grande por cada lado; se mueve, gira y crece desde su centro)
-            val bw = w * 1.5f; val bh = h * 1.5f; val l = -w * .25f; val t = -h * .25f
-            withTransform({
-                translate(bw * .05f * p, -bh * .04f * p)
-                rotate(10f * p, Offset(w / 2f, h / 2f))
-                scale(1f + .1f * p, 1f + .1f * p, Offset(w / 2f, h / 2f))
-            }) {
+            Canvas(
+                Modifier
+                    .layout { ms, cs ->
+                        val w = cs.maxWidth; val h = cs.maxHeight
+                        val bw = (w * 1.5f).roundToInt(); val bh = (h * 1.5f).roundToInt()
+                        val pl = ms.measure(Constraints.fixed(bw, bh))
+                        layout(w, h) { pl.place(-((bw - w) / 2f).roundToInt(), -((bh - h) / 2f).roundToInt()) }
+                    }
+                    .graphicsLayer {
+                        tick
+                        Base.frames++
+                        val p = driftAt(bg, SystemClock.uptimeMillis())
+                        translationX = size.width * .05f * p; translationY = -size.height * .04f * p
+                        rotationZ = 10f * p
+                        val k = 1f + .1f * p; scaleX = k; scaleY = k
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                    }
+            ) {
+                val bw = size.width; val bh = size.height
                 drawIntoCanvas { cv ->
                     val nc = cv.nativeCanvas
                     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.DITHER_FLAG)
@@ -218,15 +230,15 @@ private fun Backdrop(bg: Bg, noise: Bitmap?, coverBmp: androidx.compose.ui.graph
                         val a = AURORA[i]
                         val c = hslaC(bg.h + a[4], bg.s * a[5], a[6], a[7] * auroraAlpha)
                         val c0 = c and 0x00FFFFFF   // (el mismo color, transparente: así se desvanece como en la web)
-                        val cx = l + bw * a[0]; val cy = t + bh * a[1]; val rx = bw * a[2]; val ry = bh * a[3]
+                        val cx = bw * a[0]; val cy = bh * a[1]; val rx = bw * a[2]; val ry = bh * a[3]
                         val sh = android.graphics.RadialGradient(cx, cy, rx, intArrayOf(c, c0, c0), floatArrayOf(0f, .7f, 1f), Shader.TileMode.CLAMP)
                         val m = android.graphics.Matrix(); m.setScale(1f, ry / rx, cx, cy); sh.setLocalMatrix(m)
                         paint.shader = sh
-                        nc.drawRect(l, t, l + bw, t + bh, paint)
+                        nc.drawRect(0f, 0f, bw, bh, paint)
                     }
                 }
+                Base.drawn = "${bg.mode}:${bg.h.roundToInt()}:${(bg.s * 100).roundToInt()}:${if (bg.moving) "mueve" else "quieta"}" + if (cur != null) ":portada" else ""
             }
-            Base.drawn = "${bg.mode}:${bg.h.roundToInt()}:${(bg.s * 100).roundToInt()}:${if (bg.moving) "mueve" else "quieta"}" + if (cur != null) ":portada" else ""
         }
         if (bg.mode != "negro") {
             val pv = prev; val cu = cur
