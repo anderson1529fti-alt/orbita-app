@@ -74,7 +74,7 @@ internal class MAnim(
 }
 
 /** (Para las pruebas) cuántos fotogramas han movido las piezas que se mueven solas, y las barras del resumen. */
-internal object MAnimStat { @Volatile var frames = 0; @Volatile var bars = 0 }
+internal object MAnimStat { @Volatile var frames = 0; @Volatile var bars = 0; @Volatile var rg = ""; @Volatile var rc = "" }
 
 /** La curva «cubic-bezier(x1, y1, x2, y2)» de CSS en x (buscando su t). */
 internal fun cubic(e: FloatArray, x: Float): Float {
@@ -160,6 +160,7 @@ internal fun MRcBars(c: MNode) {
     val tc = o.optLong("tc", 0x38FFFFFFL).toInt(); val fc = o.optLong("fc", 0xFFFFFFFFL).toInt()
     val g = o.optDouble("g", 4.0).toFloat(); val r = o.optDouble("r", 3.0).toFloat(); val bh = o.optDouble("bh", 3.0).toFloat()
     val clk = remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
+    MAnimStat.rc = "$i:$f0:${if (paused) 1 else 0}"
     if (!paused && f0 < 1f) LaunchedEffect(c.v) {
         while (true) {
             val now = withFrameMillis { SystemClock.uptimeMillis() }

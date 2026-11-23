@@ -915,7 +915,7 @@ try {
     const dr = await js(`const a = document.getAnimations().find(x => x.animationName === 'drift'); if (!a) return null;
       const ease = x => { if (x <= 0) return 0; if (x >= 1) return 1; let lo = 0, hi = 1, t = x; for (let i = 0; i < 30; i++) { const bx = 3 * (1 - t) * (1 - t) * t * .42 + 3 * (1 - t) * t * t * .58 + t * t * t; if (bx < x) lo = t; else hi = t; t = (lo + hi) / 2; } return 3 * (1 - t) * t * t + t * t * t; };
       const at = ms => { const it = Math.floor(ms / 46000); let f = (ms - it * 46000) / 46000; if (it % 2) f = 1 - f; return ease(f); };
-      const t0 = +a.currentTime; const s = await Capacitor.Plugins.OrbitaUi.status(); const t1 = +a.currentTime;
+      const o = window.__orbita, t0 = o.baseBg().t; const s = await Capacitor.Plugins.OrbitaUi.status(); const t1 = o.baseBg().t;
       return { web0: at(t0), web1: at(t1), nat: s.bgDrift, ms: t1 - t0 };`);
     check('va al mismo punto que la de la web (su animación de siempre, de 46 s)', !!dr && dr.nat >= Math.min(dr.web0, dr.web1) - 0.004 && dr.nat <= Math.max(dr.web0, dr.web1) + 0.004, JSON.stringify(dr));
     // --- lo que se toca en la barra le llega a la web: una pestaña, el play, la barra del tiempo, subirla con el dedo
@@ -940,8 +940,8 @@ try {
     // la barra del tiempo: se arrastra aquí (pegada al dedo) y la canción salta a donde se suelta
     const sk = await rectOf('.player .seek');
     if (sk) { const y = Math.round(T + (sk[1] + sk[3]) / 2 * D), x0 = Math.round((sk[0] + (sk[2] - sk[0]) * 0.15) * D), x1 = Math.round((sk[0] + (sk[2] - sk[0]) * 0.75) * D); sh(`input swipe ${x0} ${y} ${x1} ${y} 700`); await sleep(1200); }
-    const sv = await js(`return +document.querySelector('.player .seek').value;`);
-    check('arrastrar la barra del tiempo (nativa) mueve la canción a donde se suelta', !!sk && sv >= 640 && sv <= 860, String(sv));
+    const sv = await js(`return +document.querySelector('.player .seek').value;`), sst = await st();
+    check('arrastrar la barra del tiempo (nativa) mueve la canción a donde se suelta', !!sk && sv >= 640 && sv <= 860, JSON.stringify({ valor: sv, android_mando: sst && sst.rgLast, viva: sst && sst.baseLive, cancion: await js(`${O} const t = o.trackById(o.state.queue[o.state.qi]); return t && t.title;`) }));
     // subir la barra con el dedo abre el reproductor (lo hace la web, como siempre; mientras, se ve la de siempre)
     const spy = `const p = document.querySelector('.player'); window.__sw = { s: 0, m: 0, e: 0, c: 0, t: [] }; const k = n => e => { window.__sw[n]++; if (window.__sw.t.length < 12) window.__sw.t.push(n + ':' + Math.round(e.touches && e.touches[0] ? e.touches[0].clientY : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : -1))); };
       if (!window.__swOn) { window.__swOn = 1; p.addEventListener('touchstart', k('s'), { passive: true, capture: true }); p.addEventListener('touchmove', k('m'), { passive: true, capture: true }); p.addEventListener('touchend', k('e'), { capture: true }); p.addEventListener('touchcancel', k('c'), { capture: true }); } return 1;`;
@@ -981,7 +981,7 @@ try {
     const pr = await rectOf('.player'); const H = await js(`return innerHeight;`);
     const setBg = async v => { await js(`const b = document.querySelector('#lkBg [data-v="${v}"]'); if (b) b.click(); return 1;`); await sleep(1500); };
     // (la luz, quieta en ese punto: la de la web y la cuenta que lleva mientras está guardada)
-    const freeze = async ms => js(`window.__orbita.DRIFT.hold = ${ms}; const a = document.getAnimations().find(x => x.animationName === 'drift'); if (!a) return null; a.pause(); a.currentTime = ${ms}; return a.playState;`);
+    const freeze = async ms => js(`window.__orbita.DRIFT.hold = ${ms}; if (!document.querySelector('#pruebaQuieta')) document.head.insertAdjacentHTML('beforeend', '<style id="pruebaQuieta">.bg::before{animation-play-state:paused!important}</style>'); await new Promise(r => requestAnimationFrame(r)); const a = document.getAnimations().find(x => x.animationName === 'drift'); if (!a) return null; a.currentTime = ${ms}; return a.playState;`);
     const par = {};
     const pair = async (name, want) => {
       await until(`const s = await Capacitor.Plugins.OrbitaUi.status(); return s.baseLive === true && ${JSON.stringify(want)}.every(w => s.baseDrawn.includes(w));`, 8000);
@@ -1013,7 +1013,7 @@ try {
       check(`fondo ${nm}: Android lo dibuja igual que la web (los bordes, donde solo hay fondo, y la pantalla entera)`, !!p && okF(p.lados, 3, 1.5) && okF(p.derecha, 3, 1.5) && okF(p.entera, 12, 3), JSON.stringify(p && { drawn: p.drawn, lados: p.lados, derecha: p.derecha, entera: p.entera }));
       check(`la barra de abajo con el fondo ${nm}: igual que la de siempre`, !!p && okF(p.barra, 8, 2.5), JSON.stringify(p && p.barra));
     }
-    await setBg('aurora'); await js(`window.__orbita.DRIFT.hold = null; const a = document.getAnimations().find(x => x.animationName === 'drift'); if (a) a.play(); return 1;`); await sleep(1000);
+    await setBg('aurora'); await js(`window.__orbita.DRIFT.hold = null; const q = document.querySelector('#pruebaQuieta'); if (q) q.remove(); return 1;`); await sleep(1000);
     // con el de Android a la vista, el de la web está guardado (oculto y quieto: no gasta), y vuelve donde va el de Android
     await until(`return (await Capacitor.Plugins.OrbitaUi.status()).baseLive === true && document.documentElement.classList.contains('nui-base');`, 6000);
     const gw = await js(`const a = document.getAnimations().find(x => x.animationName === 'drift'); return { cls: document.documentElement.classList.contains('nui-base'), vis: getComputedStyle(document.querySelector('.bg')).visibility, ps: a && a.playState };`);
@@ -1099,9 +1099,9 @@ try {
     // (las barras de arriba: cuánto blanco hay en su fila, en dos fotos seguidas de lo que dibuja Android)
     const rb = await rectOf('#rcBars');
     const white = img => { if (!img || !rb) return -1; const y = Math.round(T + (rb[1] + rb[3]) / 2 * D); let n = 0; for (let x = 0; x < img.w; x++) { const i = (y * img.w + x) * 4; if (img.d[i] > 200 && img.d[i + 1] > 200 && img.d[i + 2] > 200) n++; } return n; };
-    const r1 = await st(), g1 = grab(); await sleep(1500); const g2 = grab(), r2 = await st();
+    const r1 = await st(), g1 = grab(); const rw1 = await js(`const R = window.__orbita.RC; return R.i + ':' + Math.min(1, (performance.now() - R.t0) / R.dur).toFixed(2) + ':' + (R.paused ? 1 : 0);`); await sleep(1500); const g2 = grab(), r2 = await st();
     const w1 = white(g1), w2 = white(g2), rcs = await js(`const R = window.__orbita.RC; return { i: R.i, paused: R.paused, f: Math.min(1, (performance.now() - R.t0) / R.dur) };`);
-    check('«Tu año en Órbita» lo dibuja Android, y sus barras de arriba se llenan solas', up3 && !!r1 && !!r2 && r1.winPass && (r1.winTexts || []).length > 2 && (w2 > w1 + 4 || (rcs && rcs.f >= 1)), JSON.stringify({ up3, blanco: [w1, w2], web: rcs, android: r1 && r1.winTexts && r1.winTexts.slice(0, 8) }));
+    check('«Tu año en Órbita» lo dibuja Android, y sus barras de arriba se llenan solas', up3 && !!r1 && !!r2 && r1.winPass && (r1.winTexts || []).length > 2 && (w2 > w1 + 4 || (rcs && rcs.f >= 1)), JSON.stringify({ up3, blanco: [w1, w2], web: rcs, web_antes: rw1, android_barras: [r1 && r1.rcLast, r2 && r2.rcLast], android: r1 && r1.winTexts && r1.winTexts.slice(0, 8) }));
     // tocar a la derecha pasa de página (le llega a la web)
     await sleep(600);
     const i0 = await js(`return window.__orbita.RC.i;`), pf0 = (await st()).passFwd;

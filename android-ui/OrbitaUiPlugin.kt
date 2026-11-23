@@ -558,7 +558,7 @@ class OrbitaUiPlugin : Plugin() {
             r.put("earSessions", Ear.sessions); r.put("earLast", Ear.last); r.put("earPartials", Ear.partials); r.put("earLevels", Ear.levels); r.put("earPermCards", Ear.permCards); r.put("earAsking", Ear.asking)
             r.put("brainThreads", Mind.threads); r.put("brainLoad", Mind.loadMs); r.put("brainCalls", Mind.calls)
             // 5.3 · la capa de abajo (el fondo y la barra): si se ve, cuántas veces ha llegado, qué fondo dibuja y sus partes
-            r.put("winPass", UiState.winPass()); r.put("passFwd", UiState.passFwd); r.put("animFrames", MAnimStat.frames); r.put("barFrames", MAnimStat.bars); r.put("baseShown", baseHost?.visibility == View.VISIBLE); r.put("baseOn", Base.on); r.put("baseLive", Base.live); r.put("baseSyncs", Base.syncs); r.put("baseFrames", Base.frames)
+            r.put("winPass", UiState.winPass()); r.put("passFwd", UiState.passFwd); r.put("animFrames", MAnimStat.frames); r.put("barFrames", MAnimStat.bars); r.put("rgLast", MAnimStat.rg); r.put("rcLast", MAnimStat.rc); r.put("baseShown", baseHost?.visibility == View.VISIBLE); r.put("baseOn", Base.on); r.put("baseLive", Base.live); r.put("baseSyncs", Base.syncs); r.put("baseFrames", Base.frames)
             r.put("baseDrawn", Base.drawn); r.put("baseParts", Base.fixed.size); r.put("noiseMs", Base.noiseMs); r.put("baseTexts", JSArray(baseTexts(30)))
             r.put("bgDrift", driftAt(Base.bg, android.os.SystemClock.uptimeMillis()).toDouble())
             r.put("ytDock", UiState.ytDock != null); r.put("ytSlot", UiState.ytSlot != null); r.put("ytFwd", UiState.ytFwd)

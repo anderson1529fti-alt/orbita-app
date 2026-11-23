@@ -829,6 +829,7 @@ private fun MRange(c: MNode) {
         if (!fin && now - last[0] < 45) return
         last[0] = now
         mSend("mRg", c.k) { it.put("v", (Math.round(x * 1000.0) / 1000.0)); if (fin) it.put("fin", 1) }
+        MAnimStat.rg = "${c.k}:${Math.round(x * 1000.0) / 1000.0}:${if (fin) 1 else 0}"
     }
     var m: Modifier = Modifier
     if (c.label.isNotEmpty()) m = m.semantics { contentDescription = c.label }
