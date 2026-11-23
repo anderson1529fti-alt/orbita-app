@@ -464,6 +464,8 @@ class OrbitaUiPlugin : Plugin() {
         val v = ComposeView(activity)
         v.setContent { OrbitaBase() }
         v.visibility = View.GONE
+        // (lo que se toca aquí le llega a la web: lo que lee TalkBack, también lo de la web, que es lo que se toca)
+        v.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         val wv = bridge.webView
         val parent = wv.parent as ViewGroup
         parent.addView(v, parent.indexOfChild(wv) + 1, ViewGroup.LayoutParams(maxOf(1, wv.width), maxOf(1, wv.height)))

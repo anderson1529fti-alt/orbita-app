@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -114,7 +115,8 @@ private fun WinView(w: WDef) {
     // 5.3 · las ventanas «de paso» (el resumen del año, la bienvenida, el despertador): lo que se toca le llega a la web tal
     // cual (WinFrame se lo pasa); aquí solo se escribe y se arrastran barras
     CompositionLocalProvider(LocalMPass provides w.pass) {
-    Layout(content = {
+    // (en las «de paso», lo que lee TalkBack es lo de la web, que es lo que recibe el dedo)
+    Layout(modifier = if (w.pass) Modifier.fillMaxSize().clearAndSetSemantics { } else Modifier.fillMaxSize(), content = {
         for (f in w.fixed) key(f.k) {
             // (un toque fuera de los botones le llega a la web en su sitio: lo oscuro de alrededor cierra la ventana)
             val tap = if (w.pass) Modifier else Modifier.pointerInput(f.k) {
@@ -123,7 +125,7 @@ private fun WinView(w: WDef) {
             MGroup(UiState.winParts["${w.id}.${f.k}"] ?: emptyList(), 0f, 0f, f.w, f.h, tap)
         }
         if (sc != null) key("sc") { WinScroller(w.id, sc) }
-    }, modifier = Modifier.fillMaxSize()) { ms, cs ->
+    }) { ms, cs ->
         val d = density
         val n = ms.size
         val ps = ArrayList<androidx.compose.ui.layout.Placeable>(n)
