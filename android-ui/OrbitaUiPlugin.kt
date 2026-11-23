@@ -271,7 +271,53 @@ class OrbitaUiPlugin : Plugin() {
     private var h = 0f
     private var dpr = 1f
 
+    // ---------------------------------------------------------------- fase 4, parte 2 · los datos, en Android
+    /** Pasa los datos de la parte web a Android (si no se ha hecho ya; «force»: otra vez, desde cero). */
+    @PluginMethod
+    fun dataMigrate(call: PluginCall) {
+        val force = call.getBoolean("force", false) ?: false
+        activity.runOnUiThread {
+            try { Migra.run(activity, force) { ok, msg -> call.resolve(dataInfoObj().apply { put("ok", ok); put("msg", msg) }) } }
+            catch (t: Throwable) { call.reject(t.message ?: "error") }
+        }
+    }
+
+    @PluginMethod
+    fun dataInfo(call: PluginCall) { Thread { try { call.resolve(dataInfoObj()) } catch (t: Throwable) { call.reject(t.message ?: "error") } }.start() }
+
+    private fun dataInfoObj(): JSObject {
+        Store.init(context)
+        val r = JSObject()
+        r.put("done", Migra.done()); r.put("state", Migra.state); r.put("detail", Migra.detail); r.put("progress", Migra.progress); r.put("what", Migra.what); r.put("ms", Migra.ms)
+        r.put("kv", Store.kvAll().keys.count { !it.startsWith("_") })
+        val st = JSObject(); for (s in Store.stores()) st.put(s, Store.count(s)); r.put("stores", st)
+        r.put("events", Store.evCount())
+        val (bn, bb) = Store.blobStats(); r.put("blobs", bn); r.put("bytes", bb)
+        Store.kv(Migra.KEY)?.let { try { r.put("migrado", org.json.JSONObject(it)) } catch (ignored: Throwable) { } }
+        return r
+    }
+
+    /** Para las pruebas: lo guardado (los ajustes, un almacén, las escuchas, o la huella de un archivo). */
+    @PluginMethod
+    fun dataDump(call: PluginCall) {
+        Thread {
+            try {
+                Store.init(context)
+                val r = JSObject(); val items = JSArray()
+                when (call.getString("kind", "kv")) {
+                    "kv" -> for ((k, v) in Store.kvAll()) items.put(JSArray().put(k).put(v))
+                    "rec" -> for ((k, v) in Store.recs(call.getString("store") ?: "", call.getString("after"), call.getInt("limit", 300) ?: 300)) items.put(JSArray().put(k).put(v))
+                    "ev" -> for ((n, v) in Store.events(call.getLong("after", 0L) ?: 0L, call.getInt("limit", 2000) ?: 2000)) items.put(JSArray().put(n).put(v))
+                    "hash" -> { val f = Store.file(call.getString("rel") ?: ""); r.put("sha", if (f.isFile) Store.sha256(f) else ""); r.put("size", if (f.isFile) f.length() else -1L) }
+                }
+                r.put("items", items)
+                call.resolve(r)
+            } catch (t: Throwable) { call.reject(t.message ?: "error") }
+        }.start()
+    }
+
     override fun load() {
+        try { Store.init(context) } catch (ignored: Throwable) { }
         UiState.emit = { _, o -> try { notifyListeners("ui", o) } catch (ignored: Throwable) { } }
         // 5.3 · el grano del fondo, preparado ya (unos milisegundos, fuera del hilo de la pantalla)
         try { val d = activity.resources.displayMetrics.density; Thread({ try { Noise.make(d) } catch (ignored: Throwable) { } }, "orbita-grano").start() } catch (ignored: Throwable) { }

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Órbita</title></head>
+<body>
+<script>
+/* Fase 4, parte 2 · El traspaso de los datos de la parte web a Android (una vez).
+   Lee todo lo que la parte web guardaba en este móvil (los ajustes de localStorage «orbita:*», la base IndexedDB
+   «orbita» con sus archivos, y lo descargado de la voz de Nova) y se lo pasa a Android por «OrbitaMigra».
+   No cambia nada aquí: lo de la web se queda tal cual, como copia de seguridad. */
+(async () => {
+  const M = window.OrbitaMigra;
+  if (!M) return;
+  const CH = 393216;   // trozos de 384 KB (512 KB en base64)
+  const sum = { kv: 0, stores: {}, events: 0, blobs: 0, bytes: 0, files: 0, fbytes: 0, db: 0 };
+  let total = 1, doneN = 0, lastP = -1;
+  const step = (n, what) => { doneN += n; const p = Math.min(0.99, doneN / total); if (p - lastP >= 0.01 || n === 0) { lastP = p; M.progress(p, what || ''); } };
+  const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 32768) s += String.fromCharCode.apply(null, u8.subarray(i, i + 32768)); return btoa(s); };
+  const isBlob = v => typeof Blob !== 'undefined' && v instanceof Blob;
+  const stream = async (blob, open, close) => {
+    const rel = open();
+    for (let off = 0; off < blob.size; off += CH) M.chunk(b64(new Uint8Array(await blob.slice(off, off + CH).arrayBuffer())));
+    if (!close(blob.size)) throw new Error('archivo incompleto (' + rel + ')');
+    return rel;
+  };
+  const sendBlob = async (store, key, path, blob) => {
+    const rel = await stream(blob, () => M.blobOpen(store, key, path), n => M.blobClose(n));
+    sum.blobs++; sum.bytes += blob.size;
+    const o = { $blob: rel, type: blob.type || '', size: blob.size };
+    if (typeof File !== 'undefined' && blob instanceof File) { o.name = blob.name; o.lastModified = blob.lastModified; }
+    return o;
+  };
+  const TYPED = ['Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array'];
+  // un registro, con sus Blobs mandados aparte y marcados donde estaban
+  const walk = async (store, key, v, path) => {
+    if (isBlob(v)) return sendBlob(store, key, path, v);
+    if (Array.isArray(v)) { const a = []; for (let i = 0; i < v.length; i++) a.push(await walk(store, key, v[i], path ? path + '.' + i : String(i))); return a; }
+    if (v && typeof v === 'object') {
+      if (v instanceof Date) return { $date: v.getTime() };
+      if (v instanceof ArrayBuffer) return { $typed: 'ArrayBuffer', v: Array.from(new Uint8Array(v)) };
+      if (v instanceof DataView) return { $typed: 'DataView', v: Array.from(new Uint8Array(v.buffer, v.byteOffset, v.byteLength)) };
+      if (ArrayBuffer.isView(v)) { const n = TYPED.find(t => v instanceof window[t]) || 'Uint8Array'; return { $typed: n, v: Array.from(v) }; }
+      if (v instanceof Map) return { $map: await walk(store, key, [...v.entries()], path) };
+      if (v instanceof Set) return { $set: await walk(store, key, [...v.values()], path) };
+      const o = {}; for (const k of Object.keys(v)) o[k] = await walk(store, key, v[k], path ? path + '.' + k : k); return o;
+    }
+    if (typeof v === 'number' && !isFinite(v)) return { $num: String(v) };
+    return v;
+  };
+  const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  try {
+    // ---- los ajustes
+    const kv = {};
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('orbita:')) kv[k.slice(7)] = localStorage.getItem(k); }
+    sum.kv = Object.keys(kv).length;
+    M.begin(JSON.stringify({ kv: sum.kv }));
+    if (M.kv(JSON.stringify(kv)) !== sum.kv) throw new Error('ajustes incompletos');
+    // ---- la base de la web (si la hay: no se crea si no existe)
+    let db = null;
+    const dbs = indexedDB.databases ? await indexedDB.databases() : [{ name: 'orbita' }];
+    if (dbs.some(d => d && d.name === 'orbita')) {
+      db = await new Promise((res, rej) => { const r = indexedDB.open('orbita'); r.onupgradeneeded = () => { try { r.transaction.abort(); } catch (e) {} }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error('blocked')); });
+      sum.db = db.version;
+    }
+    const names = db ? [...db.objectStoreNames] : [];
+    const counts = {};
+    for (const s of names) counts[s] = await req(db.transaction(s).objectStore(s).count());
+    total = Math.max(1, Object.values(counts).reduce((a, b) => a + b, 0));
+    step(0, 'empezando');
+    for (const s of names) {
+      const ev = s === 'events';
+      let last, first = true, n = 0;
+      while (true) {
+        const t = db.transaction(s), os = t.objectStore(s), range = first ? null : IDBKeyRange.lowerBound(last, true);
+        const [keys, vals] = await Promise.all([req(os.getAllKeys(range, ev ? 2000 : 200)), req(os.getAll(range, ev ? 2000 : 200))]);
+        if (!keys.length) break;
+        first = false; last = keys[keys.length - 1];
+        const batch = [];
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i], kj = JSON.stringify(k);
+          batch.push([kj, JSON.stringify(await walk(s, kj, vals[i], ''))]);
+        }
+        const got = ev ? M.evs(JSON.stringify(batch)) : M.recs(s, JSON.stringify(batch));
+        if (got !== batch.length) throw new Error('registros incompletos en ' + s);
+        n += batch.length; step(batch.length, s);
+      }
+      if (ev) sum.events = n; else sum.stores[s] = n;
+    }
+    // ---- lo descargado de la voz de Nova (lo que el motor de Android no tiene ya)
+    if (window.caches) {
+      for (const name of await caches.keys()) {
+        if (name !== 'orbita-voz-1') continue;
+        const c = await caches.open(name);
+        for (const r of await c.keys()) {
+          const res = await c.match(r); if (!res) continue;
+          const u = new URL(r.url), file = decodeURIComponent(u.pathname.split('/').pop() || 'x');
+          const blob = await res.blob();
+          if (M.hasNative('nova-voz', file, blob.size)) continue;
+          await stream(blob, () => M.fileOpen(name, file, res.headers.get('Content-Type') || ''), n => M.fileClose(n));
+          sum.files++; sum.fbytes += blob.size;
+        }
+      }
+    }
+    if (db) db.close();
+    M.done(JSON.stringify(sum));
+  } catch (e) {
+    M.fail(String((e && (e.stack || e.message)) || e));
+  }
+})();
+</script>
+</body></html>

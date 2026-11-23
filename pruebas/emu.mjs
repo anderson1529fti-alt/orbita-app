@@ -27,6 +27,7 @@ const SOLO_LY = fs.existsSync('pruebas/solo-letra');
 const SOLO_VOZ = fs.existsSync('pruebas/solo-voz');
 const SOLO_CEREBRO = fs.existsSync('pruebas/solo-cerebro');
 const SOLO_BASE = fs.existsSync('pruebas/solo-base');
+const SOLO_DATOS = fs.existsSync('pruebas/solo-datos');
 // la pantalla en crudo (sin PNG: así se puede comparar aquí mismo, píxel a píxel)
 const grab = () => {
   const r = spawnSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64e6 }); const b = r.stdout;
@@ -1156,6 +1157,128 @@ try {
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(800);
     check('sin cierres por error con el resumen, la bienvenida y el despertador nativos', crashes() === 0, crashText().slice(0, 1500));
   };
+  // ================= Fase 4, parte 2 · paso 1 · los datos, en Android =================
+  const datos60 = async () => {
+    const info = () => js(`return await Capacitor.Plugins.OrbitaUi.dataInfo();`);
+    // (algo de cada clase, para que el traspaso lleve de todo: una canción importada con su audio y sus dos portadas,
+    //  una grabación de «Tu voz», una letra, un deseo, un análisis con números de los de «Float32Array», escuchas y un
+    //  ajuste con letras raras)
+    const seed = await js(`
+      const db = await new Promise((res, rej) => { const r = indexedDB.open('orbita'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const wav = n => { const sr = 8000, b = new ArrayBuffer(44 + n * 2), v = new DataView(b); const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.round(8000 * Math.sin(i / 7)), true); return b; };
+      const img = async c => { const cv = new OffscreenCanvas(64, 64), g = cv.getContext('2d'); g.fillStyle = c; g.fillRect(0, 0, 64, 64); g.fillStyle = '#fff'; g.fillRect(8, 8, 20, 20); return await cv.convertToBlob({ type: 'image/png' }); };
+      const put = async (s, v, k) => { const t = db.transaction(s, 'readwrite'); k === undefined ? t.objectStore(s).put(v) : t.objectStore(s).put(v, k); await new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); }); };
+      const names = [...db.objectStoreNames], now = Date.now();
+      if (names.includes('tracks')) await put('tracks', { id: 'prueba-imp-1', title: 'Prueba importada ñ', artist: 'Órbita · prueba', album: '', duration: 3, addedAt: now, liked: true, plays: 2, cover: await img('#c0f'), thumb: await img('#0cf'), mine: true, hours: Array.from({ length: 24 }, (_, i) => i % 3) });
+      if (names.includes('audio')) await put('audio', new File([wav(24000)], 'prueba ñ.wav', { type: 'audio/wav', lastModified: 1700000000000 }), 'prueba-imp-1');
+      if (names.includes('voice')) await put('voice', { id: 'prueba-voz-1', slot: 'saludo', name: 'Hola', createdAt: now, blob: new Blob([wav(8000)], { type: 'audio/wav' }) });
+      if (names.includes('lyrics')) await put('lyrics', { id: 'prueba-imp-1', text: '[00:01.00] Hola 😀', src: 'manual', at: now });
+      if (names.includes('wishlist')) await put('wishlist', { id: 'prueba-deseo-1', title: 'Una que quiero', artist: 'Alguien', at: now });
+      if (names.includes('analysis')) await put('analysis', { id: 'prueba-imp-1', v: 4, bpm: 120.5, grid: new Float32Array([0.5, 1, 1.5, 0.1]), gain: -3.2 });
+      if (names.includes('events')) for (let i = 0; i < 3; i++) await put('events', { ts: now + i, id: 'prueba-imp-1', sec: 3, pct: 1, skip: false, hour: 12, dow: 1, src: 'library', title: 'Prueba importada ñ', artist: 'Órbita · prueba' });
+      localStorage.setItem('orbita:pruebaMigra', JSON.stringify({ a: 1, b: [1, 2, 3], c: 'ñ€😀', d: null }));
+      db.close();
+      return { names, version: db.version };`);
+    log('  datos: la base de la web: ' + JSON.stringify(seed));
+    // (quieta: la música en pausa y nada escribiéndose — un análisis de canción a medias, una escucha —)
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
+    await js(`const o = window.__orbita; if (!o.act().paused) o.togglePlay(); return 1;`); await sleep(1500);
+    const COUNTS = `const db = await new Promise((res, rej) => { const r = indexedDB.open('orbita'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const out = {}; for (const s of db.objectStoreNames) out[s] = await new Promise((res, rej) => { const q = db.transaction(s).objectStore(s).count(); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); db.close(); return JSON.stringify(out);`;
+    let c0 = await js(COUNTS);
+    for (let k = 0; k < 8; k++) { await sleep(4000); const c1 = await js(COUNTS); if (c1 === c0) break; c0 = c1; }
+    // ---- el traspaso
+    const t0 = Date.now();
+    const m1 = await js(`return await Capacitor.Plugins.OrbitaUi.dataMigrate({ force: true });`);
+    log('  datos: traspaso en ' + (Date.now() - t0) + ' ms: ' + JSON.stringify(m1).slice(0, 700));
+    check('el traspaso de los datos a Android termina y se comprueba solo (ajustes, registros, escuchas y archivos)', !!m1 && m1.ok === true && m1.done === true && m1.state === 'hecho', JSON.stringify(m1).slice(0, 600));
+    // ---- lo de la web y lo de Android, en la misma forma: cada archivo por su tamaño, tipo y huella
+    const CANON = `
+      const sort = v => Array.isArray(v) ? v.map(sort) : v && typeof v === 'object' ? Object.keys(v).sort().reduce((o, k) => (o[k] = sort(v[k]), o), {}) : v;
+      const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+      const TYPED = ['Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array'];
+      const webWalk = async v => {
+        if (v instanceof Blob) { const o = { $blob: '*', type: v.type || '', size: v.size, sha: hex(await crypto.subtle.digest('SHA-256', await v.arrayBuffer())) }; if (v instanceof File) { o.name = v.name; o.lastModified = v.lastModified; } return o; }
+        if (Array.isArray(v)) { const a = []; for (const x of v) a.push(await webWalk(x)); return a; }
+        if (v && typeof v === 'object') {
+          if (v instanceof Date) return { $date: v.getTime() };
+          if (v instanceof ArrayBuffer) return { $typed: 'ArrayBuffer', v: Array.from(new Uint8Array(v)) };
+          if (v instanceof DataView) return { $typed: 'DataView', v: Array.from(new Uint8Array(v.buffer, v.byteOffset, v.byteLength)) };
+          if (ArrayBuffer.isView(v)) return { $typed: TYPED.find(t => v instanceof window[t]) || 'Uint8Array', v: Array.from(v) };
+          if (v instanceof Map) return { $map: await webWalk([...v.entries()]) };
+          if (v instanceof Set) return { $set: await webWalk([...v.values()]) };
+          const o = {}; for (const k of Object.keys(v)) { if (v[k] !== undefined && typeof v[k] !== 'function') o[k] = await webWalk(v[k]); } return o;
+        }
+        if (typeof v === 'number' && !isFinite(v)) return { $num: String(v) };
+        return v;
+      };
+      const P = Capacitor.Plugins.OrbitaUi, hashes = {};
+      const natWalk = async v => {
+        if (Array.isArray(v)) { const a = []; for (const x of v) a.push(await natWalk(x)); return a; }
+        if (v && typeof v === 'object') {
+          if (typeof v.$blob === 'string') { const h = hashes[v.$blob] || (hashes[v.$blob] = await P.dataDump({ kind: 'hash', rel: v.$blob })); const o = { ...v, $blob: '*', sha: h.sha }; if (h.size !== v.size) o.sizeEnDisco = h.size; return o; }
+          const o = {}; for (const k of Object.keys(v)) o[k] = await natWalk(v[k]); return o;
+        }
+        return v;
+      };`;
+    const both = await js(`${CANON}
+      const db = await new Promise((res, rej) => { const r = indexedDB.open('orbita'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const web = { kv: {}, stores: {}, events: [] }, nat = { kv: {}, stores: {}, events: [] };
+      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('orbita:')) web.kv[k.slice(7)] = localStorage.getItem(k); }
+      for (const s of db.objectStoreNames) {
+        const t = db.transaction(s), os = t.objectStore(s); const [keys, vals] = await Promise.all([req(os.getAllKeys()), req(os.getAll())]);
+        const list = []; for (let i = 0; i < keys.length; i++) list.push([keys[i], JSON.stringify(sort(await webWalk(vals[i])))]);
+        if (s === 'events') web.events = list; else web.stores[s] = list;
+      }
+      db.close();
+      for (const [k, v] of (await P.dataDump({ kind: 'kv' })).items) if (!k.startsWith('_')) nat.kv[k] = v;
+      for (const s of Object.keys(web.stores)) {
+        const list = []; let after = null;
+        while (true) { const r = await P.dataDump({ kind: 'rec', store: s, after, limit: 300 }); for (const [k, v] of r.items) list.push([k, JSON.stringify(sort(await natWalk(JSON.parse(v))))]); if (r.items.length < 300) break; after = r.items[r.items.length - 1][0]; }
+        nat.stores[s] = list;
+      }
+      { let after = 0; while (true) { const r = await P.dataDump({ kind: 'ev', after, limit: 2000 }); for (const [n, v] of r.items) nat.events.push([n, JSON.stringify(sort(await natWalk(JSON.parse(v))))]); if (r.items.length < 2000) break; after = r.items[r.items.length - 1][0]; } }
+      return { web, nat };`);
+    // las claves que la app reescribe sola mientras está abierta (su registro de diagnóstico, la sesión…): se miran aparte
+    const VOLATIL = new Set(['diag', 'session', 'naSeq', 'baseOpen', 'nuiOpen', 'brainOpen', 'earOpen', 'vizOpen', 'lyOpen', 'ytOpen', 'lastUpdateCheck', 'recAt', 'brainAt']);
+    const W = both && both.web, N = both && both.nat, bad = [], moved = [];
+    if (!W || !N) bad.push('sin datos para comparar: ' + JSON.stringify(both).slice(0, 300));
+    else {
+      for (const k of Object.keys(W.kv)) { if (!(k in N.kv)) bad.push('falta el ajuste ' + k); else if (N.kv[k] !== W.kv[k]) (VOLATIL.has(k) ? moved : bad).push('ajuste ' + k); }
+      for (const k of Object.keys(N.kv)) if (!(k in W.kv)) bad.push('sobra el ajuste ' + k);
+      for (const s of Object.keys(W.stores)) {
+        const wm = new Map(W.stores[s].map(([k, v]) => [typeof k === 'string' ? k : '#' + JSON.stringify(k), v])), nm = new Map(N.stores[s].map(([k, v]) => [k, v]));
+        if (wm.size !== nm.size) bad.push(s + ': ' + wm.size + ' en la web, ' + nm.size + ' en Android');
+        for (const [k, v] of wm) { if (!nm.has(k)) bad.push(s + ': falta ' + k); else if (nm.get(k) !== v) bad.push(s + ': distinto ' + k + ' · web ' + v.slice(0, 160) + ' · android ' + nm.get(k).slice(0, 160)); }
+      }
+      if (W.events.length !== N.events.length) bad.push('escuchas: ' + W.events.length + ' en la web, ' + N.events.length + ' en Android');
+      for (let i = 0; i < Math.min(W.events.length, N.events.length); i++) if (W.events[i][0] !== N.events[i][0] || W.events[i][1] !== N.events[i][1]) { bad.push('escucha ' + W.events[i][0] + ' distinta'); break; }
+    }
+    const n = W ? { ajustes: Object.keys(W.kv).length, almacenes: Object.fromEntries(Object.entries(W.stores).map(([s, l]) => [s, l.length])), escuchas: W.events.length } : null;
+    log('  datos: lo de la web: ' + JSON.stringify(n) + (moved.length ? ' · cambian solos mientras tanto: ' + moved.join(', ') : ''));
+    check('Android tiene exactamente lo mismo que la web: cada ajuste, cada registro de cada almacén, cada escucha y cada archivo (mismo tamaño y misma huella)', W && N && bad.length === 0, bad.slice(0, 12).join(' · ').slice(0, 1500) || JSON.stringify(n));
+    const blobs = N ? Object.values(N.stores).flat().filter(([, v]) => v.includes('"$blob"')).length : 0;
+    const seen = ['prueba-imp-1'].every(k => N && N.stores.tracks && N.stores.tracks.some(([kk, v]) => kk === k && v.includes('"$blob"')) && N.stores.audio && N.stores.audio.some(([kk]) => kk === k));
+    check('lo de cada clase ha llegado: la canción importada con su audio y sus portadas, la grabación, la letra, el análisis y el ajuste con letras raras', seen && N.kv.pruebaMigra === W.kv.pruebaMigra && N.stores.voice && N.stores.voice.some(([k, v]) => k === 'prueba-voz-1' && v.includes('"$blob"')) && N.stores.analysis && N.stores.analysis.some(([k, v]) => k === 'prueba-imp-1' && v.includes('"Float32Array"')), JSON.stringify({ registros_con_archivos: blobs }));
+    // ---- hecho queda hecho (no se repite al abrir); y repetirlo desde cero da lo mismo
+    const t1 = Date.now(); const m2 = await js(`return await Capacitor.Plugins.OrbitaUi.dataMigrate({ force: false });`);
+    check('ya hecho, no se repite (abrir la app otra vez no vuelve a pasarlo todo)', !!m2 && m2.ok === true && m2.msg === 'ya estaba' && Date.now() - t1 < 8000, JSON.stringify({ msg: m2 && m2.msg, ms: Date.now() - t1 }));
+    const m3 = await js(`return await Capacitor.Plugins.OrbitaUi.dataMigrate({ force: true });`);
+    check('y hecho otra vez desde cero, sale lo mismo (nada repetido ni de menos)', !!m3 && m3.ok === true && JSON.stringify(m3.stores) === JSON.stringify(m1.stores) && m3.events === m1.events && m3.blobs === m1.blobs && m3.bytes === m1.bytes, JSON.stringify({ antes: m1 && { s: m1.stores, e: m1.events, b: m1.blobs }, ahora: m3 && { s: m3.stores, e: m3.events, b: m3.blobs } }).slice(0, 600));
+    // (lo sembrado se quita de la web, para no dejar canciones de prueba)
+    await js(`const db = await new Promise((res, rej) => { const r = indexedDB.open('orbita'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const del = (s, k) => new Promise(res => { if (![...db.objectStoreNames].includes(s)) return res(); const t = db.transaction(s, 'readwrite'); t.objectStore(s).delete(k); t.oncomplete = res; t.onerror = res; });
+      for (const [s, k] of [['tracks', 'prueba-imp-1'], ['audio', 'prueba-imp-1'], ['voice', 'prueba-voz-1'], ['lyrics', 'prueba-imp-1'], ['wishlist', 'prueba-deseo-1'], ['analysis', 'prueba-imp-1']]) await del(s, k);
+      db.close(); localStorage.removeItem('orbita:pruebaMigra'); return 1;`);
+    check('sin cierres por error con el traspaso de los datos', crashes() === 0, crashText().slice(0, 1500));
+  };
+  if (SOLO_DATOS) {
+    await goView('inicio'); await sleep(3000);
+    await datos60(); saveLogs(); finish('prueba rápida: solo el traspaso de los datos');
+  }
   if (SOLO_BASE) {
     await goView('ajustes'); await sleep(1000);
     const t0 = await js(`const b = document.querySelector('#tNui'); if (!b) return 'sin interruptor'; b.scrollIntoView({ block: 'center' }); if (b.getAttribute('aria-pressed') !== 'true') b.click(); await new Promise(r => setTimeout(r, 400)); return b.getAttribute('aria-pressed');`);
@@ -2120,6 +2243,9 @@ try {
   // el cerebro, al final de todo (carga el modelo en Android y, para compararlo, también en la parte web: es lo que más memoria pide)
   await goView('inicio'); await sleep(1500);
   await cerebro52();
+  // los datos, en Android (al final: con todo lo que las pruebas han ido guardando)
+  await goView('inicio'); await sleep(1500);
+  await datos60();
 } catch (e) {
   check('la prueba terminó sin errores propios', false, e && e.stack || e);
 }
