@@ -626,7 +626,7 @@ class NativeDeck extends EventTarget {
   get src() { return this._src; }
   set src(v) {
     v = String(v || ''); this._src = v; const my = ++this._gen;
-    this.paused = true; this._t = 0; this._tAt = performance.now(); this._dur = NaN; this._native = null; this._startAt = 0;
+    this.paused = true; this._t = 0; this._tAt = performance.now(); this._dur = NaN; this._native = null; this._startAt = 0; this._skAt = 0;
     this._ended = false; this._gapless = null; this._playingSent = false; this.error = null;
     if (!v) { NA_PLUGIN.stop({ slot: this.slot }).catch(() => {}); this._loaded = Promise.resolve(null); return; }
     this._loaded = (async () => {
@@ -647,7 +647,7 @@ class NativeDeck extends EventTarget {
   }
   set currentTime(v) {
     v = Math.max(0, +v || 0); this._t = v; this._tAt = performance.now(); this._ended = false;
-    if (this._native) NA_PLUGIN.seek({ slot: this.slot, pos: v }).catch(() => {}); else this._startAt = v;
+    if (this._native) { this._skAt = this._tAt; NA_PLUGIN.seek({ slot: this.slot, pos: v }).catch(() => {}); } else this._startAt = v;
   }
   get duration() { return this._dur; }
   get volume() { return this._vol; }
@@ -681,10 +681,12 @@ class NativeDeck extends EventTarget {
     if (e.type === 'loaded') { if (e.dur > 0) { this._dur = e.dur; this._emit('loadedmetadata'); this._emit('durationchange'); } }
     else if (e.type === 'pos') {
       if (this.paused) return;
-      this._t = e.pos; this._tAt = performance.now(); if (e.dur > 0 && !isFinite(this._dur)) { this._dur = e.dur; this._emit('loadedmetadata'); }
+      const stale = !!this._skAt && performance.now() - this._skAt < 2000 && Math.abs(e.pos - this.currentTime) > 1.5;
+      if (!stale) { this._skAt = 0; this._t = e.pos; this._tAt = performance.now(); }
+      if (e.dur > 0 && !isFinite(this._dur)) { this._dur = e.dur; this._emit('loadedmetadata'); }
       if (!this._playingSent) { this._playingSent = true; this._emit('playing'); naOk(); }
-      this._emit('timeupdate');
-    } else if (e.type === 'seeked') { this._t = e.pos; this._tAt = performance.now(); this._emit('seeked'); }
+      if (!stale) this._emit('timeupdate');
+    } else if (e.type === 'seeked') { this._skAt = 0; this._t = e.pos; this._tAt = performance.now(); this._emit('seeked'); }
     else if (e.type === 'ended') { this._t = isFinite(this._dur) ? this._dur : this._t; this.paused = true; this._ended = true; this._playingSent = false; this._emit('pause'); this._emit('ended'); }
     else if (e.type === 'jump') {
       /* a button of the notification (next / previous) already changed the song in the engine: the app catches up */
