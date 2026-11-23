@@ -1281,7 +1281,7 @@ try {
     const until = async (expr, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await js(expr) === true) return true; await sleep(500); } return false; };
     const NI = `return await Capacitor.Plugins.OrbitaUi.natInfo();`;
     // lo de la app de siempre, para comparar: cuántas canciones guarda (las de prueba no se guardan: se fabrican)
-    const before = await js(`const o = window.__orbita; return { songs: o.state.tracks.filter(t => !t.demo).length, ids: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.id), titles: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.title), all: o.state.tracks.filter(t => !t.demo).map(t => t.id), arts: o.state.tracks.filter(t => !t.demo && (t.thumb || t.cover)).length };`);
+    const before = await js(`const o = window.__orbita; return { songs: o.state.tracks.filter(t => !t.demo).length, ids: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.id), titles: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.title), all: o.state.tracks.filter(t => !t.demo).map(t => t.id), arts: o.state.tracks.filter(t => !t.demo && (t.thumb || t.cover)).length, meta: (document.querySelector('#libMeta') || {}).textContent || '', dev: ((document.querySelector('#devBox .d-text span') || {}).textContent || '').trim() };`);
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
     await js(`await Capacitor.Plugins.OrbitaUi.dataMigrate({ force: false }); return 1;`).catch(() => null);
     // a la nativa: la página de siempre ni arranca
@@ -1307,16 +1307,35 @@ try {
     // la barra de abajo nativa: dice lo que suena, y sus botones (tocados de verdad) hacen lo de siempre
     const sb = await js(NI);
     check('la barra de abajo es de Android y dice lo que suena (con el fondo de siempre detrás)', !!sb && sb.baseLive && sb.barTitle === (before.titles[0] || '') && sb.barPlaying, JSON.stringify(sb && { baseLive: sb.baseLive, barTitle: sb.barTitle, web: before.titles[0], playing: sb.barPlaying }));
-    // (dónde está cada botón: abajo del todo, las pestañas y encima la barra, con sus medidas de CSS)
-    const k = sb ? sb.dens : 2.625, bottom = sb ? sb.webY + sb.webH - sb.inset * k : 0, plTop = bottom - (60.77 + 152) * k;
-    const W0 = 1080, cx = W0 / 2;
-    const playXY = [Math.round(cx - 22 * k), Math.round(plTop + (8 + 56 + 6 + 23) * k)], nextXY = [Math.round(cx + 25 * k), playXY[1]];
+    // (dónde está cada botón: lo dice Android, en píxeles de la pantalla)
+    const at = (s, n) => { const r = s && s.rects && s.rects[n]; return r ? [Math.round(r[0] + r[2] / 2), Math.round(r[1] + r[3] / 2)] : null; };
     shot('nativa-barra');
-    tap(...playXY); const pz = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.barPlaying === false;`, 5000);
-    tap(...playXY); const pp = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.barPlaying === true;`, 5000);
+    const playXY = at(sb, 'bar-toggle'), nextXY = at(sb, 'bar-next');
+    if (playXY) tap(...playXY); const pz = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.barPlaying === false;`, 5000);
+    if (playXY) tap(...playXY); const pp = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.barPlaying === true;`, 5000);
     check('su play (tocado de verdad) pausa, y otra vez vuelve a sonar', pz && pp, JSON.stringify({ pz, pp, playXY }));
-    const q0 = (await js(NI)).qi; tap(...nextXY); const nn = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.qi === ${q0 + 1};`, 6000);
+    const q0 = (await js(NI)).qi; if (nextXY) tap(...nextXY); const nn = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.qi === ${q0 + 1};`, 6000);
     check('«siguiente» (tocado de verdad) pasa a la siguiente', nn, JSON.stringify({ antes: q0, ahora: (await js(NI)).qi, nextXY }));
+    // «Mi música» dice lo mismo que la de siempre (cuántas, cuánto duran, la música del móvil)
+    const sm = await js(NI);
+    check('«Mi música» dice lo mismo que la de siempre (cuántas canciones y la música del móvil)', !!sm && sm.meta === before.meta && sm.devText === before.dev, JSON.stringify({ web: [before.meta, before.dev], android: sm && [sm.meta, sm.devText] }));
+    // el reproductor a pantalla completa: se abre tocando la canción de la barra, dice lo mismo y se cierra con «Cerrar»
+    const trXY = at(await js(NI), 'bar-track'); if (trXY) tap(...trXY);
+    const npUp = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.wins.includes('np') && s.npP > 0.99;`, 6000);
+    await sleep(1500); shot('nativa-reproductor');
+    const sn = await js(NI);
+    const clXY = at(sn, 'np-close'); if (clXY) tap(...clXY);
+    const npGone = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return !s.wins.includes('np');`, 6000);
+    check('«Ahora suena» a pantalla completa: se abre desde la barra y se cierra con «Cerrar»', npUp && npGone, JSON.stringify({ npUp, npGone, trXY, clXY, wins: sn && sn.wins }));
+    // el temporizador para dormir: se abre desde la barra, «15 min» lo pone (y la barra lo dice) y se quita
+    const slXY = at(await js(NI), 'bar-sleep-open'); if (slXY) tap(...slXY);
+    const slUp = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.wins.includes('sleep');`, 5000);
+    await sleep(800); shot('nativa-dormir');
+    const s15 = at(await js(NI), 'sleep-15'); if (s15) tap(...s15);
+    const slOn = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.sleep === '15' && !s.wins.includes('sleep');`, 5000);
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'sleep', o: { v: 'off' } }); return 1;`).catch(() => null);
+    const slOff = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.sleep === '';`, 4000);
+    check('el temporizador para dormir: se abre desde la barra, «15 min» lo pone y se quita', slUp && slOn && slOff, JSON.stringify({ slUp, slOn, slOff, slXY, s15 }));
     // al final de la canción, la siguiente (la sigue el motor solo)
     const qN = (await js(NI)).qi;
     { const s2 = await js(NI), d2 = s2 && s2.pos ? +s2.pos.dur : 0; if (d2 > 8) await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'test-seek', o: { pos: ${Math.max(0, d2 - 4)} } }); return 1;`).catch(() => null); }

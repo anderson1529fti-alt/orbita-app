@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -63,6 +64,8 @@ internal object Bar {
     var dur by mutableDoubleStateOf(0.0)
     /** Lo de abajo del todo del móvil (la raya de gestos o sus botones), en «px» de CSS. */
     var inset by mutableDoubleStateOf(0.0)
+    /** (para las pruebas) dónde está cada botón en la pantalla, en píxeles: x, y, ancho, alto. */
+    val rects = java.util.concurrent.ConcurrentHashMap<String, FloatArray>()
     /** El alto que ocupa (en «px» de CSS), sin lo de abajo del todo del móvil. */
     const val PLAYER = 152f
     const val NAV = 60.77f
@@ -86,6 +89,11 @@ internal val TABS = listOf(
 )
 
 private val EASE = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
+
+/** (para las pruebas) apunta dónde se ha dibujado algo. */
+internal fun Modifier.spot(name: String): Modifier = this.onGloballyPositioned { c ->
+    try { val o = c.localToScreen(Offset.Zero); Bar.rects[name] = floatArrayOf(o.x, o.y, c.size.width.toFloat(), c.size.height.toFloat()) } catch (ignored: Throwable) { }
+}
 
 private fun fmtT(s: Double): String {
     if (s.isNaN() || s.isInfinite() || s <= 0) return "0:00"
@@ -142,7 +150,7 @@ private fun TrackRow(sk: Skin) {
         seen = t?.id
     }
     Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-        val open = Modifier.pointerInput(Unit) { detectTapGestures { Nativo.onUi("np-open", org.json.JSONObject()) } }
+        val open = Modifier.pointerInput(Unit) { detectTapGestures { Nativo.onUi("np-open", org.json.JSONObject()) } }.spot("bar-track")
         Box(open.graphicsLayer { translationX = slide.value * 26.dp.toPx(); alpha = 1f - kotlin.math.abs(slide.value) }) {
             if (t != null) Cover(t, sk, 56f, 12f)
             else Cover(UiTrack("", "", "", "", "", 0.0, 0.0, 0, 0.0, false, false, false, false, false, 280f), sk, 56f, 12f)
@@ -181,7 +189,7 @@ private fun Controls(sk: Skin) {
 @Composable
 private fun Ctrl(sk: Skin, label: String, act: String = "shuffle", on: Boolean = false, badge: String = "", icon: @Composable () -> Unit) {
     val p = sk.pal
-    Box(Modifier.size(40.dp).clip(CircleShape).semantics { contentDescription = label }.press { Nativo.onUi(act, org.json.JSONObject()) }, contentAlignment = Alignment.Center) {
+    Box(Modifier.size(40.dp).spot("bar-" + act).clip(CircleShape).semantics { contentDescription = label }.press { Nativo.onUi(act, org.json.JSONObject()) }, contentAlignment = Alignment.Center) {
         icon()
         if (badge.isNotEmpty()) T(badge, 9.6f, if (on || act == "repeat" || act == "sleep-open") p.accent else p.muted, Modifier.align(Alignment.BottomEnd).padding(end = 5.dp, bottom = 3.dp), family = Mono, weight = FontWeight.ExtraBold, lh = 1f)
     }
@@ -195,7 +203,7 @@ private fun PlayBtn(sk: Skin) {
     val turn = remember { Animatable(0f) }
     var was by remember { mutableStateOf(playing) }
     LaunchedEffect(playing) { if (was != playing) { turn.snapTo(1f); turn.animateTo(0f, tween(240)) }; was = playing }
-    Box(Modifier.size(46.dp).glow(p.glow, 23.dp, 26.dp, 0.dp, (-4).dp).clip(CircleShape).background(p.grad)
+    Box(Modifier.size(46.dp).spot("bar-toggle").glow(p.glow, 23.dp, 26.dp, 0.dp, (-4).dp).clip(CircleShape).background(p.grad)
         .semantics { contentDescription = if (playing) "Pausar" else "Reproducir" }.press(0.9f) { Nativo.onUi("toggle", org.json.JSONObject()) },
         contentAlignment = Alignment.Center) {
         Box(Modifier.graphicsLayer { rotationZ = turn.value * (if (playing) -90f else 90f); val s = 1f - 0.6f * turn.value; scaleX = s; scaleY = s; alpha = 1f - turn.value }) {
@@ -260,7 +268,7 @@ private fun NavBlock(sk: Skin, bottomInset: Float) {
         Row(Modifier.fillMaxWidth().height(51.77.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for ((id, label, icon) in TABS) {
                 val cur = UiState.screen == id
-                Column(Modifier.weight(1f).height(51.77.dp).semantics { contentDescription = label }.press(0.96f) { Nativo.onUi("tab", org.json.JSONObject().put("view", id)) }
+                Column(Modifier.weight(1f).height(51.77.dp).spot("tab-" + id).semantics { contentDescription = label }.press(0.96f) { Nativo.onUi("tab", org.json.JSONObject().put("view", id)) }
                     .padding(top = 7.dp, bottom = 7.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Ico(icon, 20f, if (cur) p.accent else p.muted)
                     T(label, 10.88f, if (cur) p.fg else p.muted, weight = FontWeight.Bold, maxLines = 1)

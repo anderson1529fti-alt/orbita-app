@@ -41,15 +41,20 @@ object Nativo {
     private fun boot() {
         bg.execute {
             try { Lib.load() } catch (t: Throwable) { note("biblioteca: ${t.message}") }
+            try { Memoria.load() } catch (t: Throwable) { note("memoria: ${t.message}") }
             main.post {
                 look()
                 pushLibrary()
+                Biblio.boxes()
                 Player.init()
+                // (si el motor seguía sonando con la app cerrada, se sigue con eso; si no, lo último, en pausa)
+                if (!Player.adopt()) Player.resumeSession(false)
                 ui?.nativoShow(Prefs.str("startView", "inicio").let { if (it == "biblioteca") it else "biblioteca" })
+                ready = true
                 ui?.nativoBase(bgNow())
                 Player.barSync()
-                ready = true
                 note("listo: ${Lib.tracks.size} canciones")
+                if (Biblio.devState() == "granted") main.postDelayed({ Biblio.syncDevice(false) }, 1500)
             }
         }
     }
@@ -74,11 +79,7 @@ object Nativo {
     }
 
     fun pushLibrary() {
-        val hide = Prefs.bool("hideDemos", false)
-        UiState.tracks = Lib.tracks.filter { !(it.demo && hide) }.map { t ->
-            UiTrack(t.id, t.title, t.artist, t.album, t.folder, t.duration, t.addedAt, t.plays, t.lastPlayed, t.liked, t.demo, t.mine, t.dev,
-                Lib.coverFile(t) != null, Momento.phHue(t).toFloat())
-        }
+        UiState.tracks = Biblio.visible().map { Player.uiTrack(it) }
         UiState.filter = UiState.filter.ifEmpty { "all" }
         UiState.sort = Prefs.str("sort", "recent")
         UiState.nowId = Player.current()?.id ?: ""
@@ -115,160 +116,60 @@ object Nativo {
             "needCovers" -> { val a = o.optJSONArray("ids"); if (a != null) covers(List(a.length()) { a.optString(it) }) }
             "needArt" -> { val a = o.optJSONArray("urls"); if (a != null) covers(List(a.length()) { a.optString(it) }, o.optInt("side", 46), o.optString("tag", "")) }
             "baseLive" -> {}
+            // ---- «Mi música»
             "play" -> {
                 val a = o.optJSONArray("ids") ?: return
                 Player.playQueue(List(a.length()) { a.optString(it) }, o.optInt("index", 0))
             }
-            "like" -> { val t = Lib.byId(o.optString("id")) ?: return; t.liked = !t.liked; Lib.save(t); pushLibrary(); Player.barSync() }
+            "like" -> Biblio.like(o.optString("id"))
+            "del" -> Biblio.delete(o.optString("id"))
+            "edit" -> Ventanas.openEdit(o.optString("id"))
+            "add" -> Biblio.pick()
+            "dev" -> if (o.optString("act") == "sync") Biblio.syncDevice(true) else Biblio.connect()
+            "demos" -> Biblio.toggleDemos()
+            "pref" -> {
+                if (o.has("filter")) UiState.filter = o.optString("filter", "all")
+                if (o.has("sort")) { UiState.sort = o.optString("sort", "recent"); Prefs.set("sort", UiState.sort) }
+            }
+            // ---- la barra de abajo
             "toggle" -> Player.toggle()
             "next" -> Player.next(false)
             "prev" -> Player.prev()
             "seek" -> Player.seek(o.optDouble("pos", 0.0))
             "shuffle" -> Player.setShuffle(!Prefs.bool("shuffle", false))
             "repeat" -> Player.cycleRepeat()
-            "tab" -> {
-                val v = o.optString("view")
-                if (v == "biblioteca") ui?.nativoShow(v) else toast("Esta pantalla aún no está en la Órbita nativa.")
-            }
-            "pref" -> {
-                if (o.has("filter")) UiState.filter = o.optString("filter", "all")
-                if (o.has("sort")) { UiState.sort = o.optString("sort", "recent"); Prefs.set("sort", UiState.sort) }
-            }
+            "sleep-open" -> Ventanas.open("sleep")
+            "np-open" -> Ventanas.open("np")
+            "tab" -> go(o.optString("view"))
+            // ---- (pruebas)
             "test-seek" -> NovaCore.eng().seek(Player.slot, o.optDouble("pos", 0.0))
-            else -> note("sin hacer todavía: $type")
+            else -> if (!Ventanas.onUi(type, o)) note("sin hacer todavía: $type")
         }
     }
-}
 
-/**
- * El reproductor (lo de «Playback» de la parte web): qué suena, la cola y el motor de sonido de siempre ([NovaCore]),
- * que sigue la lista solo (también con la pantalla apagada).
- */
-object Player {
-    var queue: List<String> = emptyList(); private set
-    var qi = -1; private set
-    var slot = 0; private set
-    @Volatile var playing = false; private set
-    private val main = Handler(Looper.getMainLooper())
-
-    fun current(): Track? = queue.getOrNull(qi)?.let { Lib.byId(it) }
-
-    fun init() {
-        NovaCore.sink = object : NovaCore.Sink {
-            override fun audio(o: JSONObject) { main.post { onAudio(o) } }
-            override fun spectrum(b64: String) {}
-        }
-        tick()
+    /** Cambiar de pestaña. */
+    fun go(view: String) {
+        val v = if (view in listOf("inicio", "buscar", "biblioteca", "listas", "tu", "ajustes", "voz")) view else "biblioteca"
+        if (v != "biblioteca") { toast("Esta pantalla aún no está en la Órbita nativa."); return }
+        Prefs.set("lastView", v)
+        ui?.nativoShow(v)
     }
 
-    // el tiempo de la barra, cuatro veces por segundo (lo que de verdad se oye)
-    private fun tick() {
-        main.postDelayed({
-            try {
-                if (current() != null) {
-                    val p = NovaCore.position(slot)
-                    Bar.pos = p.optDouble("pos", 0.0); Bar.dur = p.optDouble("dur", 0.0).let { if (it > 0) it else current()?.duration ?: 0.0 }
-                    val pl = p.optBoolean("playing"); if (pl != Bar.playing) { Bar.playing = pl; playing = pl }
-                }
-            } catch (ignored: Throwable) { }
-            tick()
-        }, 250)
-    }
+    // ---------------------------------------------------------------- lo que pasa (y lo que hay que volver a enseñar)
+    /** La app se ve (o está en segundo plano). */
+    @Volatile var awake = true
 
-    /** Lo que dice la barra de abajo: la canción, si suena, aleatorio, repetir. */
-    fun barSync() {
-        val t = current()
-        Bar.track = t?.let { UiTrack(it.id, it.title, it.artist, it.album, it.folder, it.duration, it.addedAt, it.plays, it.lastPlayed, it.liked, it.demo, it.mine, it.dev, Lib.coverFile(it) != null, Momento.phHue(it).toFloat()) }
-        Bar.shuffle = Prefs.bool("shuffle", false)
-        Bar.repeat = Prefs.str("repeat", "off")
-        Bar.playing = playing
-    }
+    fun libraryChanged() { pushLibrary(); Biblio.boxes(); if (Player.has()) Player.barSync() }
+    fun onTrack(t: Track) { UiState.nowId = t.id }
+    fun onQueue() { Ventanas.refresh("np") }
+    fun onSleep() { Player.barSync(); Ventanas.refresh("sleep") }
+    fun onImport() { Ventanas.refresh("imp") }
+    fun onMemory() {}
+    fun onNova() {}
 
-    fun toggle() {
-        val t = current() ?: return
-        if (playing) { NovaCore.pause(slot); playing = false } else { NovaCore.play(slot); playing = true }
-        Bar.playing = playing
-        Nativo.note((if (playing) "sigue: " else "pausa: ") + t.title)
-    }
+    /** Lo de arriba del todo del móvil, en «px» de CSS (la capa de las ventanas va donde la web: ya por debajo). */
+    fun topInset(): Float = 0f
 
-    /** La siguiente (a mano: también con «repetir toda la lista», al final vuelve a la primera). */
-    fun next(auto: Boolean) {
-        if (queue.isEmpty()) return
-        if (qi + 1 < queue.size) { Bar.dir = 1; qi++; loadCurrent() }
-        else if (Prefs.str("repeat", "off") == "all") { Bar.dir = 1; qi = 0; loadCurrent() }
-    }
-
-    /** La anterior (o la misma desde el principio, si ya lleva más de 3 segundos). */
-    fun prev() {
-        if (queue.isEmpty()) return
-        val pos = try { NovaCore.position(slot).optDouble("pos", 0.0) } catch (t: Throwable) { 0.0 }
-        if (pos > 3 || qi == 0) { NovaCore.eng().seek(slot, 0.0); return }
-        Bar.dir = -1; qi--; loadCurrent()
-    }
-
-    fun seek(pos: Double) { if (current() == null) return; NovaCore.eng().seek(slot, maxOf(0.0, pos)); Bar.pos = pos }
-
-    fun setShuffle(on: Boolean) {
-        Prefs.set("shuffle", on)
-        // (como en la web: lo que queda de la cola se baraja; lo que suena sigue)
-        if (on && qi >= 0 && queue.size > qi + 2) { val rest = queue.subList(qi + 1, queue.size).shuffled(); queue = queue.subList(0, qi + 1) + rest; syncPlaylist() }
-        barSync()
-    }
-
-    fun cycleRepeat() {
-        val r = when (Prefs.str("repeat", "off")) { "off" -> "all"; "all" -> "one"; else -> "off" }
-        Prefs.set("repeat", r)
-        barSync()
-    }
-
-    fun playQueue(ids: List<String>, start: Int) {
-        val q = ids.filter { Lib.byId(it) != null }
-        if (q.isEmpty()) return
-        queue = q; qi = start.coerceIn(0, q.size - 1)
-        loadCurrent()
-    }
-
-    private fun loadCurrent() {
-        val t = current() ?: return
-        val src = Lib.src(t)
-        if (src == null) { Nativo.note("no encuentro «${t.title}»"); Nativo.toast("No encuentro el archivo de esta canción."); return }
-        NovaCore.load(slot, src, 0.0, true)
-        syncPlaylist()
-        begin(t)
-    }
-
-    /** La cola, para que el motor siga solo (y el aviso de Android sepa qué viene). */
-    private fun syncPlaylist() {
-        val items = ArrayList<PItem>()
-        var k = qi
-        while (k < queue.size && items.size < 40) {
-            val t = Lib.byId(queue[k]) ?: break
-            val src = Lib.src(t) ?: break
-            items.add(PItem().apply { this.src = src; id = t.id; title = t.title; artist = t.artist; album = t.album; dur = t.duration })
-            k++
-        }
-        if (items.isNotEmpty()) NovaCore.setPlaylist(items, 0, slot, 0, 0)
-    }
-
-    /** Lo de cada vez que empieza una canción. */
-    private fun begin(t: Track) {
-        Nativo.note("suena: ${t.title}")
-        t.plays += 1; t.lastPlayed = System.currentTimeMillis().toDouble(); Lib.save(t)
-        UiState.nowId = t.id
-        playing = true
-        Nativo.look()
-        barSync()
-    }
-
-    private fun onAudio(o: JSONObject) {
-        when (o.optString("type")) {
-            "jump", "gapless" -> {
-                val src = o.optString("src")
-                val k = (qi + 1 until queue.size).firstOrNull { Lib.byId(queue[it])?.let { t -> Lib.src(t) } == src } ?: queue.indexOfFirst { id -> Lib.byId(id)?.let { Lib.src(it) } == src }
-                if (k >= 0 && k != qi) { qi = k; current()?.let { begin(it) } }
-            }
-            "state" -> if (o.optInt("slot", slot) == slot) playing = o.optBoolean("playing")
-            "ended" -> if (o.optInt("slot", slot) == slot && qi + 1 >= queue.size) playing = false
-        }
-    }
+    /** El fondo (con la portada de la que suena, si va con portada). */
+    fun bgSync() { if (ready) ui?.nativoBase(bgNow()) }
 }

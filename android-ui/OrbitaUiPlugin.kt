@@ -349,6 +349,9 @@ class OrbitaUiPlugin : Plugin() {
         r.put("barTitle", Bar.track?.title ?: ""); r.put("barPlaying", Bar.playing); r.put("barPos", Bar.pos); r.put("barDur", Bar.dur)
         r.put("shuffle", Bar.shuffle); r.put("repeat", Bar.repeat); r.put("baseLive", Base.live); r.put("baseOn", Base.on)
         r.put("inset", Bar.inset); r.put("dens", activity.resources.displayMetrics.density.toDouble()); r.put("webH", bridge.webView.height); r.put("webY", bridge.webView.y.toDouble())
+        val rs = JSObject(); for ((k, v) in Bar.rects) rs.put(k, JSArray(listOf(v[0].toDouble(), v[1].toDouble(), v[2].toDouble(), v[3].toDouble()))); r.put("rects", rs)
+        r.put("wins", JSArray(Ventanas.stack)); r.put("npP", Ventanas.npP.value.toDouble()); r.put("meta", UiState.meta); r.put("drop", UiState.drop.isNotEmpty())
+        r.put("devBox", UiState.dev?.title ?: ""); r.put("devText", UiState.dev?.text ?: ""); r.put("sleep", Bar.sleep); r.put("source", Player.source)
         return r
     }
 
@@ -363,6 +366,31 @@ class OrbitaUiPlugin : Plugin() {
         place()
         UiState.screen = screen
         host?.visibility = View.VISIBLE
+    }
+
+    /** Fase 4, parte 2 · La capa de las ventanas nativas (el reproductor, el temporizador…): encima de todo, del tamaño de la web. */
+    private var natWinHost: View? = null
+    internal fun nativoWin(show: Boolean) {
+        if (natWinHost == null) {
+            if (!show) return
+            val cv = ComposeView(activity)
+            cv.setContent { NatWindows() }
+            cv.translationZ = 50f
+            val wv = bridge.webView
+            (wv.parent as ViewGroup).addView(cv, ViewGroup.LayoutParams(maxOf(1, wv.width), maxOf(1, wv.height)))
+            natWinHost = cv
+            wv.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> try { placeNatWin() } catch (ignored: Throwable) { } }
+        }
+        placeNatWin()
+        natWinHost?.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) try { (activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(natWinHost?.windowToken, 0) } catch (ignored: Throwable) { }
+    }
+    private fun placeNatWin() {
+        val v = natWinHost ?: return
+        val wv = bridge.webView
+        val lp = v.layoutParams
+        if (lp.width != wv.width || lp.height != wv.height) { lp.width = maxOf(1, wv.width); lp.height = maxOf(1, wv.height); v.layoutParams = lp }
+        v.x = wv.x; v.y = wv.y
     }
 
     /** El fondo y la barra de abajo de la Órbita nativa (la barra, de Android de verdad: se toca y se lee). */

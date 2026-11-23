@@ -102,6 +102,26 @@ object Store {
         return if (f.isFile) f else null
     }
 
+    /** Guarda unos bytes como archivo de un registro y devuelve su marca {"$blob": …, type, size}. */
+    fun putBlob(s: String, k: String, path: String, bytes: ByteArray, type: String): Map<String, Any?> {
+        val rel = blobPath(s, k, path); val f = file(rel); f.parentFile?.mkdirs()
+        val tmp = File(f.path + ".tmp"); tmp.writeBytes(bytes)
+        if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
+        return linkedMapOf("\$blob" to rel, "type" to type, "size" to bytes.size.toLong())
+    }
+
+    /** Borra los archivos de un registro (los que dicen sus marcas). */
+    fun dropBlobs(s: String, k: String) {
+        val v = try { rec(s, k) } catch (t: Throwable) { null } ?: return
+        fun walk(x: Any?) {
+            when (x) {
+                is Map<*, *> -> { val r = x["\$blob"]; if (r is String && r.startsWith("blob/")) file(r).delete(); for (y in x.values) walk(y) }
+                is List<*> -> for (y in x) walk(y)
+            }
+        }
+        walk(Json.parseOr(v, null))
+    }
+
     /** Lo que hay guardado en archivos: cuántos y cuánto ocupan (para comprobar un traspaso). */
     fun blobStats(): Pair<Int, Long> {
         var n = 0; var b = 0L

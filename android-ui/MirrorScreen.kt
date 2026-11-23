@@ -498,7 +498,7 @@ private fun fxColor(fx: List<Float>): ColorFilter? {
 private val blurCache = object : java.util.LinkedHashMap<String, ImageBitmap>(8, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean = size > 6
 }
-private fun blurredCover(key: String, src: ImageBitmap, wPx: Float, hPx: Float, blurPx: Float): ImageBitmap? {
+internal fun blurredCover(key: String, src: ImageBitmap, wPx: Float, hPx: Float, blurPx: Float): ImageBitmap? {
     if (wPx < 2f || hPx < 2f || src.width < 2 || src.height < 2) return null
     val f = max(2f, blurPx * 0.75f)
     val tw = (wPx / f).roundToInt().coerceIn(4, 256); val th = (hPx / f).roundToInt().coerceIn(4, 256)

@@ -21,6 +21,10 @@ class Track(val id: String) {
     val extra = LinkedHashMap<String, Any?>()
     // (no se guardan: lo que la app sabe de la canción mientras está abierta)
     var demo = false
+    var prevPlayed = 0.0
+    /** De internet (muestra, radio, YouTube): no está en la biblioteca. */
+    var net = false
+    var kind = ""; var url = ""; var art = ""; var artBig = ""; var urlAt = 0L
 
     fun toRecord(): Map<String, Any?> {
         val m = LinkedHashMap<String, Any?>()
@@ -75,25 +79,38 @@ object Prefs {
 object Lib {
     val tracks = ArrayList<Track>()
     private val byId = HashMap<String, Track>()
-    var playlists: List<Map<String, Any?>> = emptyList()
+    var playlists: MutableList<Map<String, Any?>> = ArrayList()
     var loaded = false; private set
 
     @Synchronized fun load() {
-        tracks.clear(); byId.clear()
+        tracks.clear(); byId.clear(); bySrc.clear()
         for ((_, v) in Store.recs("tracks")) {
             val t = Json.obj(Json.parseOr(v, null))?.let { Track.from(it) } ?: continue
             tracks.add(t); byId[t.id] = t
         }
-        playlists = Store.recs("playlists").mapNotNull { Json.obj(Json.parseOr(it.second, null)) }
+        for (t in Demos.entries()) { tracks.add(t); byId[t.id] = t }
+        playlists = Store.recs("playlists").mapNotNull { Json.obj(Json.parseOr(it.second, null)) }.toMutableList()
         loaded = true
     }
 
-    fun byId(id: String): Track? = byId[id]
+    fun byId(id: String): Track? = byId[id] ?: net[id]
+    /** Las de internet que se han tocado (muestras, radios, vídeos), mientras la app está abierta. */
+    val net = java.util.concurrent.ConcurrentHashMap<String, Track>()
+    @Synchronized fun add(t: Track) { if (byId.containsKey(t.id)) return; tracks.add(t); byId[t.id] = t; bySrc.clear() }
+    @Synchronized fun remove(id: String) { val t = byId.remove(id) ?: return; tracks.remove(t); bySrc.clear() }
+    private val bySrc = HashMap<String, Track>()
+    /** La canción de un archivo o dirección del motor. */
+    @Synchronized fun bySrc(src: String): Track? {
+        if (bySrc.isEmpty()) for (t in tracks) { val s = if (t.dev) t.uri else if (t.demo) Demos.file(t.id)?.absolutePath else null; if (!s.isNullOrEmpty()) bySrc[s] = t }
+        return bySrc[src] ?: tracks.firstOrNull { !it.dev && !it.demo && src(it) == src }?.also { bySrc[src] = it }
+    }
 
     fun save(t: Track) { if (!t.demo) Store.putRec("tracks", t.id, Json.str(t.toRecord())) }
 
     /** Lo que suena: el archivo o la dirección que entiende el motor (las del móvil, por su content://). */
     fun src(t: Track): String? {
+        if (t.net) return t.url.ifEmpty { null }
+        if (t.demo) return Demos.file(t.id)?.absolutePath
         if (t.dev && t.uri.isNotEmpty()) return t.uri
         val a = Store.rec("audio", t.id) ?: return null
         val rel = Json.s(Json.obj(Json.parseOr(a, null))?.get("\$blob")); if (rel.isEmpty()) return null
