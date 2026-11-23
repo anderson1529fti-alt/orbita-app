@@ -206,23 +206,25 @@ private fun Backdrop(bg: Bg, noise: Bitmap?, coverBmp: androidx.compose.ui.graph
         }
         if (bg.mode != "negro") {
             // la aurora: su caja es un 25 % más grande por cada lado; se pinta UNA vez en su propia capa y lo que se mueve
-            // (se desplaza, gira y crece desde su centro) es la capa entera, como hace la web: moverla no cuesta casi nada
+            // (se desplaza, gira y crece desde su centro) es la capa entera, como hace la web: moverla no cuesta casi nada.
+            // (la capa, a la mitad de tamaño y estirada al doble: la luz es tan suave que se ve igual, y ocupa un cuarto)
             val auroraAlpha = if (bg.mode == "portada") .35f else 1f
             Canvas(
                 Modifier
                     .layout { ms, cs ->
                         val w = cs.maxWidth; val h = cs.maxHeight
-                        val bw = (w * 1.5f).roundToInt(); val bh = (h * 1.5f).roundToInt()
-                        val pl = ms.measure(Constraints.fixed(bw, bh))
-                        layout(w, h) { pl.place(-((bw - w) / 2f).roundToInt(), -((bh - h) / 2f).roundToInt()) }
+                        val lw = (w * .75f).roundToInt(); val lh = (h * .75f).roundToInt()
+                        val pl = ms.measure(Constraints.fixed(lw, lh))
+                        layout(w, h) { pl.place(((w - lw) / 2f).roundToInt(), ((h - lh) / 2f).roundToInt()) }
                     }
                     .graphicsLayer {
                         tick
                         Base.frames++
                         val p = driftAt(bg, SystemClock.uptimeMillis())
-                        translationX = size.width * .05f * p; translationY = -size.height * .04f * p
+                        val bw = size.width * 2f; val bh = size.height * 2f   // (la caja de verdad)
+                        translationX = bw * .05f * p; translationY = -bh * .04f * p
                         rotationZ = 10f * p
-                        val k = 1f + .1f * p; scaleX = k; scaleY = k
+                        val k = 2f * (1f + .1f * p); scaleX = k; scaleY = k
                         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
                     }
             ) {

@@ -122,7 +122,7 @@ async function js(expr, retry = true) {
 async function webStart(reload) {
   if (!(await cdpConnect())) return false;
   await cdp('Page.enable');
-  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.ORBITA_DEBUG = true; try { for (const [k, v] of Object.entries({ onboarded: true, newsSeen: '${VER}', devWelcomeDone: true, intros: false, lastUpdateCheck: Date.now() + 864e5 })) localStorage.setItem('orbita:' + k, JSON.stringify(v)); if (localStorage.getItem('orbita:nativeUi') == null && !localStorage.getItem('pruebaDeFabrica')) localStorage.setItem('orbita:nativeUi', 'false'); } catch (e) {}` });
+  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.ORBITA_DEBUG = true; try { for (const [k, v] of Object.entries({ onboarded: true, newsSeen: '${VER}', devWelcomeDone: true, intros: false, lastUpdateCheck: Date.now() + 864e5 })) localStorage.setItem('orbita:' + k, JSON.stringify(v)); if (localStorage.getItem('orbita:alarm') == null) localStorage.setItem('orbita:alarm', JSON.stringify({ on: false, h: ${(new Date().getUTCHours() + 6) % 24}, m: 0 })); if (localStorage.getItem('orbita:nativeUi') == null && !localStorage.getItem('pruebaDeFabrica')) localStorage.setItem('orbita:nativeUi', 'false'); } catch (e) {}` });
   if (reload) { await cdp('Page.reload'); await sleep(9000); }
   return true;
 }
