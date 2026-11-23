@@ -65,7 +65,7 @@ object Nativo {
     }
 
     /** El fondo de ahora (como lo pide la web: su tono, su clase y si se mueve). */
-    fun bgNow(): Bg {
+    internal fun bgNow(): Bg {
         val l = UiState.look
         val mode = Prefs.str("lkBg", "aurora").let { if (it in listOf("aurora", "quieto", "portada", "negro")) it else "aurora" }
         val lite = Prefs.str("anim", "full") == "lite"

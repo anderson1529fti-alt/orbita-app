@@ -81,7 +81,7 @@ jobs:
           [ $ok = 1 ]
       # (solo cuando se pide: las piezas con las que se compila la app, para comprobar el código antes de mandarlo)
       - name: Clases para compilar en local
-        if: hashFiles('pruebas/clases') != ''
+        if: always() && hashFiles('pruebas/clases') != ''
         continue-on-error: true
         run: |
           mkdir -p salida/clases/src
