@@ -6210,6 +6210,7 @@ async function nuiPick() {
 }
 function nuiEvent(e) {
   if (!e || !e.type) return;
+  if (e.type === 'baseLive') { baseHideWeb(); return; }   // (5.3 · Android ya dibuja el fondo: el de la web, guardado)
   const t = e.id ? trackById(e.id) : null;
   if (e.type === 'play') { const ids = (e.ids || []).filter(id => trackById(id)); if (ids.length) playQueue(ids, Math.max(0, ids.indexOf((e.ids || [])[e.index]))); }
   else if (e.type === 'like') { if (t) toggleLike(t); }
@@ -7367,12 +7368,46 @@ function baseWant() {
   }
   return true;
 }
+/* (5.3) While Android draws the background, the web's own is put away (hidden and its light stopped: it doesn't cost
+   anything every frame); where its movement would go is kept here, by the same rules as its CSS (stopped while the app
+   starts and with the player open; none with «Quieto», light animations or less motion); when the web's is needed
+   again, it is put just there and goes on. */
+const DRIFT = { t: 0, at: 0, run: false, none: true, hold: null };   // (hold: still at that point — only the tests use it)
+function driftNatural() {
+  if (root.classList.contains('lite') || LOOK.bg === 'quieto' || LOOK.bg === 'negro' || matchMedia('(prefers-reduced-motion: reduce)').matches) return 'none';
+  const np = $('#np');
+  if (root.classList.contains('booting') || (np && !np.hidden && !np.classList.contains('np-moving'))) return 'paused';
+  return 'running';
+}
+function driftNow() {
+  const now = performance.now(), nat = driftNatural();
+  if (DRIFT.hold != null && nat !== 'none') { DRIFT.t = DRIFT.hold; DRIFT.at = now; DRIFT.run = false; DRIFT.none = false; return DRIFT; }
+  if (nat === 'none') { DRIFT.t = 0; DRIFT.at = now; DRIFT.run = false; DRIFT.none = true; return DRIFT; }
+  if (DRIFT.none) { DRIFT.none = false; DRIFT.t = 0; DRIFT.at = now; }   // (it was off: it starts from the beginning, like the CSS one)
+  if (DRIFT.run) DRIFT.t += now - DRIFT.at;
+  DRIFT.at = now; DRIFT.run = nat === 'running';
+  return DRIFT;
+}
+function driftAnim() { try { return document.getAnimations().find(x => x.animationName === 'drift') || null; } catch { return null; } }
+function baseHideWeb() {
+  if (!BASE.on || root.classList.contains('nui-base')) return;
+  const a = driftAnim(), nat = driftNatural();
+  DRIFT.none = nat === 'none' || !a; DRIFT.t = a ? +a.currentTime || 0 : 0; DRIFT.at = performance.now(); DRIFT.run = !DRIFT.none && nat === 'running';
+  root.classList.add('nui-base'); BASE.drift = null;
+}
+function baseShowWeb() {
+  if (!root.classList.contains('nui-base')) return;
+  const d = driftNow();
+  root.classList.remove('nui-base');
+  try { const a = driftAnim(); if (a && !d.none) a.currentTime = d.t; } catch {}
+}
 /* how the background is now (and where its movement goes: the web's own animation says it) */
 function baseBg() {
   let moving = false, t = 0;
   const base = mCol(getComputedStyle(document.body).backgroundColor) || 0xFF06050B;   // (this first: what is read after is as it is now)
   // (the animation of always, kept: looking for it among all of the page's is only done when it is gone, and not often)
-  try {
+  if (root.classList.contains('nui-base')) { const d = driftNow(); t = d.t; moving = d.run; }
+  else try {
     // (only if the light still has its animation: «Quieto» takes it away, and then it is where it starts)
     const bgEl = $('.bg'), named = !!bgEl && /\bdrift\b/.test(getComputedStyle(bgEl, '::before').animationName || '');
     let a = named ? BASE.drift : null;
@@ -7440,12 +7475,16 @@ function baseTick() {
   if (!first && !Object.keys(o).length) return;
   BASE.on = true; o.on = true;
   if (first) baseOpenMark(true);
-  NUI_PLUGIN.base(o).catch(e => { diag('fondo y barra nativos: ' + (e && e.message || e)); NUI.baseOk = false; BASE.on = false; });
+  NUI_PLUGIN.base(o).catch(e => { diag('fondo y barra nativos: ' + (e && e.message || e)); NUI.baseOk = false; BASE.on = false; baseShowWeb(); });
 }
 function baseOff() {
   if (!BASE.on) return;
   BASE.on = false; BASE.anim.clear();   // (Android keeps what it has: when it comes back, only what changed is sent)
-  try { NUI_PLUGIN.base({ on: false }).catch(() => {}); } catch {}
+  // (the web's background, back where Android's is; and Android's goes away once the web's is painted: two frames)
+  const hid = root.classList.contains('nui-base');
+  baseShowWeb();
+  const off = () => { if (!BASE.on) try { NUI_PLUGIN.base({ on: false }).catch(() => {}); } catch {} };
+  if (hid && !document.hidden) requestAnimationFrame(() => requestAnimationFrame(off)); else off();
 }
 /* (if the native background and bar ever closed the app while coming up, next time the web's, in this version) */
 (() => { try { if (LS.get('baseOpen', '')) { LS.set('baseOpen', ''); const b = LS.get('nuiBad', null), bad = b && typeof b === 'object' && !Array.isArray(b) ? b : {}; bad.base = String(APP_CFG.version || ''); LS.set('nuiBad', bad); diag('fondo y barra nativos: la app se cerró al ponerlos → esta versión usa los de siempre'); } } catch {} })();
@@ -10532,7 +10571,7 @@ async function boot() {
   setTimeout(() => idle(() => buildDemoAudio()), 2500);
   idle(() => backfill(tracks));
 }
-if (window.ORBITA_DEBUG) window.__orbita = { get BASE() { return BASE; }, baseWant, baseBg, baseList, LOOK, nbWebProbe, mindCall, mindCan, NB_TEST, voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
+if (window.ORBITA_DEBUG) window.__orbita = { get BASE() { return BASE; }, DRIFT, baseWant, baseBg, baseList, baseShowWeb, LOOK, nbWebProbe, mindCall, mindCan, NB_TEST, voiceAsk, listenOnce, earCan, get ear() { return EAR; }, lyNatShown, get lyNat() { return LY_NAT; }, get ytNat() { return YT_NAT; }, ytPlace, current, act, glColors, vizOpts, setVizNP, closeVizFull, vizNatWhich, vizFreeze: o => { VZ_FREEZE = o || null; try { NUI_PLUGIN.viz({ freeze: o || null }).catch(() => {}); } catch {} }, W, WIN, winSync, winStack, NPM, openNP, closeNP, openEdit, openLyricsEdit, MIR, mirSync, mirBad, renderSearch, PAGES, pgSync, renderLists, renderTu, homeSync, HOME, setHeroMode, setBubble, renderUpdate, ncSync, closeChat, chatAdd, sampleUrl, NUI, nuiEvent, nuiSync, toast, naAdopt, TODO, REC, startAll, stopAll, todoOrder, todoRefill, trackById, naFade, keyCompat, anaKey, recRefresh, recPlay, recLike, recNo, recAsk, nbCheck, bbCheck, bbExpectMs, brainWarm, glAdapt, webDelay, GLV, VZ, vizSetScene, openVizFull, glWanted, PL, plOK, lyricsTick, renderLyrics, setLyricsOpen, naImport, naMeta, setSleep, sleepFinish, get memEvents() { return memEvents; }, get listenNow() { return listen; }, get sleepEnd() { return sleepEnd; }, get sleepF() { return sleepF; }, diag, diagText, DIAG, naSyncNext, ALM, alarmWake, alarmEnd, alarmCommand, alarmNext, alarmWhen, horaHablada, alarmGreeting, renderAlarm, get alarmF() { return alarmF; }, OB, openOnboarding, closeOnboarding, obShow, openRecap, closeRecap, recapStats, recapImage, recapYear, recapHint, RC, rcShow, NA_ON, decks, naGapless, nbFollow, nbAsk, novaCommand, get G() { return G; }, AUD, EQ_PRESETS, eqGains, eqMigrate, eqPeakDb, setEq, mixRefill, createMix, playMix, moreLikeThis, parseRequest, togglePlay, playQueue, ytEl, ytPlay, ytClose, ytClip, ytClipFind, ytClipWikidata, ytLayout, ytLinkFrom, nbMigrate, nbNative, nbReset, nbRemove, nvCut, fitTitle, BB, bbInstall, bbThink, bbInit, bbParse, bbSafe, nvChunks, nvSynth, analyzeOff, drawKick, get drawOn() { return drawOn; }, NB, nbInstall, nbInit, nbClassify, nbTeach, brainRoute, novaRun, NV, nvInstall, nvCatalogue, nvInit, speakTTS, prefList, trackGenres, memories, weekSummary, openGreeting, chatLog, openChat, poolTracks, explainPick, refineEnergy, novaLists, artistFact, weatherLine, renderQueue, getAnalysis, analyzeTrack, djTalk, tween, next, setStyle: v => { AUD.mix = v; }, setDirect: v => { AUD.direct = v; }, get duckF() { return duckF; }, deckF, BRAIN, radioNext, intentMix, similarTo, trackVec, trainBrain, pSkip, brainCtx, transitions, state, anaCache, analyzeBuffer, planMix, els, memStats, buildDaily, LY, get A() { return A; }, get mixing() { return mixing; }, get mixArm() { return mixArm; } };
 boot();
 })();
 }

@@ -980,7 +980,8 @@ try {
     await goView('ajustes'); await sleep(1800);
     const pr = await rectOf('.player'); const H = await js(`return innerHeight;`);
     const setBg = async v => { await js(`const b = document.querySelector('#lkBg [data-v="${v}"]'); if (b) b.click(); return 1;`); await sleep(1500); };
-    const freeze = async ms => js(`const a = document.getAnimations().find(x => x.animationName === 'drift'); if (!a) return null; a.pause(); a.currentTime = ${ms}; return a.playState;`);
+    // (la luz, quieta en ese punto: la de la web y la cuenta que lleva mientras está guardada)
+    const freeze = async ms => js(`window.__orbita.DRIFT.hold = ${ms}; const a = document.getAnimations().find(x => x.animationName === 'drift'); if (!a) return null; a.pause(); a.currentTime = ${ms}; return a.playState;`);
     const par = {};
     const pair = async (name, want) => {
       await until(`const s = await Capacitor.Plugins.OrbitaUi.status(); return s.baseLive === true && ${JSON.stringify(want)}.every(w => s.baseDrawn.includes(w));`, 8000);
@@ -1012,7 +1013,11 @@ try {
       check(`fondo ${nm}: Android lo dibuja igual que la web (los bordes, donde solo hay fondo, y la pantalla entera)`, !!p && okF(p.lados, 3, 1.5) && okF(p.derecha, 3, 1.5) && okF(p.entera, 12, 3), JSON.stringify(p && { drawn: p.drawn, lados: p.lados, derecha: p.derecha, entera: p.entera }));
       check(`la barra de abajo con el fondo ${nm}: igual que la de siempre`, !!p && okF(p.barra, 8, 2.5), JSON.stringify(p && p.barra));
     }
-    await setBg('aurora'); await js(`const a = document.getAnimations().find(x => x.animationName === 'drift'); if (a) a.play(); return 1;`); await sleep(1000);
+    await setBg('aurora'); await js(`window.__orbita.DRIFT.hold = null; const a = document.getAnimations().find(x => x.animationName === 'drift'); if (a) a.play(); return 1;`); await sleep(1000);
+    // con el de Android a la vista, el de la web está guardado (oculto y quieto: no gasta), y vuelve donde va el de Android
+    await until(`return (await Capacitor.Plugins.OrbitaUi.status()).baseLive === true && document.documentElement.classList.contains('nui-base');`, 6000);
+    const gw = await js(`const a = document.getAnimations().find(x => x.animationName === 'drift'); return { cls: document.documentElement.classList.contains('nui-base'), vis: getComputedStyle(document.querySelector('.bg')).visibility, ps: a && a.playState };`);
+    check('con el fondo de Android a la vista, el de la web se guarda (oculto y quieto: no gasta)', !!gw && gw.cls && gw.vis === 'hidden' && gw.ps === 'paused', JSON.stringify(gw));
     // --- «Tu voz», nativa (leída entera, como «Buscar» y «Ajustes»)
     await goView('voz'); await sleep(2500);
     const vz = await js(`${O} return { shown: N.shown, screen: N.screen, view: o.state.view };`);

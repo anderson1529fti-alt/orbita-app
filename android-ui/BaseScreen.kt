@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -93,9 +94,13 @@ fun OrbitaBase() {
     val on = Base.on
     if (on && !live && noise != null && (!wantCover || coverBmp != null || gaveUp == bg.cover)) live = true
     Base.live = live && on
+    // (ya se ve: la web guarda el suyo, que ya no hace falta que pinte; se le dice cada vez que vuelve a verse)
+    val shown = live && on
+    LaunchedEffect(shown) { if (shown) UiState.send("baseLive") { } }
     if (!live) return
     CompositionLocalProvider(LocalMSkin provides sk, LocalMPass provides true) {
-        Box(Modifier.fillMaxSize()) {
+        // (lo que se toca aquí le llega a la web: lo que lee TalkBack, también lo de la web)
+        Box(Modifier.fillMaxSize().clearAndSetSemantics { }) {
             Backdrop(bg, noise, if (bg.mode == "portada") coverBmp else null, wantCover)
             BaseBar()
         }
