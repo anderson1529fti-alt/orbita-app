@@ -25,6 +25,8 @@ class Track(val id: String) {
     /** De internet (muestra, radio, YouTube): no está en la biblioteca. */
     var net = false
     var kind = ""; var url = ""; var art = ""; var artBig = ""; var urlAt = 0L
+    /** No se ha podido analizar (no se vuelve a intentar mientras la app esté abierta). */
+    var anaFail = false
 
     fun toRecord(): Map<String, Any?> {
         val m = LinkedHashMap<String, Any?>()

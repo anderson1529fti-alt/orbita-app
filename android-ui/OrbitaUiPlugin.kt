@@ -334,6 +334,20 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun natInfo(call: PluginCall) { activity.runOnUiThread { try { call.resolve(natInfoObj()) } catch (t: Throwable) { call.reject(t.message ?: "error") } } }
 
+    /** Para las pruebas: «Ahora» tal como lo prepara Android (las mismas piezas que mandaba la web). */
+    @PluginMethod
+    fun natHome(call: PluginCall) {
+        activity.runOnUiThread {
+            try {
+                Inicio.sync(false)
+                val r = JSObject()
+                r.put("top", UiState.hTop); r.put("dj", UiState.hDj); r.put("mixer", UiState.hMixer); r.put("out", UiState.hOut); r.put("fy", UiState.hFy); r.put("tick", UiState.hTick)
+                r.put("bub", UiState.hBub); r.put("slot", UiState.hSlot); r.put("vin", UiState.hVin)
+                call.resolve(r)
+            } catch (t: Throwable) { call.reject(t.message ?: "error") }
+        }
+    }
+
     /** Para las pruebas: lo que se toca en una pantalla nativa, como si se hubiera tocado. */
     @PluginMethod
     fun natUi(call: PluginCall) {
@@ -503,6 +517,30 @@ class OrbitaUiPlugin : Plugin() {
                 earGo(call)
             } catch (t: Throwable) { call.resolve(JSObject().put("ok", false).put("code", "err")) }
         }
+    }
+
+    /** Fase 4, parte 2 · Escuchar desde la Órbita nativa (sin la web): lo mismo que «listen», con su permiso. */
+    internal fun nativoListen(who: String, lite: Boolean, offline: Boolean): String {
+        if (Ear.busy) return "busy"
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(context)) return "norec"
+        ensureEarHost()
+        val go = { Ear.open(who, lite, false); Ear.start(context, "es-ES", offline); earBack.isEnabled = true }
+        if (androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            if (earPrefs().getBoolean("nunca", false) && !micRationale()) return "denied"
+            micWhy = micRationale()
+            Ear.ask(who, lite); earBack.isEnabled = true
+            Actos.launch(activity, androidx.activity.result.contract.ActivityResultContracts.RequestPermission(), android.Manifest.permission.RECORD_AUDIO) { ok ->
+                val wanted = Ear.asking
+                if (ok && wanted) { Ear.asking = false; go(); return@launch }
+                if (wanted && micWhy && !micRationale()) try { earPrefs().edit().putBoolean("nunca", true).apply() } catch (ignored: Throwable) { }
+                Ear.close(); earBack.isEnabled = false
+                if (wanted) Nativo.toast("Sin permiso para el micrófono no puedo escucharte.")
+            }
+            return "perm"
+        }
+        if (earPrefs().contains("nunca")) earPrefs().edit().remove("nunca").apply()
+        go()
+        return "ok"
     }
 
     @PermissionCallback

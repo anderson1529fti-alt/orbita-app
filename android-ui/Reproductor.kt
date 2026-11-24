@@ -31,6 +31,8 @@ object Player {
     var pendingTalk: Pair<String, String>? = null
     var intros: Map<String, String> = emptyMap()
     var mixEndless: Any? = null
+    /** Ya ha sonado algo en esta sesión (la tarjeta «Continúa donde lo dejaste» se va). */
+    var playedOnce = false; private set
     private val main = Handler(Looper.getMainLooper())
     private var gen = 0
     private var plKey = ""
@@ -63,8 +65,8 @@ object Player {
     private var tickN = 0
     private fun tick() {
         main.postDelayed({
-            try {
-                val t = if (Nativo.on) current() else null
+            if (Nativo.on) try {
+                val t = current()
                 if (t != null) {
                     val p = NovaCore.position(slot)
                     Bar.pos = p.optDouble("pos", 0.0)
@@ -74,6 +76,9 @@ object Player {
                     if (Bar.dur > 0 && (t.duration == 0.0 || kotlin.math.abs(t.duration - Bar.dur) > 1)) { t.duration = Bar.dur; Lib.save(t) }
                 }
                 sleepTick()
+                // «Ahora»: el disco (lo que suena, para que gire) y, cada 2 s, la cabecera y el panel de la DJ (la hora…)
+                if (tickN % 2 == 0 && UiState.screen == "inicio") Inicio.vinyl()
+                if (tickN % 8 == 0 && UiState.screen == "inicio") Inicio.mark()
                 if (++tickN % 32 == 0) saveSession(false)
                 if (tickN % 120 == 0) takeListens()
             } catch (ignored: Throwable) { }
@@ -206,6 +211,7 @@ object Player {
         Nativo.note("suena: ${t.title}" + if (silent) " (en pausa)" else "")
         finishListen()
         if (!silent) {
+            playedOnce = true
             listen = Listen(t.id, System.currentTimeMillis(), source, Lib.src(t))
             t.prevPlayed = t.lastPlayed
             Biblio.addPlay(t)
@@ -357,6 +363,10 @@ object Player {
     /** Cambia lo que viene después de la de ahora (la radio, Nova…). */
     fun replaceAhead(ids: List<String>) { if (qi < 0) return; queue = queue.take(qi + 1) + ids; plKey = ""; syncPlaylist(); Nativo.onQueue() }
     fun append(ids: List<String>) { queue = queue + ids; plKey = ""; syncPlaylist() }
+    /** Quita una canción de lo que viene. */
+    fun dropAhead(id: String) { queue = queue.filterIndexed { i, x -> i <= qi || x != id }; plKey = ""; syncPlaylist() }
+    /** Los ajustes de las mezclas cambiaron: el motor recibe la cola otra vez, con las mezclas nuevas. */
+    fun resync() { plKey = ""; syncPlaylist() }
     fun setSource(s: String) { source = s }
 
     fun setShuffle(on: Boolean) {

@@ -36,6 +36,10 @@ object Analizador {
         return null
     }
 
+    fun busy(id: String): Boolean = id in pending
+    /** Cuando termine lo que está analizando ahora (en el hilo de la pantalla). */
+    fun after(cb: () -> Unit) { exec.execute { main.post(cb) } }
+
     fun rawOf(t: Track?): Map<String, Any?>? { if (t == null) return null; get(t); return raw[t.id] }
 
     /** «scheduleAnalysis»: la analiza si hace falta (las de más de 15 minutos, no) y avisa al acabar. */

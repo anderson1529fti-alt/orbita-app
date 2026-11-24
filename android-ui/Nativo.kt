@@ -54,6 +54,7 @@ object Nativo {
         bg.execute {
             try { Lib.load() } catch (t: Throwable) { note("biblioteca: ${t.message}") }
             try { Memoria.load() } catch (t: Throwable) { note("memoria: ${t.message}") }
+            try { Cerebro.load() } catch (t: Throwable) { note("cerebro: ${t.message}") }
             main.post {
                 look()
                 pushLibrary()
@@ -61,8 +62,11 @@ object Nativo {
                 Player.init()
                 // (si el motor seguía sonando con la app cerrada, se sigue con eso; si no, lo último, en pausa)
                 if (!Player.adopt()) Player.resumeSession(false)
-                ui?.nativoShow(Prefs.str("startView", "inicio").let { if (it == "biblioteca") it else "biblioteca" })
                 ready = true
+                val start = Prefs.str("startView", "inicio").let { if (it == "biblioteca" || it == "inicio") it else "inicio" }
+                if (start == "inicio") Inicio.sync(true)
+                ui?.nativoShow(start)
+                Cerebro.bgAnalysis()
                 ui?.nativoBase(bgNow())
                 Player.barSync()
                 note("listo: ${Lib.tracks.size} canciones")
@@ -143,6 +147,13 @@ object Nativo {
                 if (o.has("filter")) UiState.filter = o.optString("filter", "all")
                 if (o.has("sort")) { UiState.sort = o.optString("sort", "recent"); Prefs.set("sort", UiState.sort) }
             }
+            // ---- «Ahora»
+            "hTap" -> Inicio.onTap(o)
+            "hSel" -> Inicio.onSel(o.optString("sel"), o.optString("v"))
+            "hAsk" -> Ordenes.run(o.optString("text"))
+            "hFocus" -> {}
+            "earPart" -> {}
+            "earEnd" -> { val a = o.optJSONArray("alts"); Ordenes.fromVoice(o.optString("text"), if (a != null) List(a.length()) { a.optString(it) } else emptyList(), o.optString("code")) }
             // ---- la barra de abajo
             "toggle" -> Player.toggle()
             "next" -> Player.next(false)
@@ -163,8 +174,9 @@ object Nativo {
 
     /** Cambiar de pestaña. */
     fun go(view: String) {
-        val v = if (view in listOf("inicio", "buscar", "biblioteca", "listas", "tu", "ajustes", "voz")) view else "biblioteca"
-        if (v != "biblioteca") { toast("Esta pantalla aún no está en la Órbita nativa."); return }
+        val v = if (view in listOf("inicio", "buscar", "biblioteca", "listas", "tu", "ajustes", "voz", "chat")) view else "biblioteca"
+        if (v !in listOf("biblioteca", "inicio")) { toast("Esta pantalla aún no está en la Órbita nativa."); return }
+        if (v == "inicio") Inicio.sync(true)
         Prefs.set("lastView", v)
         ui?.nativoShow(v)
     }
@@ -179,7 +191,45 @@ object Nativo {
     fun onSleep() { Player.barSync(); Ventanas.refresh("sleep") }
     fun onImport() { Ventanas.refresh("imp") }
     fun onMemory() {}
-    fun onNova() {}
+    fun onNova() { Inicio.mark() }
+    fun onHome() { Inicio.mark() }
+    fun onChat() {}
+    fun onLists() {}
+
+    /** Animaciones reducidas (las del móvil o «Animaciones: ligeras» de Ajustes). */
+    fun reduceMotion(): Boolean = try { android.provider.Settings.Global.getFloat(act?.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f } catch (t: Throwable) { false }
+    fun lite(): Boolean = Prefs.str("anim", "full") == "lite" || reduceMotion()
+
+    fun haptic(pattern: LongArray) {
+        if (!Prefs.bool("haptics", true)) return
+        try {
+            val v = act?.getSystemService(android.os.Vibrator::class.java) ?: return
+            v.vibrate(android.os.VibrationEffect.createWaveform(pattern, -1))
+        } catch (ignored: Throwable) { }
+    }
+
+    fun charging(): Boolean = try {
+        val b = act?.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+        val st = b?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+        st == android.os.BatteryManager.BATTERY_STATUS_CHARGING || st == android.os.BatteryManager.BATTERY_STATUS_FULL
+    } catch (t: Throwable) { false }
+
+    fun openExternal(url: String) {
+        try { act?.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (t: Throwable) { toast("No he podido abrirlo.") }
+    }
+
+    /** «Sube el volumen» / «baja el volumen»: el del móvil, de 15 en 15 %. */
+    fun volumeStep(dir: Int) {
+        try {
+            val am = act?.getSystemService(android.media.AudioManager::class.java) ?: return
+            val mx = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val step = maxOf(1, Math.round(mx * 0.15f))
+            val v = (cur + dir * step).coerceIn(0, mx)
+            am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, v, 0)
+            toast("Volumen ${Math.round(v * 100f / maxOf(1, mx))} %")
+        } catch (ignored: Throwable) { }
+    }
 
     /** Lo de arriba del todo del móvil, en «px» de CSS (la capa de las ventanas va donde la web: ya por debajo). */
     fun topInset(): Float = 0f

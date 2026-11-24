@@ -1283,14 +1283,40 @@ try {
     // lo de la app de siempre, para comparar: cuántas canciones guarda (las de prueba no se guardan: se fabrican)
     const before = await js(`const o = window.__orbita; return { songs: o.state.tracks.filter(t => !t.demo).length, ids: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.id), titles: o.state.tracks.filter(t => !t.demo).slice(0, 6).map(t => t.title), all: o.state.tracks.filter(t => !t.demo).map(t => t.id), arts: o.state.tracks.filter(t => !t.demo && (t.thumb || t.cover)).length, meta: (document.querySelector('#libMeta') || {}).textContent || '', dev: ((document.querySelector('#devBox .d-text span') || {}).textContent || '').trim() };`);
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1200);
+    // (y su «Ahora», tal como se lo mandaba a la pantalla nativa: para comparar)
+    const homeWeb = await js(`try { return { top: HOME.top(), dj: HOME.dj(), mixer: HOME.mixer(), out: HOME.out(), fy: HOME.fy(), tick: HOME.tick() }; } catch (e) { return { err: String(e) }; }`).catch(e => ({ err: String(e) }));
     await js(`await Capacitor.Plugins.OrbitaUi.dataMigrate({ force: false }); return 1;`).catch(() => null);
     // a la nativa: la página de siempre ni arranca
     await js(`localStorage.setItem('orbita:_modo', '"nativo"'); location.reload(); return 1;`).catch(() => null);
     await sleep(6000); await cdpConnect();
     const up = await until(`return !!window.__nat || !!window.__natErr;`, 30000);
     const n1 = up ? await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.ready === true;`, 30000) : false;
-    const s1 = await js(NI); shot('nativa-musica');
-    check('Órbita sin la parte web: arranca Android solo, con los datos ya en Android, y enseña «Música»', up && n1 && !!s1 && s1.on && s1.ready && s1.shown && s1.screen === 'biblioteca' && (await js(`return location.pathname;`)) === '/nativo.html' && (await js(`return typeof window.__orbita;`)) === 'undefined', JSON.stringify({ up, n1, err: await js(`return window.__natErr || '';`), s: s1 && { on: s1.on, ready: s1.ready, shown: s1.shown, screen: s1.screen, migra: s1.migra, log: s1.log } }).slice(0, 900));
+    const s1 = await js(NI); await sleep(1500); shot('nativa-ahora');
+    check('Órbita sin la parte web: arranca Android solo, con los datos ya en Android, y enseña «Ahora»', up && n1 && !!s1 && s1.on && s1.ready && s1.shown && s1.screen === 'inicio' && (await js(`return location.pathname;`)) === '/nativo.html' && (await js(`return typeof window.__orbita;`)) === 'undefined', JSON.stringify({ up, n1, err: await js(`return window.__natErr || '';`), s: s1 && { on: s1.on, ready: s1.ready, shown: s1.shown, screen: s1.screen, migra: s1.migra, log: s1.log } }).slice(0, 900));
+    // «Ahora», hecho por Android: lo mismo que mandaba la web (el día, la franja, la DJ, la mezcla a medida, «Para ti hoy»)
+    const hn = await js(`return await Capacitor.Plugins.OrbitaUi.natHome();`).catch(e => ({ err: String(e) }));
+    const strip = o => JSON.parse(JSON.stringify(o || {}, (k, v) => k === 'k' ? undefined : v));
+    const cmp = [];
+    const same = (what, a, b) => { const A = JSON.stringify(strip(a)), B = JSON.stringify(strip(b)); if (A !== B) cmp.push(what + ': web ' + A.slice(0, 300) + ' · android ' + B.slice(0, 300)); };
+    if (homeWeb && !homeWeb.err && hn && !hn.err) {
+      same('día', [homeWeb.top.day, homeWeb.top.frag, homeWeb.top.hint, homeWeb.top.clock.length], [hn.top.day, hn.top.frag, hn.top.hint, hn.top.clock.length]);
+      same('avisos', homeWeb.top.ban.map(b => b.b), hn.top.ban.map(b => b.b));
+      same('la DJ', ['role', 'name', 'voice', 'intros', 'ph', 'radio', 'all', 'ai', 'aiOn'].map(k => homeWeb.dj[k]), ['role', 'name', 'voice', 'intros', 'ph', 'radio', 'all', 'ai', 'aiOn'].map(k => hn.dj[k]));
+      same('quién habla y las mezclas', [homeWeb.dj.who, homeWeb.dj.mix], [hn.dj.who, hn.dj.mix]);
+      same('la mezcla a medida', [homeWeb.mixer.moment, homeWeb.mixer.moods.map(m => m.t), homeWeb.mixer.lens.map(m => m.t)], [hn.mixer.moment, hn.mixer.moods.map(m => m.t), hn.mixer.lens.map(m => m.t)]);
+      same('la mezcla (vacía)', homeWeb.out, hn.out);
+      same('el teletipo', homeWeb.tick, hn.tick);
+      same('«Para ti hoy» (las tarjetas)', (homeWeb.fy.cards || []).map(c => (c.body || []).map(e => e.e === 'eye' || e.e === 'h3' ? e.t : e.e)), (hn.fy.cards || []).map(c => (c.body || []).map(e => e.e === 'eye' || e.e === 'h3' ? e.t : e.e)));
+    } else cmp.push('sin datos: ' + JSON.stringify({ web: homeWeb && homeWeb.err, android: hn && hn.err }));
+    check('«Ahora» hecho por Android dice lo mismo que el de siempre', cmp.length === 0, cmp.join(' | ').slice(0, 1800));
+    // «Girar la ruleta»: sale una canción y se queda la radio puesta
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'hTap', o: { k: '#btnRoulette' } }); return 1;`).catch(() => null);
+    const rl = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.playing && s.source === 'radio';`, 12000);
+    await sleep(1200); shot('nativa-ruleta');
+    check('«Girar la ruleta» en «Ahora»: sale una canción y suena la radio', rl, JSON.stringify(await js(NI).then(s => s && { playing: s.playing, source: s.source, now: s.now, log: s.log.slice(-4) })));
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(800);
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'biblioteca' } }); return 1;`).catch(() => null);
+    await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.screen === 'biblioteca';`, 5000); await sleep(1200); shot('nativa-musica');
     check('con las mismas canciones que la app de siempre (y sus 4 de prueba)', !!s1 && !!before && s1.own === before.songs && s1.demos === 4, JSON.stringify({ web: before && before.songs, android: s1 && [s1.own, s1.demos, s1.songs] }));
     // (las portadas que pide la lista al verse: aquí, todas de una vez)
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'needCovers', o: { ids: ${JSON.stringify(before ? before.all : [])} } }); return 1;`).catch(() => null);

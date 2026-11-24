@@ -597,7 +597,13 @@ private fun Hero(top: JSONObject, sk: Skin, vw: Float, lite: Boolean) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BoxWithConstraints(Modifier.weight(1f)) {
                 val wpx = constraints.maxWidth.toFloat()
-                val dfs = top.num("dfs", 41.6f * sk.tk)
+                // (la Órbita nativa no lo manda: lo mide aquí, como «fitTitle» de la web: si no cabe, encoge)
+                val dfs = if (top.has("dfs")) top.num("dfs", 41.6f * sk.tk) else {
+                    val tm = androidx.compose.ui.text.rememberTextMeasurer()
+                    val base = 41.6f * sk.tk
+                    val need = tm.measure(top.str("day").uppercase(), style(base, p.fg, sk.display, sk.displayWeight, 1.2f, -0.045f), maxLines = 1, softWrap = false).size.width.toFloat()
+                    if (need > wpx && need > 0f) base * kotlin.math.max(0.3f, (wpx / need) * 0.97f) else base
+                }
                 Column {
                     // el día (su tamaño lo decide la app: los nombres largos encogen para no meterse bajo el disco)
                     Box(Modifier.height((dfs * 0.9f).dp), contentAlignment = Alignment.CenterStart) {
