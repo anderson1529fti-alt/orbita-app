@@ -21,6 +21,8 @@ object Player {
     private const val NA_MAX = 120
 
     var queue: List<String> = emptyList(); private set
+    /** Dónde suena lo de ahora: 0 el motor (tus canciones), 2 de internet (radio, muestras: [Calle]), 3 YouTube ([Tubo]). */
+    var mode = 0; private set
     var qi = -1; private set
     /** De dónde viene la cola: «library», «radio», «mix», «todo», «daily», «online»… */
     var source = "library"; private set
@@ -67,7 +69,13 @@ object Player {
         main.postDelayed({
             if (Nativo.on) try {
                 val t = current()
-                if (t != null) {
+                if (t != null && mode != 0) {
+                    Bar.pos = if (mode == 2) Calle.pos() else Tubo.pos()
+                    Bar.dur = (if (mode == 2) Calle.dur() else Tubo.dur()).let { if (it > 0) it else if (t.kind == "radio") 0.0 else t.duration }
+                    val pl = if (mode == 2) Calle.playing else Tubo.playing
+                    if (pl != playing) { playing = pl; Bar.playing = pl }
+                    netListenTick(); netState()
+                } else if (t != null) {
                     val p = NovaCore.position(slot)
                     Bar.pos = p.optDouble("pos", 0.0)
                     Bar.dur = p.optDouble("dur", 0.0).let { if (it > 0) it else t.duration }
@@ -87,7 +95,7 @@ object Player {
     }
 
     fun uiTrack(it: Track): UiTrack = UiTrack(it.id, it.title, it.artist, it.album, it.folder, it.duration, it.addedAt, Biblio.plays(it), it.lastPlayed,
-        Biblio.liked(it), it.demo, it.mine, it.dev, Lib.coverFile(it) != null, Momento.phHue(it).toFloat())
+        Biblio.liked(it), it.demo, it.mine, it.dev, Lib.coverFile(it) != null || (it.net && (it.art.isNotEmpty() || it.artBig.isNotEmpty())), Momento.phHue(it).toFloat())
 
     /** Lo que dice la barra de abajo: la canción, si suena, aleatorio, repetir y el temporizador. */
     fun barSync() {
@@ -121,6 +129,8 @@ object Player {
     fun loadCurrent(autoplay: Boolean, xf: Double = 0.0, at: Double = 0.0) {
         val t = current() ?: return
         val my = ++gen
+        if (t.net) { loadNet(t, autoplay, at, my); return }
+        if (mode != 0) leaveNet()
         if (t.demo && Demos.file(t.id) == null) {
             Demos.render(t.id) { if (my == gen && current() === t) loadCurrent(autoplay, xf, at) }
             return
@@ -150,6 +160,101 @@ object Player {
         startOn(src, t, xf)
         plKey = ""; syncPlaylist()
         begin(t, talk = talk)
+    }
+
+    // ---------------------------------------------------------------- lo de internet (radio, muestras, YouTube)
+    /** El motor se calla y suena lo de internet (con una dirección fresca, si es una muestra). */
+    private fun loadNet(t: Track, autoplay: Boolean, at: Double, my: Int) {
+        Voz.stop()
+        cancelFades()
+        if (mode == 0) try { NovaCore.pause(0); NovaCore.pause(1) } catch (ignored: Throwable) { }
+        plKey = ""
+        val talk = pendingTalk; pendingTalk = null
+        if (t.kind == "yt") {
+            Calle.stop(); mode = 3
+            Tubo.play(t, autoplay)
+            playing = autoplay; Bar.playing = autoplay
+            begin(t, talk = talk, silent = !autoplay)
+            return
+        }
+        Tubo.stop(); mode = 2
+        playing = autoplay; Bar.playing = autoplay
+        Bar.pos = 0.0; Bar.dur = t.duration
+        Biblio.io.execute {
+            val u = if (t.kind == "preview") Recos.sampleUrl(t, false) else t.url
+            main.post {
+                if (my != gen || current() !== t) return@post
+                Calle.play(t, u, autoplay, at) { ok ->
+                    if (my != gen || current() !== t) return@play
+                    if (ok) { netState(true); return@play }
+                    // (una muestra que no arranca: otra dirección, una vez más, antes de decir nada)
+                    if (t.kind == "preview") Biblio.io.execute {
+                        val u2 = Recos.sampleUrl(t, true)
+                        main.post {
+                            if (my != gen || current() !== t) return@post
+                            if (u2.isNotEmpty() && u2 != u) Calle.play(t, u2, autoplay, at) { ok2 -> if (my == gen && current() === t) { if (!ok2) netFailed(t) else netState(true) } }
+                            else netFailed(t)
+                        }
+                    } else netFailed(t)
+                }
+            }
+        }
+        begin(t, talk = talk, silent = !autoplay)
+        netState(true)
+    }
+    private fun netFailed(t: Track) {
+        playing = false; Bar.playing = false; barSync()
+        Nativo.toast(if (t.kind == "radio") "Esta emisora no responde ahora mismo. Prueba con otra." else "No se puede reproducir ahora mismo. Prueba con otra.")
+        netState(true)
+    }
+    /** Fuera la de ahora de la cola (✕ en el vídeo sin nada después): la de antes queda puesta, en pausa. */
+    fun dropCurrent() {
+        if (qi !in queue.indices) return
+        val q = queue.toMutableList(); q.removeAt(qi); queue = q
+        qi = if (q.isEmpty()) -1 else max(0, min(qi, q.size - 1))
+        leaveNet()
+        playing = false; Bar.playing = false
+        if (current() != null) loadCurrent(false) else { barSync(); try { NovaCore.sessionEnd() } catch (ignored: Throwable) { } }
+        Nativo.onQueue()
+    }
+
+    /** De vuelta a tus canciones: lo de internet, fuera. */
+    private fun leaveNet() {
+        netListenEnd()
+        Calle.stop(); Tubo.stop(); mode = 0
+    }
+    /** Lo de internet se acabó (o se cortó): la siguiente. */
+    fun netEnded(id: String, failed: Boolean = false) {
+        if (current()?.id != id) return
+        if (failed) { netFailed(current()!!); return }
+        next(true)
+    }
+    /** El aviso del móvil (y la pantalla de bloqueo) con lo de internet que suena. */
+    private var netAt = 0L
+    fun netState(force: Boolean = false) {
+        val t = current() ?: return
+        if (mode == 0 || !t.net) return
+        val now = SystemClock.uptimeMillis(); if (!force && now - netAt < 900) return; netAt = now
+        val pos = if (mode == 2) Calle.pos() else Tubo.pos(); val dur = if (mode == 2) Calle.dur() else Tubo.dur()
+        try { NovaCore.setExternal(t.title, t.artist.ifEmpty { if (t.kind == "radio") "Radio en directo" else "" }, t.album.ifEmpty { "Órbita · internet" }, null, playing, pos, dur) } catch (ignored: Throwable) { }
+    }
+    /** Lo que se oyó de internet cuenta como escucha (la web lo apuntaba igual). */
+    private var netAcc = 0.0; private var netLast = -1.0; private var netId = ""; private var netManual = false; private var netSrc = ""
+    private fun netListenTick() {
+        val t = current() ?: return
+        if (!t.net || mode == 0) return
+        if (netId != t.id) { netListenEnd(); netId = t.id; netAcc = 0.0; netLast = -1.0; netManual = false; netSrc = source }
+        // (cada vuelta del reloj, un cuarto de segundo, si suena)
+        if (playing) netAcc += 0.25
+    }
+    private fun netListenEnd() {
+        if (netId.isEmpty()) return
+        val t = Lib.byId(netId); val acc = netAcc; val id = netId
+        netId = ""; netAcc = 0.0
+        if (t == null) return
+        try { Recos.heard(t, acc) } catch (ignored: Throwable) { }
+        if (acc < 1) return
+        Memoria.record(Memoria.makeEvent(id, acc, netManual, t.title, t.artist, if (t.kind == "radio") 0.0 else t.duration, true, netSrc, System.currentTimeMillis()))
     }
 
     /** «startOn»: la canción nueva en el otro plato y un fundido de igual potencia (o en el mismo, si no sonaba nada). */
@@ -289,6 +394,8 @@ object Player {
     /** Pausa con un fundido corto; si mientras tanto se pide otra cosa (otra canción, «play»), manda eso. */
     fun fadePause(ms: Long = 160) {
         Voz.stop()
+        if (mode == 2) { Calle.pause(); playing = false; Bar.playing = false; netState(true); saveSession(true); return }
+        if (mode == 3) { Tubo.pause(); playing = false; Bar.playing = false; netState(true); saveSession(true); return }
         val my = ++fadeGen; val k = slot; val t0 = SystemClock.uptimeMillis()
         playing = false; Bar.playing = false
         val step = object : Runnable {
@@ -308,6 +415,9 @@ object Player {
     fun resume() {
         val t = current() ?: return
         ++fadeGen
+        if (mode == 2) { if (Calle.resume()) { playing = true; Bar.playing = true; netState(true) } else loadCurrent(true); return }
+        if (mode == 3) { Tubo.resume(); playing = true; Bar.playing = true; netState(true); return }
+        if (t.net) { loadCurrent(true); return }
         if (Lib.src(t) == null && !t.demo) return
         try {
             NovaCore.eng().setVolume(slot, 0f)
@@ -329,8 +439,8 @@ object Player {
     /** La siguiente («auto»: porque acabó la anterior). */
     fun next(auto: Boolean) {
         if (queue.isEmpty()) return
-        if (auto && Prefs.str("repeat", "off") == "one") { NovaCore.eng().seek(slot, 0.0); NovaCore.play(slot); return }
-        if (!auto) markManual()
+        if (auto && Prefs.str("repeat", "off") == "one") { if (mode == 2) { Calle.seek(0.0); Calle.resume() } else if (mode == 0) { NovaCore.eng().seek(slot, 0.0); NovaCore.play(slot) } else loadCurrent(true); return }
+        if (!auto) { markManual(); netManual = true }
         Radio.onNext(auto)
         val xf = if (auto) 0.0 else if (playing) MANUAL_XF else 0.0
         Bar.dir = 1
@@ -341,15 +451,20 @@ object Player {
 
     fun prev() {
         if (queue.isEmpty()) return
-        val pos = try { NovaCore.position(slot).optDouble("pos", 0.0) } catch (t: Throwable) { 0.0 }
-        if (pos > 3) { NovaCore.eng().seek(slot, 0.0); Bar.pos = 0.0; return }
+        val pos = if (mode == 2) Calle.pos() else if (mode == 3) Tubo.pos() else try { NovaCore.position(slot).optDouble("pos", 0.0) } catch (t: Throwable) { 0.0 }
+        val live = mode == 2 && Calle.dur() <= 0
+        if (pos > 3 && !live) { seek(0.0); return }
         markManual()
         Bar.dir = -1
         qi = if (qi > 0) qi - 1 else if (Prefs.str("repeat", "off") == "all") queue.size - 1 else 0
         loadCurrent(true, if (playing) MANUAL_XF else 0.0)
     }
 
-    fun seek(pos: Double) { if (current() == null) return; NovaCore.eng().seek(slot, max(0.0, pos)); Bar.pos = pos }
+    fun seek(pos: Double) {
+        if (current() == null) return
+        when (mode) { 2 -> Calle.seek(max(0.0, pos)); 3 -> Tubo.seek(max(0.0, pos)); else -> NovaCore.eng().seek(slot, max(0.0, pos)) }
+        Bar.pos = pos; netState(true)
+    }
 
     /** Ir a una canción de la cola (desde «A continuación»). */
     fun jumpTo(i: Int) { if (i !in queue.indices) return; markManual(); Bar.dir = if (i > qi) 1 else -1; qi = i; loadCurrent(true, if (playing) MANUAL_XF else 0.0) }

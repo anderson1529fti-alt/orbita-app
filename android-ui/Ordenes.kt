@@ -91,7 +91,7 @@ object Ordenes {
         if (iss("visualizador|^(pon )?(el )?visual$")) { Ventanas.open("viz"); return }
         if (iss("(resumen|repaso) (de mi|del|de este|de tu|de todo el) ano|(mi|tu) ano en orbita|(^| )wrapped$|que (he|e) escuchado este ano")) { Recap.open(0); return }
         if (iss("^(pon |ponme |reproduce |quiero (oir|escuchar) )?(todas (mis|las) canciones|toda mi (musica|biblioteca)|todo mi orbita|todo orbita)( sin repetir)?$|^(ponlas|ponmelas|reproducelas) todas$|^(pon|reproduce|ponme) todas( sin repetir)?$")) { Todo.startAll(); return }
-        if (iss("(recomienda(me|s)?|que me recomiendas|alguna recomendacion|sugiereme|descubreme (algo|canciones|musica)|(canciones?|algo) nuev[oa]s? (de internet )?que me (puedan? )?gust)")) { say("Las recomendaciones de internet llegan con «Buscar» en la Órbita nativa."); return }
+        if (iss("(recomienda(me|s)?|que me recomiendas|alguna recomendacion|sugiereme|descubreme (algo|canciones|musica)|(canciones?|algo) nuev[oa]s? (de internet )?que me (puedan? )?gust)")) { Recos.ask(); return }
         if (Recuerdos.command(q, raw)) return
         val qn = Regex("^(despues|luego|a continuacion) pon (.+)$|^pon (.+) (despues|luego|a continuacion|la siguiente)$").find(q)
         if (qn != null && t != null) { queueNextByName(qn.groupValues[2].ifEmpty { qn.groupValues[3] }); return }

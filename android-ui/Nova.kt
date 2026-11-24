@@ -102,6 +102,7 @@ object Nova {
     /** Empieza una canción: lo que dice al presentarla (si toca) y lo que aprende. */
     fun onBegin(t: Track, talk0: Pair<String, String>?, again: Boolean) {
         var talk = talk0
+        if (talk?.first == "@yt") talk = Tubo.intro(t) to talk.second
         if (talk == null && !again && shouldTalk(t)) talk = if (t.net) (Online.netIntro(t) to "siguiente") else (introFor(t) to (if (Biblio.liked(t)) "favorita" else "siguiente"))
         if (talk != null) djTalk(talk.first, talk.second)
         Cerebro.onBegin(t)
@@ -223,7 +224,7 @@ object Voz {
     }
 
     /** El volumen de la música: lo que baja mientras habla Nova, por lo que suba el despertador. */
-    fun applyMaster() { try { NovaCore.eng().setMaster(duck * Alarma.f) } catch (ignored: Throwable) { } }
+    fun applyMaster() { try { NovaCore.eng().setMaster(duck * Alarma.f) } catch (ignored: Throwable) { }; Calle.setVolume(duck * Alarma.f); Tubo.setVolume(duck * Alarma.f) }
 
     private fun duckTo(v: Float, ms: Long) {
         val from = duck; val t0 = SystemClock.uptimeMillis()

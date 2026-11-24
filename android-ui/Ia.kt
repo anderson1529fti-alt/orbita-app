@@ -16,7 +16,9 @@ object Ia {
     fun ready(): Boolean = key().isNotEmpty()
 
     /** «aiJson»: le pide algo a Claude y devuelve el JSON de su respuesta (o el código del error). */
-    fun json(prompt: String): Pair<Map<String, Any?>?, String?> {
+    fun json(prompt: String, cancellable: Boolean = true): Pair<Map<String, Any?>?, String?> {
+        // (lo que no es la mezcla, como «Buscar», no se para con «Parar»)
+        fun stopped() = cancellable && cancelled
         val k = key(); if (k.isEmpty()) return null to "not_granted"
         val c = try { URL("https://api.anthropic.com/v1/messages").openConnection() as HttpURLConnection } catch (t: Throwable) { return null to "offline" }
         try {
@@ -25,7 +27,7 @@ object Ia {
             val body = Json.str(mapOf("model" to "claude-haiku-5-5", "max_tokens" to 2500, "messages" to listOf(mapOf("role" to "user", "content" to prompt + "\n\nResponde únicamente con el JSON, sin texto antes ni después."))))
             c.outputStream.use { it.write(body.toByteArray()) }
             val code = c.responseCode
-            if (cancelled) return null to "cancelled"
+            if (stopped()) return null to "cancelled"
             if (code == 401 || code == 403) return null to "bad_key"
             if (code == 429) return null to "rate_limited"
             if (code !in 200..299) return null to "upstream_error"
@@ -34,7 +36,7 @@ object Ia {
             val a = txt.indexOf('{'); val b = txt.lastIndexOf('}')
             if (a < 0 || b < a) return null to "invalid_json"
             return (Json.obj(Json.parseOr(txt.substring(a, b + 1), null)) ?: return null to "invalid_json") to null
-        } catch (t: Throwable) { return null to (if (cancelled) "cancelled" else "offline") } finally { c.disconnect() }
+        } catch (t: Throwable) { return null to (if (stopped()) "cancelled" else "offline") } finally { c.disconnect() }
     }
 
     fun errorNote(code: String?): String = when (code) {

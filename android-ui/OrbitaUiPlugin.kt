@@ -390,6 +390,12 @@ class OrbitaUiPlugin : Plugin() {
         val r = JSObject()
         r.put("on", Nativo.on); r.put("ready", Nativo.ready); r.put("songs", UiState.tracks.size); r.put("lib", Lib.tracks.size)
         r.put("own", Lib.tracks.count { !it.demo }); r.put("demos", Lib.tracks.count { it.demo })
+        try {
+            val b = JSObject(); val c = Buscar.cur
+            b.put("online", if (c == null) -1 else if (c.onLoading) -2 else c.online?.size ?: -3); b.put("onErr", c?.onErr ?: "")
+            b.put("radios", if (Buscar.radio.loading) -2 else Buscar.radio.list?.size ?: -1); b.put("rErr", Buscar.radio.err); b.put("tab", Buscar.tab)
+            r.put("buscar", b)
+        } catch (ignored: Throwable) { }
         r.put("covers", UiState.covers.size); r.put("screen", UiState.screen); r.put("shown", host?.visibility == View.VISIBLE)
         r.put("now", UiState.nowId); r.put("qi", Player.qi); r.put("queue", JSArray(Player.queue.take(50))); r.put("playing", Player.playing)
         r.put("pos", try { NovaCore.position(Player.slot) } catch (t: Throwable) { JSObject() })
@@ -490,8 +496,14 @@ class OrbitaUiPlugin : Plugin() {
 
     // la app se va (o se apaga la pantalla) mientras escucha: deja de escuchar (pedir el permiso también la deja en
     // pausa un momento: eso no cuenta)
+    override fun handleOnResume() {
+        super.handleOnResume()
+        try { if (Nativo.on) Nativo.onBack() } catch (ignored: Throwable) { }
+    }
+
     override fun handleOnPause() {
         super.handleOnPause()
+        try { if (Nativo.on) Nativo.onAway() } catch (ignored: Throwable) { }
         if (!Ear.asking && Ear.step != "perm" && (Ear.on || Ear.busy)) { Ear.cancel(); earBack.isEnabled = false }
     }
 

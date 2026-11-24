@@ -75,7 +75,7 @@ fun AjustesScreen() {
     val sk = rememberSkin()
     @Suppress("UNUSED_VARIABLE") val v = Ver.n + Alarma.ver
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(UiState.pageScroll("ajustes")).padding(start = 16.dp, end = 16.dp, top = 26.dp, bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
+        Column(Modifier.fillMaxSize().verticalScroll(UiState.pageScroll("ajustes")).padding(start = 16.dp, end = 16.dp, top = 26.dp, bottom = Tubo.viewBottom()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
             PageHead("Ajustes", "sonido, aspecto, DJ y copias" + Ajustes.version().let { if (it.isNotEmpty()) " · versión $it" else "" }, sk)
             AlarmPanel(sk)
             SoundPanel(sk)

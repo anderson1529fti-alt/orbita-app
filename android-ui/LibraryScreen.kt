@@ -112,7 +112,7 @@ internal val Mono = FontFamily(Font(R.font.plexmono_400, FontWeight.Normal), Fon
 internal fun hsl(h: Float, s: Float, l: Float, a: Float = 1f): Color = Color.hsl(((h % 360f) + 360f) % 360f, s.coerceIn(0f, 1f), l.coerceIn(0f, 1f), a.coerceIn(0f, 1f))
 
 /** Los colores de la app: los fijos y los que salen del color del momento (o de la portada). */
-internal class Pal(h: Float, s: Float, glowK: Float, black: Boolean) {
+internal class Pal(val h: Float, s: Float, glowK: Float, black: Boolean) {
     val fg = Color(0xFFF7F2FF)
     val muted = Color(0xFFACA2CB)
     val faint = Color(0xFF71688F)
@@ -378,7 +378,7 @@ internal fun rememberSkin(): Skin {
 @Composable
 fun OrbitaScreens() {
     val scr = UiState.screen
-    when { scr == "chat" -> ChatScreen(); scr == "inicio" -> HomeScreen(); scr in UiState.PAGES -> PageScreen(scr); scr == "ajustes" && Nativo.on -> AjustesScreen(); scr in UiState.MIRROR -> MirrorScreen(scr); else -> LibraryScreen() }
+    when { scr == "chat" -> ChatScreen(); scr == "inicio" -> HomeScreen(); scr in UiState.PAGES -> PageScreen(scr); scr == "ajustes" && Nativo.on -> AjustesScreen(); scr == "buscar" && Nativo.on -> BuscarScreen(); scr in UiState.MIRROR -> MirrorScreen(scr); else -> LibraryScreen() }
 }
 
 private val SORTS = listOf("recent" to "Recientes", "title" to "Título", "artist" to "Artista", "plays" to "Más escuchadas")
@@ -421,7 +421,7 @@ fun LibraryScreen() {
     }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 26.dp, bottom = 48.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 26.dp, bottom = Tubo.viewBottom())) {
             // ---- título, cuántas hay y «Añadir canciones»
             item(key = "#head") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {

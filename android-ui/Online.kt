@@ -13,6 +13,8 @@ import java.util.concurrent.Executors
  * tiempo que hace en tu ciudad (Open-Meteo). Como en la web, con lo mismo guardado en el móvil.
  */
 object Online {
+    /** Cómo se presenta Órbita a las webs (las radios, Deezer…). */
+    const val UA = "Orbita/2.0 (app de música personal; Android)"
     val net = Executors.newFixedThreadPool(3)
 
     /** Hay internet (la web lo llamaba «ONLINE»: la app de Android y con conexión). */
@@ -26,15 +28,45 @@ object Online {
     }
 
     /** Una petición GET que devuelve JSON (o null). */
-    fun getJson(url: String, headers: Map<String, String> = emptyMap(), timeout: Int = 9000): Any? {
+    /** Una respuesta que no es «bien» (con lo que dijo el servidor). */
+    class HttpError(val status: Int, val body: String) : Exception("http $status")
+
+    fun getJson(url: String, headers: Map<String, String> = emptyMap(), timeout: Int = 9000, throwStatus: Boolean = false): Any? {
         val c = URL(url).openConnection() as HttpURLConnection
         try {
             c.connectTimeout = timeout; c.readTimeout = timeout
             c.setRequestProperty("Accept", "application/json")
+            if (headers.keys.none { it.equals("User-Agent", true) }) c.setRequestProperty("User-Agent", UA)
             for ((k, v) in headers) c.setRequestProperty(k, v)
-            if (c.responseCode !in 200..299) return null
+            val code = c.responseCode
+            if (code !in 200..299) {
+                if (throwStatus) throw HttpError(code, try { c.errorStream?.bufferedReader()?.use { it.readText() } ?: "" } catch (t: Throwable) { "" })
+                return null
+            }
             return Json.parse(c.inputStream.bufferedReader().use { it.readText() })
         } finally { c.disconnect() }
+    }
+
+    /** Una imagen de internet (portada de una muestra, logo de una radio, miniatura de YouTube), guardada para la próxima. */
+    fun cachedImage(url: String): java.io.File? {
+        if (!url.startsWith("http")) return null
+        val dir = java.io.File(Store.root, "cache/net"); dir.mkdirs()
+        val f = java.io.File(dir, Store.sha1(url).take(24))
+        if (f.isFile && f.length() > 0) return f
+        if (!on()) return null
+        return try {
+            val c = URL(url).openConnection() as HttpURLConnection
+            try {
+                c.connectTimeout = 8000; c.readTimeout = 9000; c.setRequestProperty("User-Agent", UA)
+                if (c.responseCode !in 200..299) return null
+                val tmp = java.io.File(dir, f.name + ".tmp")
+                c.inputStream.use { inp -> tmp.outputStream().use { inp.copyTo(it) } }
+                if (tmp.length() > 0) tmp.renameTo(f)
+                // (no más de 300 imágenes guardadas)
+                dir.listFiles()?.let { all -> if (all.size > 300) all.sortedBy { it.lastModified() }.take(all.size - 300).forEach { it.delete() } }
+                if (f.isFile) f else null
+            } finally { c.disconnect() }
+        } catch (t: Throwable) { null }
     }
 
     fun enc(s: String): String = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
@@ -129,8 +161,6 @@ object Online {
     }
 
     /** Lo que dice Nova al empezar una radio o un vídeo de internet. */
-    fun netIntro(t: Track): String = if (t.kind == "yt") "Desde YouTube: ${t.title}." else if (t.kind == "radio") "En directo: ${t.title}." else "Escucha esto: ${t.title}, de ${t.artist}."
+    fun netIntro(t: Track): String = if (t.kind == "yt") Tubo.intro(t) else Buscar.radioIntro(t)
 }
-
-/** Recomendaciones (canciones que no tienes y que te gustarían): llega en el paso de «Buscar». */
 

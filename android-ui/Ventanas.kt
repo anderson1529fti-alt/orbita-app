@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -97,16 +98,18 @@ object Ventanas {
         if (id == "np") npOpen = true
         gen++
         Nativo.ui?.nativoWin(true)
+        if (id == "np") Tubo.place()
     }
 
     fun close(id: String) {
-        if (id == "np") { npOpen = false; return }   // (se va con su animación; al acabar, [gone])
+        if (id == "np") { npOpen = false; Tubo.place(); return }   // (se va con su animación; al acabar, [gone])
         gone(id)
     }
 
     fun gone(id: String) {
         stack = stack - id
         if (stack.isEmpty()) Nativo.ui?.nativoWin(false)
+        if (id == "np") Tubo.place()
     }
 
     fun refresh(id: String) {
@@ -211,6 +214,18 @@ fun NatWindows() {
     }
 }
 
+/** El sitio del vídeo de YouTube en «Ahora suena» (16:9, con sus esquinas): el vídeo se pone ahí encima. */
+@Composable
+private fun NpVideoSlot(sk: Skin) {
+    val shape = sk.r(14f)
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { Tubo.slotAt(null) } }
+    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(shape).background(Color.Black).androidx_onPlaced { r -> Tubo.slotAt(r) })
+}
+private fun Modifier.androidx_onPlaced(f: (android.graphics.RectF) -> Unit): Modifier = this.onGloballyPositioned { lc: androidx.compose.ui.layout.LayoutCoordinates ->
+    val p = lc.localToWindow(Offset.Zero); val s = lc.size
+    f(android.graphics.RectF(p.x, p.y, p.x + s.width, p.y + s.height))
+}
+
 // ---------------------------------------------------------------- «Ahora suena»
 @Composable
 private fun NpWindow(sk: Skin) {
@@ -275,7 +290,7 @@ private fun NpWindow(sk: Skin) {
                     Ico(I_DOWN, 18f, p.fg, sw = 2.4f)
                     T("Cerrar", 15f * sk.tk, p.fg, weight = FontWeight.ExtraBold, maxLines = 1)
                 }
-                NpArt(sk, t)
+                if (cur?.kind == "yt") NpVideoSlot(sk) else NpArt(sk, t)
                 // título, artista y me gusta
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f)) {

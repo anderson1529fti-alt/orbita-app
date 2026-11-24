@@ -224,9 +224,9 @@ internal fun Field(value: String, onValue: (String) -> Unit, sk: Skin, modifier:
 
 /** «keyrow»: el campo (que se estira) y sus botones; si no caben, debajo. */
 @Composable
-internal fun KeyRow(modifier: Modifier = Modifier, field: @Composable (Modifier) -> Unit, buttons: @Composable () -> Unit) {
+internal fun KeyRow(modifier: Modifier = Modifier, gap: Dp = 8.dp, field: @Composable (Modifier) -> Unit, buttons: @Composable () -> Unit) {
     androidx.compose.ui.layout.Layout(content = { field(Modifier); buttons() }, modifier = modifier.fillMaxWidth()) { ms, c ->
-        val g = 8.dp.roundToPx()
+        val g = gap.roundToPx()
         val loose = androidx.compose.ui.unit.Constraints(0, c.maxWidth, 0, androidx.compose.ui.unit.Constraints.Infinity)
         val bs = ms.drop(1).map { it.measure(loose) }
         val bw = bs.sumOf { it.width } + g * bs.size

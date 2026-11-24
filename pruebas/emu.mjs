@@ -222,6 +222,15 @@ try {
   // cómo se ve cada pantalla de la app web (referencia para las pantallas nativas)
   const goView = async v => { for (let k = 0; k < 5; k++) { const r = await js(`location.hash = '#${v}'; await new Promise(r => setTimeout(r, 400)); return window.__orbita.state.view;`); if (r === v) return true; await sleep(700); } log('  (no cambia a ' + v + ')'); return false; };
   for (const v of ['listas', 'tu', 'ajustes', 'inicio']) { await goView(v); await sleep(1300); shot('web-' + v); }
+  // «Buscar» de la web, con una búsqueda de verdad y sus tres pestañas (referencia para el de Android)
+  if (fs.existsSync('pruebas/solo-nativo')) {
+    await goView('buscar'); await sleep(1000);
+    await js(`const i = document.querySelector('#netQ'); i.value = 'Rosalía'; document.querySelector('#netForm').requestSubmit(); return 1;`).catch(() => null); await sleep(7000); shot('web-buscar-canciones');
+    await js(`document.querySelector('#netTabs [data-ntab=radios]').click(); return 1;`).catch(() => null); await sleep(8000); shot('web-buscar-radios');
+    await js(`document.querySelector('#netTabs [data-ntab=youtube]').click(); return 1;`).catch(() => null); await sleep(1500); shot('web-buscar-youtube');
+    await js(`document.querySelector('#netTabs [data-ntab=canciones]').click(); return 1;`).catch(() => null);
+    await goView('inicio'); await sleep(1000);
+  }
 
   // ================= FASE 2 · último paso (4.8): las ventanas y el reproductor a pantalla completa, nativos =================
   const ventanas48 = async () => {
@@ -1354,6 +1363,20 @@ try {
     const sa = await js(NI); shot('nativa-ajustes-1');
     let aj = null; for (const [i, y] of [[2, 900], [3, 1900], [4, 2900], [5, 3900], [6, 4900], [7, 99999]]) { aj = await js(`return await Capacitor.Plugins.OrbitaUi.natScroll({ name: 'ajustes', y: ${y} });`).catch(e => ({ err: String(e) })); await sleep(700); shot('nativa-ajustes-' + i); }
     check('«Ajustes» hecho por Android: se abre y se recorre entero', !!sa && sa.screen === 'ajustes' && aj && !aj.err && aj.max > 1500 && crashes() === 0, JSON.stringify({ screen: sa && sa.screen, aj, log: sa && sa.log && sa.log.slice(-4) }));
+    // «Buscar», hecho por Android: una búsqueda de verdad (muestras de Deezer), las radios y la pestaña de YouTube
+    const BT = t => js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'buscarTab', o: { tab: '${t}' } }); return 1;`).catch(() => null);
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'buscar' } }); return 1;`).catch(() => null); await sleep(1500); shot('nativa-buscar-vacia');
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'buscarRun', o: { q: 'Rosalía' } }); return 1;`).catch(() => null);
+    let bs = null; for (let k = 0; k < 15; k++) { await sleep(1000); bs = await js(NI).catch(() => null); if (bs && bs.buscar && bs.buscar.online !== -2) break; }
+    await sleep(2500); shot('nativa-buscar-canciones');
+    const bOn = bs && bs.buscar;
+    await BT('radios');
+    for (let k = 0; k < 20; k++) { await sleep(1000); bs = await js(NI).catch(() => null); if (bs && bs.buscar && bs.buscar.radios !== -2) break; }
+    await sleep(3000); shot('nativa-buscar-radios');
+    const bR = bs && bs.buscar;
+    await BT('youtube'); await sleep(1500); shot('nativa-buscar-youtube');
+    await BT('canciones');
+    check('«Buscar» hecho por Android: canciones de internet (muestras) y radios', !!bOn && bOn.online > 0 && !!bR && bR.radios > 0 && crashes() === 0, JSON.stringify({ canciones: bOn, radios: bR }));
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'inicio' } }); return 1;`).catch(() => null); await sleep(800);
     // «Girar la ruleta»: sale una canción y se queda la radio puesta
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'hTap', o: { k: '#btnRoulette' } }); return 1;`).catch(() => null);

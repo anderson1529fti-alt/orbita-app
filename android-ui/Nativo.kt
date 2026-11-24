@@ -142,7 +142,7 @@ object Nativo {
             val got = ArrayList<Pair<String, androidx.compose.ui.graphics.ImageBitmap>>()
             for (id in ids) {
                 val t = Lib.byId(id) ?: continue
-                val f = (if (sideDp > 100) Lib.bigCoverFile(t) else Lib.coverFile(t)) ?: continue
+                val f = (if (t.net) Online.cachedImage(if (sideDp > 100) t.artBig.ifEmpty { t.art } else t.art.ifEmpty { t.artBig }) else if (sideDp > 100) Lib.bigCoverFile(t) else Lib.coverFile(t)) ?: continue
                 try {
                     val o = BitmapFactory.Options(); o.inJustDecodeBounds = true; BitmapFactory.decodeFile(f.absolutePath, o)
                     var s = 1; while (o.outWidth / (s * 2) >= side && o.outHeight / (s * 2) >= side) s *= 2
@@ -199,6 +199,8 @@ object Nativo {
             "tab" -> go(o.optString("view"))
             // ---- (pruebas)
             "test-seek" -> NovaCore.eng().seek(Player.slot, o.optDouble("pos", 0.0))
+            "buscarRun" -> { Buscar.q = o.optString("q"); Buscar.run(Buscar.q) }
+            "buscarTab" -> Buscar.pickTab(o.optString("tab"))
             // (las pruebas vuelven a la app de siempre: la web, otra vez a la vista, y lo nativo, fuera)
             "test-web" -> { try { NovaCore.pause(0); NovaCore.pause(1) } catch (ignored: Throwable) { }; ui?.nativoOff() }
             else -> if (!Ventanas.onUi(type, o)) note("sin hacer todavía: $type")
@@ -209,7 +211,7 @@ object Nativo {
     fun restart() { if (!on) return; ready = false; UiState.covers.clear(); UiState.asked.clear(); boot() }
 
     /** Las pantallas que ya hace Android. */
-    val VIEWS = listOf("biblioteca", "inicio", "listas", "tu", "ajustes")
+    val VIEWS = listOf("biblioteca", "inicio", "listas", "tu", "ajustes", "buscar")
 
     /** Cambiar de pestaña (y apuntarlo, para volver con «atrás»). */
     fun go(view: String) {
@@ -231,7 +233,17 @@ object Nativo {
 
     // ---------------------------------------------------------------- lo que pasa (y lo que hay que volver a enseñar)
     /** La app se ve (o está en segundo plano). */
-    @Volatile var awake = true
+    @Volatile var awake = true; private set
+    private var lastBack = 0L
+    /** Fuera de Órbita (otra app, la pantalla apagada). */
+    fun onAway() { awake = false; Tubo.onAway() }
+    /** De vuelta: lo que esperaba (el vídeo), y la música del móvil, por si hay canciones nuevas. */
+    fun onBack() {
+        awake = true; Tubo.onBack()
+        val now = System.currentTimeMillis()
+        if (ready && Biblio.devState() == "granted" && now - lastBack > 60000) { lastBack = now; main.postDelayed({ Biblio.syncDevice(false) }, 800) }
+        if (ready) { Alarma.changed(); Ver.bump() }
+    }
 
     fun libraryChanged() { pushLibrary(); Biblio.boxes(); if (Player.has()) Player.barSync() }
     fun onTrack(t: Track) { UiState.nowId = t.id; Paginas.mark("tu") }

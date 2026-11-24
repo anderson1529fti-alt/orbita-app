@@ -533,7 +533,7 @@ fun HomeScreen() {
     Box(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val vw = maxWidth.value
-            if (top != null) LazyColumn(Modifier.fillMaxSize(), state = UiState.homeList, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 26.dp, bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
+            if (top != null) LazyColumn(Modifier.fillMaxSize(), state = UiState.homeList, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 26.dp, bottom = Tubo.viewBottom()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
                 val bans = top.arr("ban")
                 items(bans.size, key = { "#ban$it" }) { i -> Banner(bans[i], sk) }
                 item(key = "#hero") { Hero(top, sk, vw, lite) }

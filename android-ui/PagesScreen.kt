@@ -63,7 +63,7 @@ private const val P_TRASH = "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"
 fun PageScreen(name: String) {
     val sk = rememberSkin()
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(UiState.pageScroll(name)).padding(start = 16.dp, end = 16.dp, top = 26.dp, bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
+        Column(Modifier.fillMaxSize().verticalScroll(UiState.pageScroll(name)).padding(start = 16.dp, end = 16.dp, top = 26.dp, bottom = Tubo.viewBottom()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
             when (name) {
                 "listas" -> ListasBody(sk)
                 "tu" -> TuBody(sk)
