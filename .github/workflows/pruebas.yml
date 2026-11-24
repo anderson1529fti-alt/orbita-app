@@ -157,6 +157,8 @@ jobs:
           mkdir -p salida
           { free -m; sudo dmesg -T 2>/dev/null | grep -iE "out of memory|killed process|oom|segfault|qemu" | tail -n 40; } > salida/memoria.txt || true
           cat salida/memoria.txt
+          # (si el emulador se ha caído, lo que guardó al caerse: qué partes suyas estaban en marcha)
+          { ls -laR /tmp/android-runner 2>/dev/null | head -n 60; for f in $(find /tmp/android-runner -type f \( -name '*.dmp' -o -name '*.txt' -o -name '*.log' \) 2>/dev/null | head -n 6); do echo "== $f"; strings -n 6 "$f" | grep -aiE "\.so|fatal|abort|assert|error|crash|signal|gles|vulkan|swiftshader|render|texture" | sort | uniq -c | sort -rn | head -n 80; done; } > salida/emulador-caida.txt 2>&1 || true
       # Los resultados (capturas y registros) van a la rama «resultados», que se sobrescribe en cada prueba
       - name: Publicar resultados
         if: always()

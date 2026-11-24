@@ -233,6 +233,7 @@ fun NatWindows() {
                 "alarm" -> AlarmWindow(sk)
                 "viz" -> VizFullWindow(sk)
                 "recap" -> RecapWindow(sk)
+                "news" -> NewsWindow(sk)
                 "lyedit" -> LyEditWindow(sk)
                 "onb" -> OnbWindow(sk)
             }
@@ -593,6 +594,28 @@ private fun EditWindow(sk: Skin) {
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
             SmallBtn(sk, "Cancelar") { Ventanas.gone("edit") }
             SmallBtn(sk, "Guardar", primary = true) { Ventanas.saveEdit() }
+        }
+    }
+}
+
+/** «Órbita se ha actualizado»: lo nuevo de esta versión. */
+@Composable
+private fun NewsWindow(sk: Skin) {
+    val p = sk.pal
+    Modal(sk, "Órbita se ha actualizado", { Ventanas.gone("news") }) {
+        Eyebrow(Novedades.ver, sk)
+        H2(sk, "Órbita se ha actualizado")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (x in Novedades.items) Row {
+                T("•", 15f * sk.tk, p.muted, Modifier.width((15f * 1.1f * sk.tk).dp))
+                val parts = x.split("**")
+                val txt = androidx.compose.ui.text.buildAnnotatedString { parts.forEachIndexed { i, s -> if (i % 2 == 1) { pushStyle(androidx.compose.ui.text.SpanStyle(color = p.fg, fontWeight = FontWeight.Bold)); append(s); pop() } else append(s) } }
+                androidx.compose.foundation.text.BasicText(txt, Modifier.weight(1f).lines(15f * sk.tk * 1.45f), style = style(15f * sk.tk, p.muted))
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            SmallBtn(sk, "Vale") { Ventanas.gone("news") }
+            SmallBtn(sk, "Ver el visualizador", primary = true) { Ventanas.gone("news"); VizCtl.openFull() }
         }
     }
 }

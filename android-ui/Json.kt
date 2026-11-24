@@ -7,6 +7,13 @@ package __PACKAGE__
  * aquí y lo que guardaba la parte web sea el mismo texto.
  */
 object Json {
+    /** El número como lo deja «toFixed(d)» de la parte web (redondeando su valor exacto, no el multiplicado). */
+    fun fixed(x: Double, d: Int): Double {
+        if (x.isNaN() || x.isInfinite()) return x
+        val bd = java.math.BigDecimal(x).setScale(d, if (x >= 0) java.math.RoundingMode.HALF_UP else java.math.RoundingMode.HALF_DOWN)
+        return bd.toDouble()
+    }
+
     fun parse(s: String): Any? { val p = P(s); p.ws(); val v = p.value(); p.ws(); if (p.i != s.length) p.err("sobra texto"); return v }
 
     fun parseOr(s: String?, d: Any?): Any? = try { if (s == null) d else parse(s) } catch (t: Throwable) { d }

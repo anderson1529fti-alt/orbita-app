@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -70,22 +72,40 @@ private val LOOK_OPTS = mapOf(
 private val LOOK_DEF = mapOf("lkBg" to "aurora", "lkRound" to "redondo", "lkText" to "m", "lkTitles" to "orbita", "startView" to "inicio")
 private val WARN = Color(0xFFFFC35C)
 
+/**
+ * Para las pruebas: a qué altura de «Ajustes» está cada parte (en dp, contando desde arriba del todo) y quitar partes,
+ * para saber cuál hace caer el emulador de las pruebas al pasar por ella. (En el móvil no se usa.)
+ */
+internal object AjDbg {
+    val pos = java.util.concurrent.ConcurrentHashMap<String, FloatArray>()
+    @Volatile var top = 0f
+    var hide by mutableStateOf(emptySet<String>())
+    fun visible(y: Double, h: Double): List<String> = pos.entries.filter { it.value[0] < y + h && it.value[0] + it.value[1] > y }.sortedBy { it.value[0] }.map { it.key + "@" + it.value[0].roundToInt() }
+}
+private fun Modifier.ajMark(name: String): Modifier = this.onGloballyPositioned { c ->
+    val d = Nativo.act?.resources?.displayMetrics?.density ?: return@onGloballyPositioned
+    if (name == "@vista") { AjDbg.top = c.positionInRoot().y; return@onGloballyPositioned }
+    val y = (c.positionInRoot().y - AjDbg.top + UiState.pageScroll("ajustes").value) / d
+    AjDbg.pos[name] = floatArrayOf(y, c.size.height / d)
+}
+
 @Composable
 fun AjustesScreen() {
     val sk = rememberSkin()
     @Suppress("UNUSED_VARIABLE") val v = Ver.n + Alarma.ver
-    Box(Modifier.fillMaxSize()) {
+    val hide = AjDbg.hide
+    Box(Modifier.fillMaxSize().ajMark("@vista")) {
         Column(Modifier.fillMaxSize().verticalScroll(UiState.pageScroll("ajustes")).padding(start = 16.dp, end = 16.dp, top = 26.dp, bottom = Tubo.viewBottom()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
             PageHead("Ajustes", "sonido, aspecto, DJ y copias" + Ajustes.version().let { if (it.isNotEmpty()) " · versión $it" else "" }, sk)
-            AlarmPanel(sk)
-            SoundPanel(sk)
-            ThemePanel(sk)
-            LookPanel(sk)
-            CoversPanel(sk)
-            DjPanel(sk)
-            PerfPanel(sk)
-            BackupPanel(sk)
-            PermsPanel(sk)
+            Box(Modifier.ajMark("despertador")) { AlarmPanel(sk) }
+            Box(Modifier.ajMark("sonido")) { SoundPanel(sk) }
+            if ("tema" !in hide) Box(Modifier.ajMark("tema")) { ThemePanel(sk) }
+            Box(Modifier.ajMark("aspecto")) { LookPanel(sk) }
+            Box(Modifier.ajMark("portadas")) { CoversPanel(sk) }
+            Box(Modifier.ajMark("dj")) { DjPanel(sk) }
+            Box(Modifier.ajMark("rendimiento")) { PerfPanel(sk) }
+            Box(Modifier.ajMark("copias")) { BackupPanel(sk) }
+            Box(Modifier.ajMark("permisos")) { PermsPanel(sk) }
             Column(Modifier.fillMaxWidth().padding(top = 18.dp - 26.dp + 26.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 HFlow(12.dp, 12.dp) {
                     HBtn("Ver otra vez la bienvenida", sk, kind = 1) { Bienvenida.open(true) }
@@ -335,11 +355,11 @@ private fun ThemePanel(sk: Skin) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val cols = max(1, ((maxWidth.value + 10f) / 160f).toInt())
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                for (row in Momento.THEMES.chunked(cols)) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                for ((ri, row) in Momento.THEMES.chunked(cols).withIndex()) Row(Modifier.ajMark("tema-fila-$ri"), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (th in row) {
                         val on = cur == th.id
                         val shape = sk.r(16f)
-                        Column(Modifier.weight(1f).then(if (on) Modifier.glow(p.glow, (16f * sk.round).dp, 26.dp, 0.dp, (-8).dp) else Modifier).press { Ajustes.setTheme(th.id) }.clip(shape).background(Color.Black.copy(alpha = 0.3f))
+                        Column(Modifier.weight(1f).then(if (on && "tema-brillo" !in AjDbg.hide) Modifier.glow(p.glow, (16f * sk.round).dp, 26.dp, 0.dp, (-8).dp) else Modifier).press { Ajustes.setTheme(th.id) }.clip(shape).background(Color.Black.copy(alpha = 0.3f))
                             .border(if (on) sk.b * 2 else sk.b, if (on) p.accent else p.line2, shape).padding(12.dp + sk.b), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Swatch(th, sk, Modifier.fillMaxWidth().height(46.dp).clip(sk.r(10f)))
                             T(th.name, 14.4f * sk.tk, p.fg, weight = FontWeight.Bold, maxLines = 1)
@@ -355,6 +375,7 @@ private fun ThemePanel(sk: Skin) {
 
 @Composable
 private fun Swatch(th: Momento.Theme, sk: Skin, modifier: Modifier) {
+    if ("muestras" in AjDbg.hide) { Box(modifier.background(Color(0xFF443366))); return }
     when (th.id) {
         "auto" -> Box(modifier.background(Brush.horizontalGradient(Momento.FRANJAS.map { hsl(it.hue.toFloat(), 0.9f, 0.6f) })))
         "cover" -> {

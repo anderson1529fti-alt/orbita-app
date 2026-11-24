@@ -1363,11 +1363,11 @@ try {
     const BT = t => js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'buscarTab', o: { tab: '${t}' } }); return 1;`).catch(() => null);
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'buscar' } }); return 1;`).catch(() => null); await sleep(1500); shot('nativa-buscar-vacia');
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'buscarRun', o: { q: 'Rosalía' } }); return 1;`).catch(() => null);
-    let bs = null; for (let k = 0; k < 15; k++) { await sleep(1000); bs = await js(NI).catch(() => null); if (bs && bs.buscar && bs.buscar.online !== -2) break; }
+    let bs = null; for (let k = 0; k < 25; k++) { await sleep(1000); bs = await js(NI).catch(() => null); if (bs && bs.buscar && (bs.buscar.online > 0 || bs.buscar.onErr)) break; }
     await sleep(2500); shot('nativa-buscar-canciones');
     const bOn = bs && bs.buscar;
     await BT('radios');
-    for (let k = 0; k < 20; k++) { await sleep(1000); bs = await js(NI).catch(() => null); if (bs && bs.buscar && bs.buscar.radios !== -2) break; }
+    for (let k = 0; k < 25; k++) { await sleep(1000); bs = await js(NI).catch(() => null); if (bs && bs.buscar && (bs.buscar.radios > 0 || bs.buscar.rErr)) break; }
     await sleep(3000); shot('nativa-buscar-radios');
     const bR = bs && bs.buscar;
     await BT('youtube'); await sleep(1500); shot('nativa-buscar-youtube');
@@ -1387,20 +1387,35 @@ try {
     check('y suena como tu voz de DJ (con la música más baja)', vsp, '');
     await sleep(2500);
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'vozDel', o: {} }); return 1;`).catch(() => null);
-    // «Ajustes», hecho por Android: se ve entero (capturas a lo largo) y no se cierra
-    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'ajustes' } }); return 1;`).catch(() => null); await sleep(1500);
-    const sa = await js(NI); shot('nativa-ajustes-1');
-    // (de poco en poco, apuntando cada paso: si algo de la pantalla hace caer el emulador, aquí queda en qué parte)
-    try { const pid = sh(`pidof ${PKG}`).trim().split(/\s+/)[0]; if (pid) { const fd = fs.openSync(`${OUT}/logcat-ajustes.txt`, 'w'); const lc = spawn('adb', ['logcat', '-v', 'time', '--pid=' + pid], { stdio: ['ignore', fd, 'ignore'] }); lc.unref(); } } catch {}
-    let aj = null, ajN = 2;
-    for (const y of [900, 1150, 1400, 1650, 1900, 2150, 2400, 2700, 3000, 3400, 3900, 4400, 4900, 99999]) {
-      log('  ajustes: voy a ' + y);
-      aj = await js(`return await Capacitor.Plugins.OrbitaUi.natScroll({ name: 'ajustes', y: ${y} });`).catch(e => ({ err: String(e) }));
-      await sleep(900);
-      log('  ajustes: en ' + JSON.stringify(aj));
-      if ([900, 1400, 1650, 1900, 2150, 2400, 3000, 3900, 4900, 99999].includes(y)) shot('nativa-ajustes-' + (ajN++));
-    }
-    check('«Ajustes» hecho por Android: se abre y se recorre entero', !!sa && sa.screen === 'ajustes' && aj && !aj.err && aj.max > 1500 && crashes() === 0, JSON.stringify({ screen: sa && sa.screen, aj, log: sa && sa.log && sa.log.slice(-4) }));
+    // «Ajustes», hecho por Android (al final de todo: el emulador de las pruebas se ha caído varias veces al pasar por su
+    // mitad, y así no se lleva por delante lo demás). Primero, varias vueltas por esa parte quitando cada vez una cosa
+    // distinta (lo que la deje pasar es lo que lo tumba) y apuntando qué se ve en cada paso; luego, entera, con capturas.
+    const ajustes = async () => {
+      const AJ = y => js(`return await Capacitor.Plugins.OrbitaUi.natScroll({ name: 'ajustes', y: ${y} });`).catch(e => ({ err: String(e) }));
+      const hide = h => js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'ajDbg', o: { hide: ${JSON.stringify(h)} } }); return 1;`).catch(() => null);
+      await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'ajustes' } }); return 1;`).catch(() => null); await sleep(1500);
+      const sa = await js(NI); shot('nativa-ajustes-1');
+      try { const pid = sh(`pidof ${PKG}`).trim().split(/\s+/)[0]; if (pid) { const fd = fs.openSync(`${OUT}/logcat-ajustes.txt`, 'w'); const lc = spawn('adb', ['logcat', '-v', 'time', '--pid=' + pid], { stdio: ['ignore', fd, 'ignore'] }); lc.unref(); } } catch {}
+      let aj = null, ajN = 2;
+      for (const h of [['tema'], ['sombras'], ['tema-brillo'], ['muestras'], []]) {
+        await hide(h); await AJ(1500); await sleep(800);
+        log('  ajustes, vuelta sin «' + (h.join(', ') || 'nada') + '»');
+        for (let y = 1600; y <= 2700; y += 50) {
+          aj = await AJ(y); await sleep(300);
+          log('    en ' + Math.round((aj && aj.y) || -1) + ': ' + ((aj && aj.vis) || []).join(' '));
+          if (!aj || aj.err) break;
+        }
+      }
+      for (const y of [900, 1400, 1900, 2400, 3000, 3400, 3900, 4400, 4900, 5600, 6400, 7200, 8000, 8800, 9600, 99999]) {
+        log('  ajustes: voy a ' + y);
+        aj = await AJ(y);
+        await sleep(900);
+        log('  ajustes: en ' + JSON.stringify(aj && { y: aj.y, max: aj.max, err: aj.err }));
+        if ([900, 1900, 3000, 3900, 4900, 6400, 8000, 99999].includes(y)) shot('nativa-ajustes-' + (ajN++));
+      }
+      check('«Ajustes» hecho por Android: se abre y se recorre entero', !!sa && sa.screen === 'ajustes' && aj && !aj.err && aj.max > 1500 && crashes() === 0, JSON.stringify({ screen: sa && sa.screen, aj: aj && { y: aj.y, max: aj.max }, log: sa && sa.log && sa.log.slice(-4) }));
+      await hide([]);
+    };
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'inicio' } }); return 1;`).catch(() => null); await sleep(800);
     // «Girar la ruleta»: sale una canción y se queda la radio puesta
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'hTap', o: { k: '#btnRoulette' } }); return 1;`).catch(() => null);
@@ -1487,6 +1502,7 @@ try {
     check('al acabar, la siguiente de la lista (el motor sigue solo y Android lo sabe)', nx, JSON.stringify(await js(NI).then(s => s && { qi: s.qi, now: s.now, log: s.log.slice(-5) })));
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1000);
     check('sin cierres por error en la Órbita nativa', crashes() === 0, crashText().slice(0, 1500));
+    await ajustes();
     // y de vuelta a la de siempre (para lo que viene después)
     await js(`localStorage.removeItem('orbita:_modo'); await Capacitor.Plugins.OrbitaUi.natUi({ type: 'test-web', o: {} }).catch(() => null); location.replace('index.html'); return 1;`).catch(() => null);
     await sleep(8000); await webStart(true);

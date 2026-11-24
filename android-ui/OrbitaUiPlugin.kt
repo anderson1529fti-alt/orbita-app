@@ -373,6 +373,11 @@ class OrbitaUiPlugin : Plugin() {
                 val px = (y * activity.resources.displayMetrics.density).toFloat()
                 st.dispatchRawDelta(px - st.value)
                 val r = JSObject(); r.put("y", st.value / activity.resources.displayMetrics.density); r.put("max", st.maxValue / activity.resources.displayMetrics.density)
+                if (name == "ajustes") {
+                    val dm = activity.resources.displayMetrics
+                    val vy = st.value / dm.density.toDouble(); val vh = dm.heightPixels / dm.density.toDouble()
+                    r.put("vis", JSArray(AjDbg.visible(vy, vh)))
+                }
                 call.resolve(r)
             } catch (t: Throwable) { call.reject(t.message ?: "error") }
         }

@@ -201,6 +201,7 @@ private const val I_DOWN = "M6 9l6 6 6-6"
 /** El brillo de color de debajo de los botones principales (la sombra de CSS: desplazada, difuminada y encogida). */
 internal fun Modifier.glow(color: Color, radius: Dp, blur: Dp, dy: Dp, spread: Dp): Modifier = drawBehind {
     if (color.alpha <= 0.01f) return@drawBehind
+    if ("sombras" in AjDbg.hide) return@drawBehind
     // como una sombra de CSS: solo se ve por fuera de la caja (aunque la caja sea medio transparente)
     val own = Path().apply { addRoundRect(RoundRect(Rect(0f, 0f, size.width, size.height), CornerRadius(radius.toPx()))) }
     clipPath(own, ClipOp.Difference) {

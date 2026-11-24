@@ -102,6 +102,7 @@ object Nativo {
                 if (Bienvenida.fresh()) main.postDelayed({ if (!Alarma.busy()) Bienvenida.open(false) }, 450)
                 else {
                     if (!Bienvenida.fresh()) Prefs.set("onboarded", true)
+                    main.postDelayed({ if (!Alarma.busy()) try { Novedades.show() } catch (t: Throwable) { note("novedades: ${t.message}") } }, 700)
                     main.postDelayed({ if (!Alarma.busy()) try { Recuerdos.openGreeting() } catch (t: Throwable) { note("saludo: ${t.message}") } }, 1200)
                 }
                 if (System.currentTimeMillis() - Prefs.num("lastUpdateCheck", 0.0) > 3 * 3600 * 1000) main.postDelayed({ Ajustes.checkUpdate(false) }, 6000)
@@ -222,6 +223,7 @@ object Nativo {
             "recapOpen" -> Recap.open(0)
             "recapGo" -> RcWin.show(o.optInt("i"))
             "recapClose" -> RcWin.close()
+            "ajDbg" -> { val a = o.optJSONArray("hide"); AjDbg.hide = if (a == null) emptySet() else (0 until a.length()).map { a.optString(it) }.toSet() }
             "vozDel" -> { TuVoz.takes().filter { it.label.startsWith("Toma") && System.currentTimeMillis() - it.addedAt < 30 * 60000 }.forEach { TuVoz.del(it.id) }; Prefs.set("who", "nova") }
             // (las pruebas vuelven a la app de siempre: la web, otra vez a la vista, y lo nativo, fuera)
             "test-web" -> { try { NovaCore.pause(0); NovaCore.pause(1) } catch (ignored: Throwable) { }; ui?.nativoOff() }

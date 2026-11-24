@@ -74,6 +74,7 @@ import java.net.URLEncoder
 import java.util.concurrent.Executors
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.min
 
 /**
  * Fase 4, parte 2 · «Buscar» hecho por Android (lo que en la web era «Search» y «Online: song previews, internet radio
@@ -433,7 +434,7 @@ private fun SearchField(value: String, onValue: (String) -> Unit, hint: String, 
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus(); onGo() }),
             decorationBox = { inner ->
                 Box(Modifier.padding(horizontal = 2.dp), contentAlignment = Alignment.CenterStart) {
-                    if (value.isEmpty()) T(hint, fs, Color(0xFF757575), maxLines = 1)
+                    if (value.isEmpty()) BasicText(hint, Modifier.lines(fs * 1.45f), style = style(fs, Color(0xFF757575)), maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
                     inner()
                 }
             })
@@ -741,15 +742,20 @@ private fun CountrySelect(sk: Skin) {
     val cur = Buscar.rCC()
     val name = Buscar.CC.firstOrNull { it.first == cur }?.second ?: Buscar.CC[0].second
     val shape = sk.r(10f)
-    Row(Modifier.widthIn(max = 220.dp).press(0.98f) {
+    // (el navegador le da el ancho de su opción más larga, con la flecha a la derecha)
+    val tm = rememberTextMeasurer()
+    val dens = LocalDensity.current
+    val tst = style(13.12f * sk.tk, p.fg)
+    val wMax = remember(sk.tk) { Buscar.CC.maxOf { tm.measure(it.second, tst).size.width } }
+    val selW = with(dens) { wMax.toDp() } + 20.dp + 18.dp + sk.b * 2
+    Row(Modifier.width(min(220f, selW.value).dp).press(0.98f) {
         val a = Nativo.act ?: return@press
         val names = Buscar.CC.map { it.second }.toTypedArray()
         val idx = Buscar.CC.indexOfFirst { it.first == Buscar.rCC() }.coerceAtLeast(0)
         android.app.AlertDialog.Builder(a).setSingleChoiceItems(names, idx) { d, which -> d.dismiss(); val id = Buscar.CC[which].first; if (id != Buscar.rCC()) Buscar.setCC(id) }.show()
     }.clip(shape).background(p.panelSolid).border(sk.b, p.line2, shape).padding(start = 10.dp + sk.b, end = 8.dp + sk.b, top = 7.dp + sk.b, bottom = 7.dp + sk.b), verticalAlignment = Alignment.CenterVertically) {
-        T(name, 13.12f * sk.tk, p.fg, Modifier.weight(1f, fill = false), maxLines = 1)
-        Spacer(Modifier.width(6.dp))
-        Ico("M6 9l6 6 6-6", 14f, p.fg, sw = 2.4f)
+        T(name, 13.12f * sk.tk, p.fg, Modifier.weight(1f), maxLines = 1)
+        Ico("M6 9l6 6 6-6", 12f, p.fg, sw = 2f)
     }
 }
 

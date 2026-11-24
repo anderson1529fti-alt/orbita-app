@@ -201,8 +201,8 @@ object Paginas {
         val n = vals.size; val mx = vals.maxOrNull() ?: 0.0; val w = n * (bw + gap) - gap; val base = 96.0; val top = 6.0
         val hi = if (mx > 0) Cerebro.argmax(vals) else -1
         val bars = JSONArray(); val hits = JSONArray()
-        fun r1(x: Double) = Math.round(x * 10) / 10.0
-        fun r2(x: Double) = Math.round(x * 100) / 100.0
+        fun r1(x: Double) = Json.fixed(x, 1)
+        fun r2(x: Double) = Json.fixed(x, 2)
         vals.forEachIndexed { i, v ->
             val x = i * (bw + gap); val h = if (v > 0) max(3.0, v / mx * (base - top)) else 0.0; val y = base - h
             if (h > 0) bars.put(JSONObject().put("x", x).put("y", r1(y)).put("hi", if (i == hi) 1 else 0))
@@ -248,7 +248,7 @@ object Paginas {
         }
         val amax = st.artists.firstOrNull()?.sec ?: 1.0
         val topA = st.artists.take(5).mapIndexed { i, a ->
-            JSONObject().put("e", "art").put("n", "${i + 1}").put("t", a.name).put("w", Math.round(max(3.0, a.sec / amax * 100) * 10) / 10.0).put("v", Cerebro.fmtLong(a.sec))
+            JSONObject().put("e", "art").put("n", "${i + 1}").put("t", a.name).put("w", Json.fixed(max(3.0, a.sec / amax * 100), 1)).put("v", Cerebro.fmtLong(a.sec))
         }
         val grid = JSONArray()
             .put(panel(listOf(h2("Tus canciones"), if (topT.isNotEmpty()) list(topT) else note("Aún no hay canciones aquí."))))
