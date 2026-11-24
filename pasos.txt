@@ -1,0 +1,19 @@
+música en el emulador: 6 canciones
+ok    · la app se instala · Success
+ok    · la app sigue abierta tras arrancar
+ok    · se puede manejar por dentro (depuración del WebView)
+ok    · la app ve la música del emulador · 6 canciones
+ok    · la app lee las portadas de las canciones del móvil · 2 con portada
+  escuchas de prueba guardadas: 64
+ok    · Órbita sin la parte web: arranca Android solo, con los datos ya en Android, y enseña «Ahora» · {"up":true,"n1":true,"err":"","s":{"on":true,"ready":true,"shown":true,"screen":"inicio","migra":"hecho","log":["listo: 10 canciones"]}}
+ok    · «Ahora» hecho por Android dice lo mismo que el de siempre
+ok    · «Mis listas» y «Tú» hechos por Android dicen lo mismo que los de siempre (con la mezcla del día guardada como lista)
+ok    · «Buscar» hecho por Android: canciones de internet (muestras) y radios · {"canciones":{"online":25,"onErr":"","radios":-1,"rErr":"","tab":"canciones"},"radios":{"online":25,"onErr":"","radios":40,"rErr":"","tab":"radios"}}
+ok    · «Tu voz» hecho por Android: una toma subida se guarda recortada (sin el silencio de los lados) y con su forma · {"antes":{"n":0,"rec":false},"ahora":{"n":1,"rec":false,"last":{"start":0.4406802721088436,"end":1.6792290249433106,"duration":2,"peaks":18,"label":"Toma 1"}}}
+ok    · y suena como tu voz de DJ (con la música más baja)
+ok    · «Girar la ruleta» en «Ahora»: sale una canción y suena la radio · {"playing":true,"source":"radio","now":"dev:1000000019","log":["listo: 10 canciones","suena: Marea lenta"]}
+  (el WebView no contesta: sin respuesta; reconecto)
+
+LA PRUEBA SE CORTÓ: el emulador dejó de contestar
+
+12 de 12 bien

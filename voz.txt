@@ -1,0 +1,2 @@
+build-tools: /usr/local/lib/android/sdk/build-tools/37.0.0 · plataforma: /usr/local/lib/android/sdk/platforms/android-37.2-beta3/android.jar
+-rw-r--r-- 1 runner runner 12763 Nov 24 06:45 pruebas/voz/voz-de-prueba.apk

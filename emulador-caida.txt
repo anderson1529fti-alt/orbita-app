@@ -1,0 +1,52 @@
+/tmp/android-runner:
+total 16
+drwxr--r--  4 runner runner 4096 Nov 24 06:46 .
+drwxrwxrwt 18 root   root   4096 Nov 24 06:52 ..
+drwx------  6 runner runner 4096 Nov 24 06:46 emu-crash-37.3.10.db
+drwxr-xr-x  2 runner runner 4096 Nov 24 06:52 netsimd
+
+/tmp/android-runner/emu-crash-37.3.10.db:
+total 28
+drwx------ 6 runner runner 4096 Nov 24 06:46 .
+drwxr--r-- 4 runner runner 4096 Nov 24 06:46 ..
+drwx------ 2 runner runner 4096 Nov 24 06:46 attachments
+drwx------ 2 runner runner 4096 Nov 24 06:46 completed
+drwx------ 2 runner runner 4096 Nov 24 06:46 new
+drwx------ 2 runner runner 4096 Nov 24 06:46 pending
+-rw------- 1 runner runner   40 Nov 24 06:46 settings.dat
+
+/tmp/android-runner/emu-crash-37.3.10.db/attachments:
+total 8
+drwx------ 2 runner runner 4096 Nov 24 06:46 .
+drwx------ 6 runner runner 4096 Nov 24 06:46 ..
+
+/tmp/android-runner/emu-crash-37.3.10.db/completed:
+total 8
+drwx------ 2 runner runner 4096 Nov 24 06:46 .
+drwx------ 6 runner runner 4096 Nov 24 06:46 ..
+
+/tmp/android-runner/emu-crash-37.3.10.db/new:
+total 8
+drwx------ 2 runner runner 4096 Nov 24 06:46 .
+drwx------ 6 runner runner 4096 Nov 24 06:46 ..
+
+/tmp/android-runner/emu-crash-37.3.10.db/pending:
+total 8
+drwx------ 2 runner runner 4096 Nov 24 06:46 .
+drwx------ 6 runner runner 4096 Nov 24 06:46 ..
+
+/tmp/android-runner/netsimd:
+total 28
+drwxr-xr-x 2 runner runner 4096 Nov 24 06:52 .
+drwxr--r-- 4 runner runner 4096 Nov 24 06:46 ..
+-rw-r--r-- 1 runner runner 3610 Nov 24 06:52 netsim_artifacts_2026-11-24-06-52-15.zip
+-rw-r--r-- 1 runner runner 3237 Nov 24 06:52 netsim_session_stats.json
+-rw-r--r-- 1 runner runner 9607 Nov 24 06:52 netsim_stderr.log
+-rw-r--r-- 1 runner runner    0 Nov 24 06:46 netsim_stdout.log
+== /tmp/android-runner/netsimd/netsim_stderr.log
+      1 netsim W 11-24 06:52:15.599 libslirp.rs:804 - Failed to send slirp PollResult cmd error=sending on a closed channel
+      1 netsim W 11-24 06:52:15.598 netsimd.rs:1103 - ChipActor shutdown error error=Failed to send command: Actor dropped response channel
+      1 netsim E 11-24 06:52:15.596 actor.rs:242 - Monitored task failed error=task 22 was cancelled
+      1 netsim E 11-24 06:52:15.595 actor.rs:242 - Monitored task failed error=task 29 was cancelled
+      1 netsim E 11-24 06:52:15.594 actor.rs:242 - Monitored task failed error=task 26 was cancelled
+== /tmp/android-runner/netsimd/netsim_stdout.log

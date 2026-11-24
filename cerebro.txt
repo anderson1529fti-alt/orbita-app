@@ -1,0 +1,7 @@
+total 142716
+drwxr-xr-x 2 runner runner      4096 Nov 22 15:49 .
+drwxr-xr-x 4 runner runner      4096 Nov 24 06:43 ..
+-rw-r--r-- 1 runner runner 118308185 Nov 22 15:49 modelo.onnx
+-rw-r--r-- 1 runner runner  10595041 Nov 22 15:49 ort-wasm-simd.wasm
+-rw-r--r-- 1 runner runner    142930 Nov 22 15:49 ort.wasm.min.js
+-rw-r--r-- 1 runner runner  17082730 Nov 22 15:49 tokenizer.json

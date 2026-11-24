@@ -1,0 +1,62 @@
+[
+ {
+  "name": "la app se instala",
+  "ok": true,
+  "info": "Success"
+ },
+ {
+  "name": "la app sigue abierta tras arrancar",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "se puede manejar por dentro (depuración del WebView)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "la app ve la música del emulador",
+  "ok": true,
+  "info": "6 canciones"
+ },
+ {
+  "name": "la app lee las portadas de las canciones del móvil",
+  "ok": true,
+  "info": "2 con portada"
+ },
+ {
+  "name": "Órbita sin la parte web: arranca Android solo, con los datos ya en Android, y enseña «Ahora»",
+  "ok": true,
+  "info": "{\"up\":true,\"n1\":true,\"err\":\"\",\"s\":{\"on\":true,\"ready\":true,\"shown\":true,\"screen\":\"inicio\",\"migra\":\"hecho\",\"log\":[\"listo: 10 canciones\"]}}"
+ },
+ {
+  "name": "«Ahora» hecho por Android dice lo mismo que el de siempre",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Mis listas» y «Tú» hechos por Android dicen lo mismo que los de siempre (con la mezcla del día guardada como lista)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Buscar» hecho por Android: canciones de internet (muestras) y radios",
+  "ok": true,
+  "info": "{\"canciones\":{\"online\":25,\"onErr\":\"\",\"radios\":-1,\"rErr\":\"\",\"tab\":\"canciones\"},\"radios\":{\"online\":25,\"onErr\":\"\",\"radios\":40,\"rErr\":\"\",\"tab\":\"radios\"}}"
+ },
+ {
+  "name": "«Tu voz» hecho por Android: una toma subida se guarda recortada (sin el silencio de los lados) y con su forma",
+  "ok": true,
+  "info": "{\"antes\":{\"n\":0,\"rec\":false},\"ahora\":{\"n\":1,\"rec\":false,\"last\":{\"start\":0.4406802721088436,\"end\":1.6792290249433106,\"duration\":2,\"peaks\":18,\"label\":\"Toma 1\"}}}"
+ },
+ {
+  "name": "y suena como tu voz de DJ (con la música más baja)",
+  "ok": true,
+  "info": ""
+ },
+ {
+  "name": "«Girar la ruleta» en «Ahora»: sale una canción y suena la radio",
+  "ok": true,
+  "info": "{\"playing\":true,\"source\":\"radio\",\"now\":\"dev:1000000019\",\"log\":[\"listo: 10 canciones\",\"suena: Marea lenta\"]}"
+ }
+]
