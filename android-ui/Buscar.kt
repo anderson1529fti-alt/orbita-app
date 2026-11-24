@@ -484,7 +484,8 @@ private fun Links(content: @Composable () -> Unit) = HFlow(6.dp, 6.dp) { content
 private fun LinkBtn(t: String, sk: Skin, enabled: Boolean = true, onClick: () -> Unit) {
     val p = sk.pal
     val shape = sk.r(9f)
-    Box(Modifier.press(enabled = enabled, onClick = onClick).clip(shape).border(sk.b, p.line2, shape).padding(horizontal = 11.dp + sk.b, vertical = 6.dp + sk.b)) {
+    // (en la web los «link» no se hunden al apretarlos)
+    Box(Modifier.press(scale = 1f, enabled = enabled, onClick = onClick).clip(shape).border(sk.b, p.line2, shape).padding(horizontal = 11.dp + sk.b, vertical = 6.dp + sk.b)) {
         T(t, 12.8f * sk.tk, p.fg, weight = FontWeight.ExtraBold, maxLines = 1)
     }
 }

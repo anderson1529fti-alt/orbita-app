@@ -95,8 +95,8 @@ object Store {
 
     /** El archivo de una marca {"$blob": …} (o null si no lo es o no está). */
     fun blobFile(o: Any?): File? {
-        val j = o as? JSONObject ?: return null
-        val rel = j.optString("\$blob", "")
+        // (la marca puede llegar como JSONObject o ya leída como mapa)
+        val rel = when (o) { is JSONObject -> o.optString("\$blob", ""); is Map<*, *> -> (o["\$blob"] as? String) ?: ""; else -> "" }
         if (rel.isEmpty()) return null
         val f = file(rel)
         return if (f.isFile) f else null

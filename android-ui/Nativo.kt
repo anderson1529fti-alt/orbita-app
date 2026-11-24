@@ -201,6 +201,18 @@ object Nativo {
             "test-seek" -> NovaCore.eng().seek(Player.slot, o.optDouble("pos", 0.0))
             "buscarRun" -> { Buscar.q = o.optString("q"); Buscar.run(Buscar.q) }
             "buscarTab" -> Buscar.pickTab(o.optString("tab"))
+            // («Tu voz»: una toma de prueba hecha aquí: medio segundo de silencio, un segundo de tono y otro medio de silencio)
+            "vozTest" -> {
+                val sr = 44100; val n = sr * 2
+                val bb = java.nio.ByteBuffer.allocate(44 + n * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                bb.put("RIFF".toByteArray()); bb.putInt(36 + n * 2); bb.put("WAVE".toByteArray()); bb.put("fmt ".toByteArray()); bb.putInt(16); bb.putShort(1); bb.putShort(1)
+                bb.putInt(sr); bb.putInt(sr * 2); bb.putShort(2); bb.putShort(16); bb.put("data".toByteArray()); bb.putInt(n * 2)
+                for (i in 0 until n) bb.putShort(if (i in sr / 2 until sr * 3 / 2) (Math.sin(2 * Math.PI * 440 * i / sr) * 16000).toInt().toShort() else 0)
+                val bytes = bb.array()
+                TuVoz.importClips(listOf(TuVoz.Src({ bytes }, "prueba-voz.wav", "audio/wav")), "saludo")
+            }
+            "vozPlay" -> TuVoz.takes().maxByOrNull { it.addedAt }?.let { TuVoz.play(it) }
+            "vozDel" -> { TuVoz.takes().filter { it.label.startsWith("Toma") && System.currentTimeMillis() - it.addedAt < 30 * 60000 }.forEach { TuVoz.del(it.id) }; Prefs.set("who", "nova") }
             // (las pruebas vuelven a la app de siempre: la web, otra vez a la vista, y lo nativo, fuera)
             "test-web" -> { try { NovaCore.pause(0); NovaCore.pause(1) } catch (ignored: Throwable) { }; ui?.nativoOff() }
             else -> if (!Ventanas.onUi(type, o)) note("sin hacer todavía: $type")
@@ -211,7 +223,7 @@ object Nativo {
     fun restart() { if (!on) return; ready = false; UiState.covers.clear(); UiState.asked.clear(); boot() }
 
     /** Las pantallas que ya hace Android. */
-    val VIEWS = listOf("biblioteca", "inicio", "listas", "tu", "ajustes", "buscar")
+    val VIEWS = listOf("biblioteca", "inicio", "listas", "tu", "ajustes", "buscar", "voz")
 
     /** Cambiar de pestaña (y apuntarlo, para volver con «atrás»). */
     fun go(view: String) {

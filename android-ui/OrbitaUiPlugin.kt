@@ -395,6 +395,10 @@ class OrbitaUiPlugin : Plugin() {
             b.put("online", if (c == null) -1 else if (c.onLoading) -2 else c.online?.size ?: -3); b.put("onErr", c?.onErr ?: "")
             b.put("radios", if (Buscar.radio.loading) -2 else Buscar.radio.list?.size ?: -1); b.put("rErr", Buscar.radio.err); b.put("tab", Buscar.tab)
             r.put("buscar", b)
+            val tk = TuVoz.takes(); val last = tk.maxByOrNull { it.addedAt }
+            val vz = JSObject(); vz.put("n", tk.size); vz.put("rec", TuVoz.rec != null)
+            if (last != null) { val l = JSObject(); l.put("start", last.start); l.put("end", last.end); l.put("duration", last.duration); l.put("peaks", last.peaks.size); l.put("label", last.label); vz.put("last", l) }
+            r.put("voz", vz); r.put("speaking", Voz.speaking)
         } catch (ignored: Throwable) { }
         r.put("covers", UiState.covers.size); r.put("screen", UiState.screen); r.put("shown", host?.visibility == View.VISIBLE)
         r.put("now", UiState.nowId); r.put("qi", Player.qi); r.put("queue", JSArray(Player.queue.take(50))); r.put("playing", Player.playing)

@@ -403,6 +403,24 @@ object Biblio {
 
     fun stopImport() { job?.cancel = true; Nativo.onImport() }
 
+    /** Un archivo que ya está en el móvil (lo grabado con «Grabarme cantando»), como si se hubiera elegido en el selector. */
+    fun importFile(f: java.io.File, name: String, type: String, mine: Boolean) {
+        if (job != null) { Nativo.toast("Espera a que termine la importación en curso."); return }
+        io.execute {
+            val j = Job(1, 0); job = j
+            main.post { Nativo.onImport() }
+            try { importOne(In(Uri.fromFile(f), name, type, f.length()), null, mine); j.added++ } catch (t: Throwable) { Nativo.note("importar $name: ${t.message}") }
+            j.done++; job = null
+            try { f.delete() } catch (ignored: Throwable) { }
+            main.post {
+                Nativo.onImport(); Nativo.libraryChanged()
+                if (j.added == 0) { Nativo.toast("No he podido guardar la grabación."); return@post }
+                Nativo.toast("1 canción añadida", 4200)
+                if (mine) Nova.bubble("¡Tienes una canción nueva cantada por ti! La pincharé cuando toque.")
+            }
+        }
+    }
+
     private fun parseName(name: String): Pair<String, String> {
         val base = name.replace(Regex("\\.[^.]+$"), "").replace('_', ' ').replace(Regex("^\\s*\\d{1,3}[\\s.\\-_]+"), "").trim()
         val m = base.split(Regex("\\s+[-–—]\\s+"))

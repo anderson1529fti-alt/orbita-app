@@ -274,7 +274,55 @@ object Voz {
     fun stop() {
         gen++
         try { tts?.stop() } catch (ignored: Throwable) { }
+        clipMp?.let { mp -> clipMp = null; try { mp.release() } catch (ignored: Throwable) { } }
         if (speaking) { speaking = false; duckTo(1f, 600) }
+    }
+
+    // ---------------------------------------------------------------- tus grabaciones («playClip»)
+    private var clipMp: android.media.MediaPlayer? = null
+    /** Una grabación tuya en lugar de la voz de Nova: desde su principio recortado hasta su final, con la música más baja. */
+    fun clip(c: Grabaciones.Clip, text: String) {
+        stop()
+        val my = ++gen
+        val shown = text.ifEmpty { c.label }
+        val label = "Tu voz · " + (TuVoz.SLOTS.firstOrNull { it.id == c.slot }?.name ?: "Cuña")
+        Nova.setBubble(shown, label, 0.0)
+        val f = Grabaciones.file(c.id)
+        val len = max(0.5, (if (c.end > 0) c.end else if (c.duration > 0) c.duration else 8.0) - c.start)
+        val fin = {
+            if (my == gen) {
+                clipMp?.let { mp -> clipMp = null; try { mp.release() } catch (ignored: Throwable) { } }
+                if (speaking) { speaking = false; duckTo(1f, 1100) }
+            }
+            Nova.bubbleFinish()
+        }
+        if (f == null) { fin(); return }
+        val mp = android.media.MediaPlayer(); clipMp = mp
+        try {
+            mp.setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            mp.setDataSource(f.absolutePath)
+            mp.setOnPreparedListener { m ->
+                if (my != gen) return@setOnPreparedListener
+                try { if (c.start > 0) m.seekTo((c.start * 1000).toInt()); m.start() } catch (t: Throwable) { fin(); return@setOnPreparedListener }
+                speaking = true
+                if (Player.playing) duckTo(0.22f, 300)
+                Nova.setBubble(shown, label, max(8.0, shown.length / len))
+                // (se para en su final recortado)
+                val endMs = (c.end * 1000).toInt()
+                if (endMs > 0) {
+                    val w = object : Runnable { override fun run() {
+                        if (my != gen || clipMp !== m) return
+                        val at = try { m.currentPosition } catch (t: Throwable) { endMs }
+                        if (at >= endMs) fin() else main.postDelayed(this, 50)
+                    } }
+                    main.postDelayed(w, 50)
+                }
+            }
+            mp.setOnCompletionListener { fin() }
+            mp.setOnErrorListener { _, _, _ -> fin(); true }
+            mp.prepareAsync()
+        } catch (t: Throwable) { fin(); return }
+        main.postDelayed({ if (my == gen && clipMp === mp) fin() }, (len * 1000 + 3000).toLong())
     }
 
     /** Lo que dice el botón de la voz en «Ahora». */
@@ -368,6 +416,7 @@ object Grabaciones {
         }
         return null
     }
-    /** (La grabación suena en el siguiente paso de la Órbita nativa; mientras, lo dice Nova.) */
-    fun play(c: Clip, text: String) { Voz.speak(text.ifEmpty { c.label }) }
+    fun play(c: Clip, text: String) = Voz.clip(c, text)
+    /** El archivo de una grabación. */
+    fun file(id: String): java.io.File? = Store.blobFile(Json.obj(Json.parseOr(Store.rec("voice", id), null))?.get("blob"))
 }

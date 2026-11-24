@@ -81,6 +81,8 @@ object Ventanas {
     var gen by mutableIntStateOf(0)
     /** La canción que se edita (y lo que se ha escrito). */
     var editId by mutableStateOf("")
+    /** Qué se edita: una canción («track») o el nombre de una grabación de «Tu voz» («clip»). */
+    var editKind by mutableStateOf("track")
     var editTitle by mutableStateOf(""); var editArtist by mutableStateOf(""); var editAlbum by mutableStateOf("")
     /** La portada nueva elegida (bytes) o «quitar» (null con [editCoverSet]). */
     var editCover: ByteArray? = null; var editCoverSet by mutableStateOf(false)
@@ -119,11 +121,22 @@ object Ventanas {
 
     fun openEdit(id: String) {
         val t = Lib.byId(id) ?: return
-        editId = id; editTitle = t.title; editArtist = t.artist; editAlbum = t.album; editCover = null; editCoverSet = false
+        editKind = "track"; editId = id; editTitle = t.title; editArtist = t.artist; editAlbum = t.album; editCover = null; editCoverSet = false
+        open("edit")
+    }
+    /** «clip-rename»: el nombre de una grabación (la misma ventana, solo con el título). */
+    fun openClipEdit(id: String) {
+        val c = Json.obj(Json.parseOr(Store.rec("voice", id), null)) ?: return
+        editKind = "clip"; editId = id; editTitle = Json.s(c["label"]); editCover = null; editCoverSet = false
         open("edit")
     }
 
     fun saveEdit() {
+        if (editKind == "clip") {
+            val m = LinkedHashMap(Json.obj(Json.parseOr(Store.rec("voice", editId), null)) ?: run { gone("edit"); return })
+            m["label"] = editTitle.trim().take(60).ifEmpty { Json.s(m["label"]) }
+            Store.putRec("voice", editId, Json.str(m)); Ver.bump(); gone("edit"); return
+        }
         val t = Lib.byId(editId) ?: run { gone("edit"); return }
         t.title = editTitle.trim().ifEmpty { t.title }; t.artist = editArtist.trim().ifEmpty { "Artista desconocido" }; t.album = editAlbum.trim()
         t.edited = true
@@ -530,6 +543,17 @@ private fun Field(sk: Skin, label: String, value: String, onChange: (String) -> 
 @Composable
 private fun EditWindow(sk: Skin) {
     val p = sk.pal
+    if (Ventanas.editKind == "clip") {
+        Modal(sk, "Nombre de la grabación", { Ventanas.gone("edit") }) {
+            H2(sk, "Nombre de la grabación")
+            Field(sk, "Título", Ventanas.editTitle) { Ventanas.editTitle = it.take(160) }
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                SmallBtn(sk, "Cancelar") { Ventanas.gone("edit") }
+                SmallBtn(sk, "Guardar", primary = true) { Ventanas.saveEdit() }
+            }
+        }
+        return
+    }
     val t = Lib.byId(Ventanas.editId) ?: return
     Modal(sk, "Editar canción", { Ventanas.gone("edit") }) {
         H2(sk, "Editar canción")

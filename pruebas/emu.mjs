@@ -229,6 +229,7 @@ try {
     await js(`document.querySelector('#netTabs [data-ntab=radios]').click(); return 1;`).catch(() => null); await sleep(8000); shot('web-buscar-radios');
     await js(`document.querySelector('#netTabs [data-ntab=youtube]').click(); return 1;`).catch(() => null); await sleep(1500); shot('web-buscar-youtube');
     await js(`document.querySelector('#netTabs [data-ntab=canciones]').click(); return 1;`).catch(() => null);
+    await goView('voz'); await sleep(1300); shot('web-voz');
     await goView('inicio'); await sleep(1000);
   }
 
@@ -1358,11 +1359,6 @@ try {
     check('«Mis listas» y «Tú» hechos por Android dicen lo mismo que los de siempre' + (pagesWeb && pagesWeb.saved ? ' (con la mezcla del día guardada como lista)' : ''), pc.length === 0, pc.join(' | ').slice(0, 2400));
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'listas' } }); return 1;`).catch(() => null); await sleep(1500); shot('nativa-listas');
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'tu' } }); return 1;`).catch(() => null); await sleep(1500); shot('nativa-tu');
-    // «Ajustes», hecho por Android: se ve entero (capturas a lo largo) y no se cierra
-    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'ajustes' } }); return 1;`).catch(() => null); await sleep(1500);
-    const sa = await js(NI); shot('nativa-ajustes-1');
-    let aj = null; for (const [i, y] of [[2, 900], [3, 1900], [4, 2900], [5, 3900], [6, 4900], [7, 99999]]) { aj = await js(`return await Capacitor.Plugins.OrbitaUi.natScroll({ name: 'ajustes', y: ${y} });`).catch(e => ({ err: String(e) })); await sleep(700); shot('nativa-ajustes-' + i); }
-    check('«Ajustes» hecho por Android: se abre y se recorre entero', !!sa && sa.screen === 'ajustes' && aj && !aj.err && aj.max > 1500 && crashes() === 0, JSON.stringify({ screen: sa && sa.screen, aj, log: sa && sa.log && sa.log.slice(-4) }));
     // «Buscar», hecho por Android: una búsqueda de verdad (muestras de Deezer), las radios y la pestaña de YouTube
     const BT = t => js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'buscarTab', o: { tab: '${t}' } }); return 1;`).catch(() => null);
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'buscar' } }); return 1;`).catch(() => null); await sleep(1500); shot('nativa-buscar-vacia');
@@ -1377,6 +1373,34 @@ try {
     await BT('youtube'); await sleep(1500); shot('nativa-buscar-youtube');
     await BT('canciones');
     check('«Buscar» hecho por Android: canciones de internet (muestras) y radios', !!bOn && bOn.online > 0 && !!bR && bR.radios > 0 && crashes() === 0, JSON.stringify({ canciones: bOn, radios: bR }));
+    // «Tu voz», hecho por Android: una toma de prueba (medio segundo de silencio, un segundo de tono y otro medio) se guarda
+    // recortada como en la web (sin el silencio de los lados) y suena como voz de DJ
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'voz' } }); return 1;`).catch(() => null); await sleep(1500); shot('nativa-voz');
+    const vz0 = await js(NI).then(s => s && s.voz).catch(() => null);
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'vozTest', o: {} }); return 1;`).catch(() => null);
+    let vz = null; for (let k = 0; k < 20; k++) { await sleep(700); vz = await js(NI).then(s => s && s.voz).catch(() => null); if (vz && vz0 && vz.n > vz0.n) break; }
+    await sleep(800); shot('nativa-voz-toma');
+    const lt = vz && vz.last;
+    check('«Tu voz» hecho por Android: una toma subida se guarda recortada (sin el silencio de los lados) y con su forma', !!lt && vz.n > (vz0 ? vz0.n : 0) && Math.abs(lt.start - 0.44) < 0.08 && Math.abs(lt.end - 1.68) < 0.1 && Math.abs(lt.duration - 2) < 0.1 && lt.peaks === 18, JSON.stringify({ antes: vz0, ahora: vz }));
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'vozPlay', o: {} }); return 1;`).catch(() => null);
+    const vsp = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.speaking === true;`, 6000);
+    check('y suena como tu voz de DJ (con la música más baja)', vsp, '');
+    await sleep(2500);
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'vozDel', o: {} }); return 1;`).catch(() => null);
+    // «Ajustes», hecho por Android: se ve entero (capturas a lo largo) y no se cierra
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'ajustes' } }); return 1;`).catch(() => null); await sleep(1500);
+    const sa = await js(NI); shot('nativa-ajustes-1');
+    // (de poco en poco, apuntando cada paso: si algo de la pantalla hace caer el emulador, aquí queda en qué parte)
+    try { const pid = sh(`pidof ${PKG}`).trim().split(/\s+/)[0]; if (pid) { const fd = fs.openSync(`${OUT}/logcat-ajustes.txt`, 'w'); const lc = spawn('adb', ['logcat', '-v', 'time', '--pid=' + pid], { stdio: ['ignore', fd, 'ignore'] }); lc.unref(); } } catch {}
+    let aj = null, ajN = 2;
+    for (const y of [900, 1150, 1400, 1650, 1900, 2150, 2400, 2700, 3000, 3400, 3900, 4400, 4900, 99999]) {
+      log('  ajustes: voy a ' + y);
+      aj = await js(`return await Capacitor.Plugins.OrbitaUi.natScroll({ name: 'ajustes', y: ${y} });`).catch(e => ({ err: String(e) }));
+      await sleep(900);
+      log('  ajustes: en ' + JSON.stringify(aj));
+      if ([900, 1900, 2900, 3000, 3900, 4900, 99999].includes(y)) shot('nativa-ajustes-' + (ajN++));
+    }
+    check('«Ajustes» hecho por Android: se abre y se recorre entero', !!sa && sa.screen === 'ajustes' && aj && !aj.err && aj.max > 1500 && crashes() === 0, JSON.stringify({ screen: sa && sa.screen, aj, log: sa && sa.log && sa.log.slice(-4) }));
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'inicio' } }); return 1;`).catch(() => null); await sleep(800);
     // «Girar la ruleta»: sale una canción y se queda la radio puesta
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'hTap', o: { k: '#btnRoulette' } }); return 1;`).catch(() => null);

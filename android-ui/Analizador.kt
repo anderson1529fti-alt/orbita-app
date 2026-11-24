@@ -65,7 +65,7 @@ object Analizador {
     }
 
     /** La canción en muestras a 11 025 Hz (uno o dos canales), como la descodifica la web para analizarla. */
-    fun decode(src: String): Pair<FloatArray, FloatArray?>? {
+    fun decode(src: String, minSec: Double = 1.0): Pair<FloatArray, FloatArray?>? {
         val ex = MediaExtractor()
         var codec: MediaCodec? = null
         try {
@@ -128,7 +128,7 @@ object Analizador {
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outDone = true
                 }
             }
-            if (n < SR) return null
+            if (n < SR * minSec || n == 0) return null
             return L.copyOf(n) to R?.copyOf(n)
         } catch (e: Throwable) {
             Nativo.note("descodificar: ${e.message}")

@@ -260,7 +260,7 @@ object Inicio {
 
     fun onSel(sel: String, v: String) {
         when (sel) {
-            "#whoSel" -> { Prefs.set("who", v); if (v != "nova" && Grabaciones.all().isEmpty()) Nova.setBubble("Aún no has grabado ninguna frase. Ve a «Tu voz» y graba tu saludo; mientras tanto hablo yo.") }
+            "#whoSel" -> TuVoz.setWho(v)
             "#mixSel" -> { Prefs.set("mixStyle", v); Player.resync() }
         }
         mark()
