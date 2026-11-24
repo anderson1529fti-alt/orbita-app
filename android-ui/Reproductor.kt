@@ -64,6 +64,10 @@ object Player {
     private var looping = false
 
     // ---------------------------------------------------------------- la barra y el tiempo
+    /** Por dónde va lo que suena, en segundos (al momento: para la letra). */
+    fun position(): Double = try {
+        when { current() == null -> 0.0; mode == 2 -> Calle.pos(); mode == 3 -> Tubo.pos(); else -> NovaCore.position(slot).optDouble("pos", 0.0) }
+    } catch (t: Throwable) { Bar.pos }
     private var tickN = 0
     private fun tick() {
         main.postDelayed({
@@ -84,6 +88,7 @@ object Player {
                     if (Bar.dur > 0 && (t.duration == 0.0 || kotlin.math.abs(t.duration - Bar.dur) > 1)) { t.duration = Bar.dur; Lib.save(t) }
                 }
                 sleepTick()
+                VizCtl.sync()
                 // «Ahora»: el disco (lo que suena, para que gire) y, cada 2 s, la cabecera y el panel de la DJ (la hora…)
                 if (tickN % 2 == 0 && UiState.screen == "inicio") Inicio.vinyl()
                 if (tickN % 8 == 0 && UiState.screen == "inicio") Inicio.mark()

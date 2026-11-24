@@ -1398,7 +1398,7 @@ try {
       aj = await js(`return await Capacitor.Plugins.OrbitaUi.natScroll({ name: 'ajustes', y: ${y} });`).catch(e => ({ err: String(e) }));
       await sleep(900);
       log('  ajustes: en ' + JSON.stringify(aj));
-      if ([900, 1900, 2900, 3000, 3900, 4900, 99999].includes(y)) shot('nativa-ajustes-' + (ajN++));
+      if ([900, 1400, 1650, 1900, 2150, 2400, 3000, 3900, 4900, 99999].includes(y)) shot('nativa-ajustes-' + (ajN++));
     }
     check('«Ajustes» hecho por Android: se abre y se recorre entero', !!sa && sa.screen === 'ajustes' && aj && !aj.err && aj.max > 1500 && crashes() === 0, JSON.stringify({ screen: sa && sa.screen, aj, log: sa && sa.log && sa.log.slice(-4) }));
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'inicio' } }); return 1;`).catch(() => null); await sleep(800);
@@ -1407,6 +1407,31 @@ try {
     const rl = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.playing && s.source === 'radio';`, 12000);
     await sleep(1200); shot('nativa-ruleta');
     check('«Girar la ruleta» en «Ahora»: sale una canción y suena la radio', rl, JSON.stringify(await js(NI).then(s => s && { playing: s.playing, source: s.source, now: s.now, log: s.log.slice(-4) })));
+    // la letra (pegada, con tiempos): en «Ahora suena», sincronizada con lo que suena
+    const U = (type, o = {}) => js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: '${type}', o: ${JSON.stringify(o)} }); return 1;`).catch(() => null);
+    await U('lyTest'); await sleep(1500);
+    await U('test-seek', { pos: 2.5 }); await sleep(2500); shot('nativa-letra');
+    const ly = await js(NI).then(s => s && s.ly).catch(() => null);
+    check('la letra en «Ahora suena» (pegada con tiempos): sincronizada con lo que suena', !!ly && ly.open && ly.synced && ly.idx >= 1, JSON.stringify(ly));
+    await U('lyOff'); await sleep(400);
+    // el visualizador: en «Ahora suena» y a pantalla completa (lo mueve la música)
+    await U('vizNP', { on: true }); await sleep(2500); shot('nativa-visual');
+    const vz1 = await js(NI).then(s => s && s.viz).catch(() => null);
+    await U('vizFull'); await sleep(2500); shot('nativa-visual-completo');
+    const vz2 = await js(NI).then(s => s && s.viz).catch(() => null);
+    check('el visualizador en «Ahora suena» y a pantalla completa', !!vz1 && vz1.active === 'vizNP' && !!vz2 && vz2.active === 'vizFS' && vz2.frames > vz1.frames, JSON.stringify({ np: vz1, completo: vz2 }));
+    await U('winClose', { id: 'viz' }); await U('vizNP', { on: false }); await U('winClose', { id: 'np' }); await sleep(800);
+    sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(800);
+    // «Tu año en Órbita»: sus tarjetas y la imagen para compartir
+    await U('recapOpen'); await sleep(2500); shot('nativa-tu-año-1');
+    await U('recapGo', { i: 1 }); await sleep(1500); shot('nativa-tu-año-2');
+    const rc0 = await js(NI).then(s => s && s.rc).catch(() => null);
+    if (rc0 && rc0.n > 0) { await U('recapGo', { i: rc0.n - 1 }); }
+    const rcImg = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return !!(s.rc && (s.rc.img || s.rc.err));`, 15000);
+    await sleep(800); shot('nativa-tu-año-fin');
+    const rc1 = await js(NI).then(s => s && s.rc).catch(() => null);
+    check('«Tu año en Órbita» hecho por Android: sus tarjetas y la imagen para compartir', !!rc0 && rc0.open && rc0.n >= 5 && rcImg && !!rc1 && rc1.img, JSON.stringify({ antes: rc0, fin: rc1 }));
+    await U('recapClose'); await sleep(800);
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(800);
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'biblioteca' } }); return 1;`).catch(() => null);
     await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.screen === 'biblioteca';`, 5000); await sleep(1200); shot('nativa-musica');

@@ -88,9 +88,10 @@ object Nativo {
                 // (si el motor seguía sonando con la app cerrada, se sigue con eso; si no, lo último, en pausa)
                 if (!Player.adopt()) Player.resumeSession(false)
                 ready = true
-                val start = Prefs.str("startView", "inicio").let { if (it == "biblioteca" || it == "inicio") it else "inicio" }
-                if (start == "inicio") Inicio.sync(true)
-                ui?.nativoShow(start)
+                // (la letra y el visualizador de «Ahora suena», como se dejaron)
+                Ventanas.lyOn = Prefs.bool("lyOn", false); Ventanas.vizOn = Prefs.bool("vizNP", false) && !Ventanas.lyOn
+                val start = Prefs.str("startView", "inicio").let { if (it in VIEWS) it else "inicio" }
+                show(start)
                 Cerebro.bgAnalysis()
                 ui?.nativoBase(bgNow())
                 Player.barSync()
@@ -212,6 +213,15 @@ object Nativo {
                 TuVoz.importClips(listOf(TuVoz.Src({ bytes }, "prueba-voz.wav", "audio/wav")), "saludo")
             }
             "vozPlay" -> TuVoz.takes().maxByOrNull { it.addedAt }?.let { TuVoz.play(it) }
+            // (la letra, el visualizador y «Tu año», para las pruebas)
+            "lyTest" -> { val t = Player.current(); if (t != null) { Letras.save(t.id, "[00:00.50] Primera línea de prueba\n[00:02.00] Segunda línea, algo más larga para que ocupe dos renglones en la caja\n[00:04.00] Tercera\n[00:06.00] Cuarta línea\n[00:08.00] Quinta"); Ventanas.open("np"); Letras.setOpen(true) } }
+            "lyOff" -> { Letras.setOpen(false); Player.current()?.let { Store.delRec("lyrics", it.id) } }
+            "vizNP" -> VizCtl.setNP(o.optBoolean("on"))
+            "vizFull" -> VizCtl.openFull()
+            "winClose" -> Ventanas.close(o.optString("id"))
+            "recapOpen" -> Recap.open(0)
+            "recapGo" -> RcWin.show(o.optInt("i"))
+            "recapClose" -> RcWin.close()
             "vozDel" -> { TuVoz.takes().filter { it.label.startsWith("Toma") && System.currentTimeMillis() - it.addedAt < 30 * 60000 }.forEach { TuVoz.del(it.id) }; Prefs.set("who", "nova") }
             // (las pruebas vuelven a la app de siempre: la web, otra vez a la vista, y lo nativo, fuera)
             "test-web" -> { try { NovaCore.pause(0); NovaCore.pause(1) } catch (ignored: Throwable) { }; ui?.nativoOff() }

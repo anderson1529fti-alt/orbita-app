@@ -113,7 +113,7 @@ object Recap {
         if (!s.ok) { Ordenes.say("Todavía no tengo bastante para tu resumen de $y. Escucha un poco más y te lo preparo."); return }
         Prefs.set("recapSeen", y)
         showY = y
-        Ventanas.open("recap")
+        RcWin.start(s)
         Nativo.onHome()
     }
     /** El año que está abierto en la ventana. */

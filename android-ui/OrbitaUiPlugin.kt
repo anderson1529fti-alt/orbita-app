@@ -399,6 +399,10 @@ class OrbitaUiPlugin : Plugin() {
             val vz = JSObject(); vz.put("n", tk.size); vz.put("rec", TuVoz.rec != null)
             if (last != null) { val l = JSObject(); l.put("start", last.start); l.put("end", last.end); l.put("duration", last.duration); l.put("peaks", last.peaks.size); l.put("label", last.label); vz.put("last", l) }
             r.put("voz", vz); r.put("speaking", Voz.speaking)
+            r.put("ly", JSObject().put("open", Ventanas.lyOn).put("forId", Letras.forId ?: "").put("synced", Json.s(Letras.rec?.get("synced")).isNotEmpty()).put("idx", Letras.shownIdx).put("loading", Letras.loading))
+            r.put("viz", JSObject().put("active", Viz.active).put("frames", Viz.frames).put("np", Ventanas.vizOn).put("err", Viz.err))
+            r.put("rc", JSObject().put("open", "recap" in Ventanas.stack).put("i", RcWin.i).put("n", RcWin.slides.size).put("img", RcWin.img != null).put("err", RcWin.imgErr))
+            r.put("wins", JSArray(Ventanas.stack))
         } catch (ignored: Throwable) { }
         r.put("covers", UiState.covers.size); r.put("screen", UiState.screen); r.put("shown", host?.visibility == View.VISIBLE)
         r.put("now", UiState.nowId); r.put("qi", Player.qi); r.put("queue", JSArray(Player.queue.take(50))); r.put("playing", Player.playing)

@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -204,15 +205,65 @@ internal fun Modifier.glow(color: Color, radius: Dp, blur: Dp, dy: Dp, spread: D
     val own = Path().apply { addRoundRect(RoundRect(Rect(0f, 0f, size.width, size.height), CornerRadius(radius.toPx()))) }
     clipPath(own, ClipOp.Difference) {
         drawIntoCanvas { c ->
-            val p = Paint()
-            val fp = p.asFrameworkPaint()
-            fp.isAntiAlias = true
-            fp.color = color.toArgb()
-            fp.maskFilter = BlurMaskFilter(maxOf(1f, blur.toPx() * 0.5f), BlurMaskFilter.Blur.NORMAL)
+            val br = maxOf(1f, blur.toPx() * 0.5f)
             val s = spread.toPx()
             val r = maxOf(0f, radius.toPx() + s)
-            c.drawRoundRect(-s, dy.toPx() - s, size.width + s, size.height + dy.toPx() + s, r, r, p)
+            val l = -s; val t = dy.toPx() - s; val rr = size.width + s; val b = size.height + dy.toPx() + s
+            // (en una caja grande, la sombra se dibuja en nueve trozos de una pequeña: el mismo difuminado, sin pedirle a la
+            // tarjeta gráfica una imagen tan grande como la caja, que en un recuadro muy alto no cabe)
+            if (!Sombras.draw(c.nativeCanvas, color.toArgb(), br, r, l, t, rr, b)) {
+                val p = Paint()
+                val fp = p.asFrameworkPaint()
+                fp.isAntiAlias = true
+                fp.color = color.toArgb()
+                fp.maskFilter = BlurMaskFilter(br, BlurMaskFilter.Blur.NORMAL)
+                c.drawRoundRect(l, t, rr, b, r, r, p)
+            }
         }
+    }
+}
+
+/** Las sombras difuminadas de las cajas grandes, en nueve trozos (como hace el propio Android con los rectángulos redondeados). */
+internal object Sombras {
+    private val cache = object : LinkedHashMap<String, android.graphics.Bitmap>(16, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, android.graphics.Bitmap>?): Boolean = size > 24
+    }
+    private val bp = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+    /** false si la caja es pequeña (entonces se dibuja tal cual). */
+    fun draw(c: android.graphics.Canvas, argb: Int, blurR: Float, r: Float, l: Float, t: Float, rr: Float, b: Float): Boolean {
+        val m = kotlin.math.ceil(blurR * 2.2f + 2f).toInt()
+        val ri = kotlin.math.ceil(r).toInt()
+        val edge = ri + m
+        val n = edge * 2 + 2
+        if (rr - l < n * 1.5f || b - t < n * 1.5f || (rr - l) * (b - t) < 1_500_000f) return false
+        val key = "$argb|$blurR|$r"
+        val bmp = synchronized(cache) { cache[key] } ?: run {
+            val bm = android.graphics.Bitmap.createBitmap(n + 2 * m, n + 2 * m, android.graphics.Bitmap.Config.ARGB_8888)
+            val cv = android.graphics.Canvas(bm)
+            val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+            p.color = argb; p.maskFilter = BlurMaskFilter(blurR, BlurMaskFilter.Blur.NORMAL)
+            cv.drawRoundRect(m.toFloat(), m.toFloat(), (n + m).toFloat(), (n + m).toFloat(), r, r, p)
+            synchronized(cache) { cache[key] = bm }; bm
+        }
+        // la imagen pequeña: la caja de n × n con su sombra alrededor (m); se estira por su centro
+        val W = bmp.width; val H = bmp.height
+        val ce = edge + m          // (de la imagen: lo que ocupa cada esquina, sombra incluida)
+        val L = l - m; val T = t - m; val R = rr + m; val B = b + m
+        fun part(sx0: Int, sy0: Int, sx1: Int, sy1: Int, dx0: Float, dy0: Float, dx1: Float, dy1: Float) {
+            if (dx1 <= dx0 || dy1 <= dy0) return
+            c.drawBitmap(bmp, android.graphics.Rect(sx0, sy0, sx1, sy1), android.graphics.RectF(dx0, dy0, dx1, dy1), bp)
+        }
+        val cx0 = ce; val cx1 = W - ce; val cy0 = ce; val cy1 = H - ce
+        part(0, 0, cx0, cy0, L, T, L + ce, T + ce)
+        part(cx1, 0, W, cy0, R - ce, T, R, T + ce)
+        part(0, cy1, cx0, H, L, B - ce, L + ce, B)
+        part(cx1, cy1, W, H, R - ce, B - ce, R, B)
+        part(cx0, 0, cx1, cy0, L + ce, T, R - ce, T + ce)
+        part(cx0, cy1, cx1, H, L + ce, B - ce, R - ce, B)
+        part(0, cy0, cx0, cy1, L, T + ce, L + ce, B - ce)
+        part(cx1, cy0, W, cy1, R - ce, T + ce, R, B - ce)
+        part(cx0, cy0, cx1, cy1, L + ce, T + ce, R - ce, B - ce)
+        return true
     }
 }
 

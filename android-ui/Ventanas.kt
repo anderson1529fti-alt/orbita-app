@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -124,6 +125,15 @@ object Ventanas {
         editKind = "track"; editId = id; editTitle = t.title; editArtist = t.artist; editAlbum = t.album; editCover = null; editCoverSet = false
         open("edit")
     }
+    /** «ly-edit»: pegar o cambiar la letra de una canción. */
+    var lyEditId = ""; var lyEditTitle = ""
+    var lyText by mutableStateOf("")
+    fun openLyEdit(t: Track) {
+        lyEditId = t.id; lyEditTitle = t.title
+        val r = Letras.rec
+        lyText = if (r != null && Letras.forId == t.id && !Json.b(r["none"])) Json.s(r["synced"]).ifEmpty { Json.s(r["plain"]) } else ""
+        open("lyedit")
+    }
     /** «clip-rename»: el nombre de una grabación (la misma ventana, solo con el título). */
     fun openClipEdit(id: String) {
         val c = Json.obj(Json.parseOr(Store.rec("voice", id), null)) ?: return
@@ -184,6 +194,7 @@ object Ventanas {
     fun back(): Boolean {
         val top = stack.lastOrNull { it != "imp" } ?: return false
         if (top == "alarm") return true
+        if (top == "recap") { RcWin.close(); return true }
         if (top == "onb") { Bienvenida.back(); return true }
         close(top); return true
     }
@@ -220,6 +231,9 @@ fun NatWindows() {
                 "edit" -> EditWindow(sk)
                 "imp" -> ImportPill(sk, Modifier.align(Alignment.BottomCenter))
                 "alarm" -> AlarmWindow(sk)
+                "viz" -> VizFullWindow(sk)
+                "recap" -> RecapWindow(sk)
+                "lyedit" -> LyEditWindow(sk)
                 "onb" -> OnbWindow(sk)
             }
         }
@@ -303,7 +317,7 @@ private fun NpWindow(sk: Skin) {
                     Ico(I_DOWN, 18f, p.fg, sw = 2.4f)
                     T("Cerrar", 15f * sk.tk, p.fg, weight = FontWeight.ExtraBold, maxLines = 1)
                 }
-                if (cur?.kind == "yt") NpVideoSlot(sk) else NpArt(sk, t)
+                when { cur?.kind == "yt" -> NpVideoSlot(sk); Ventanas.lyOn -> NpLyrics(sk, cur); Ventanas.vizOn -> NpViz(sk); else -> NpArt(sk, t) }
                 // título, artista y me gusta
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f)) {
@@ -421,9 +435,10 @@ private fun Hifi(sk: Skin, text: String, on: Boolean = false, icon: String? = nu
 private fun NpChips(sk: Skin, t: Track?) {
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (t?.kind != "yt") {
-            Hifi(sk, "Letra", Ventanas.lyOn) { Nativo.toast("La letra llega en el siguiente paso de la Órbita nativa.") }
-            Hifi(sk, "Visual", Ventanas.vizOn) { Nativo.toast("El visualizador llega en el siguiente paso de la Órbita nativa.") }
+            Hifi(sk, "Letra", Ventanas.lyOn) { Letras.setOpen(!Ventanas.lyOn) }
+            Hifi(sk, "Visual", Ventanas.vizOn) { VizCtl.setNP(!Ventanas.vizOn) }
         }
+        if (t != null && !t.net) Hifi(sk, if (Tubo.clipBusy) "Buscando…" else "Videoclip") { if (!Tubo.clipBusy) Tubo.clip(Player.current()) }
         val q = t?.let { Biblio.quality(it) }
         Hifi(sk, if (t != null && t.net) (if (t.kind == "radio") "RADIO EN DIRECTO" else if (t.kind == "yt") "YOUTUBE" else "AVANCE 30 S") else (q?.short ?: "DIRECTO"))
         if (t != null && t.album.isNotEmpty()) Hifi(sk, t.album)
@@ -578,6 +593,23 @@ private fun EditWindow(sk: Skin) {
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
             SmallBtn(sk, "Cancelar") { Ventanas.gone("edit") }
             SmallBtn(sk, "Guardar", primary = true) { Ventanas.saveEdit() }
+        }
+    }
+}
+
+/** La letra de una canción: pegarla (con tiempos irá sincronizada) o dejarla vacía para borrarla. */
+@Composable
+private fun LyEditWindow(sk: Skin) {
+    val p = sk.pal
+    Modal(sk, "Letra de «${Ventanas.lyEditTitle}»", { Ventanas.gone("lyedit") }) {
+        H2(sk, "Letra de «${Ventanas.lyEditTitle}»")
+        T("Pega la letra. Si cada línea lleva su tiempo, como [01:23.45], irá sincronizada con la música. Déjala vacía para borrarla.", 13.44f * sk.tk, p.muted)
+        val shape = RoundedCornerShape(11.dp)
+        BasicTextField(Ventanas.lyText, { Ventanas.lyText = it.take(20000) }, Modifier.fillMaxWidth().heightIn(min = 220.dp).clip(shape).background(Color.Black.copy(alpha = .4f)).border(sk.b, p.line2, shape).padding(horizontal = 13.dp, vertical = 11.dp),
+            textStyle = style(14.4f * sk.tk, p.fg), cursorBrush = SolidColor(p.accent))
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            SmallBtn(sk, "Cancelar") { Ventanas.gone("lyedit") }
+            SmallBtn(sk, "Guardar", primary = true) { Letras.save(Ventanas.lyEditId, Ventanas.lyText); Ventanas.gone("lyedit") }
         }
     }
 }
