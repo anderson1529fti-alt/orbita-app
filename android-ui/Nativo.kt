@@ -36,6 +36,30 @@ object Nativo {
         on = false; ready = false
         prevEmit?.let { UiState.emit = it }
         NovaCore.sink = prevSink
+        back.isEnabled = false
+    }
+
+    // ---------------------------------------------------------------- el botón de «atrás» del móvil (como en la app de siempre)
+    /** Las pantallas por las que se ha pasado (como el historial de la web). */
+    private val hist = ArrayList<String>()
+    private val back = object : androidx.activity.OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            if (!goBack()) {
+                // (nada más atrás: fuera de la app, como siempre; la música sigue)
+                isEnabled = false
+                try { (act as? androidx.activity.ComponentActivity)?.onBackPressedDispatcher?.onBackPressed() ?: act?.moveTaskToBack(true) } catch (ignored: Throwable) { act?.moveTaskToBack(true) }
+                isEnabled = on
+            }
+        }
+    }
+    /** «popstate»: lo de encima se cierra; si no hay nada encima, la pantalla de antes. */
+    fun goBack(): Boolean {
+        if (Alarma.active) return true
+        if (Ventanas.back()) return true
+        if (UiState.screen == "chat") { val v = hist.removeLastOrNull() ?: "inicio"; show(v); return true }
+        val v = hist.removeLastOrNull() ?: return false
+        show(v)
+        return true
     }
 
     fun start(act: Activity, ui: OrbitaUiPlugin) {
@@ -46,6 +70,7 @@ object Nativo {
         UiState.covers.clear(); UiState.asked.clear(); UiState.coverOrder.clear()
         prevEmit = UiState.emit; prevSink = NovaCore.sink
         UiState.emit = { type, o -> main.post { try { onUi(type, o) } catch (t: Throwable) { note("ui $type: ${t.message}") } } }
+        try { (act as? androidx.activity.ComponentActivity)?.onBackPressedDispatcher?.addCallback(act as androidx.activity.ComponentActivity, back); back.isEnabled = true } catch (ignored: Throwable) { }
         if (!Migra.done()) { note("traspaso de los datos"); Migra.run(act, false) { ok, msg -> note("traspaso: $ok $msg"); boot() } }
         else boot()
     }
@@ -71,6 +96,14 @@ object Nativo {
                 Player.barSync()
                 note("listo: ${Lib.tracks.size} canciones")
                 if (Biblio.devState() == "granted") main.postDelayed({ Biblio.syncDevice(false) }, 1500)
+                try { Alarma.boot() } catch (t: Throwable) { note("despertador: ${t.message}") }
+                // (al rato: la bienvenida a quien acaba de instalarla; si no, lo que dice Nova al abrir, si no suena el despertador)
+                if (Bienvenida.fresh()) main.postDelayed({ if (!Alarma.busy()) Bienvenida.open(false) }, 450)
+                else {
+                    if (!Bienvenida.fresh()) Prefs.set("onboarded", true)
+                    main.postDelayed({ if (!Alarma.busy()) try { Recuerdos.openGreeting() } catch (t: Throwable) { note("saludo: ${t.message}") } }, 1200)
+                }
+                if (System.currentTimeMillis() - Prefs.num("lastUpdateCheck", 0.0) > 3 * 3600 * 1000) main.postDelayed({ Ajustes.checkUpdate(false) }, 6000)
             }
         }
     }
@@ -172,13 +205,27 @@ object Nativo {
         }
     }
 
-    /** Cambiar de pestaña. */
+    /** Todo otra vez desde los datos (tras restaurar una copia). */
+    fun restart() { if (!on) return; ready = false; UiState.covers.clear(); UiState.asked.clear(); boot() }
+
+    /** Las pantallas que ya hace Android. */
+    val VIEWS = listOf("biblioteca", "inicio", "listas", "tu", "ajustes")
+
+    /** Cambiar de pestaña (y apuntarlo, para volver con «atrás»). */
     fun go(view: String) {
         val v = if (view in listOf("inicio", "buscar", "biblioteca", "listas", "tu", "ajustes", "voz", "chat")) view else "biblioteca"
-        if (v !in listOf("biblioteca", "inicio", "listas", "tu")) { toast("Esta pantalla aún no está en la Órbita nativa."); return }
+        if (v !in VIEWS) { toast("Esta pantalla aún no está en la Órbita nativa."); return }
+        val cur = UiState.screen
+        if (cur == v) { show(v); return }
+        if (cur.isNotEmpty() && cur != "chat") { hist.add(cur); if (hist.size > 40) hist.removeAt(0) }
+        show(v)
+    }
+
+    private fun show(v: String) {
         if (v == "inicio") Inicio.sync(true)
         if (v in Paginas.NAMES) { UiState.screen = v; Paginas.sync(v, true) }
         Prefs.set("lastView", v)
+        Ver.bump()
         ui?.nativoShow(v)
     }
 

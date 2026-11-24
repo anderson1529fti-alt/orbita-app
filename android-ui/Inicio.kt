@@ -69,6 +69,11 @@ object Inicio {
     private fun top(): JSONObject {
         val m = Momento.moment()
         val ban = JSONArray()
+        Ajustes.banner()?.let { u ->
+            ban.put(JSONObject().put("b", "Nueva versión de Órbita: ${u.version}").put("t", u.notes.ifEmpty { "Descárgala e instálala encima: tus canciones y ajustes se conservan." })
+                .put("btns", JSONArray().put(btn("Descargar", primary = true, small = true) { Nativo.openExternal(u.url) })
+                    .put(btn("Luego", small = true) { Prefs.set("skipUpdate", u.version); mark() })))
+        }
         if (Biblio.devState() != "granted" && !Prefs.bool("devWelcomeDone", false)) {
             ban.put(JSONObject().put("b", "Conecta la música de tu móvil").put("t", "Dale acceso y Órbita reproducirá todas tus canciones directamente, sin copiarlas ni ocupar espacio extra.")
                 .put("btns", JSONArray().put(btn("Dar acceso", primary = true, small = true) { Prefs.set("devWelcomeDone", true); Biblio.connect(); mark() })
@@ -169,6 +174,7 @@ object Inicio {
             body.add(JSONObject().put("e", "btns").put("b", JSONArray(bs)))
             cards.put(card(true, c.next.map { Lib.byId(it) }, null, body))
         }
+        try { Recos.card { fn -> k(fn) }?.let { cards.put(it) } } catch (t: Throwable) { Nativo.note("descubre: ${t.message}") }
         val red = Cerebro.rediscover(); val nw = Cerebro.newArrivals()
         if (red.isNotEmpty()) cards.put(mini("Redescubre", red) { t -> Player.playQueue(red.map { it.id }, red.indexOf(t), "library") })
         if (nw.isNotEmpty()) cards.put(mini("Recién llegadas", nw) { t -> Player.playQueue(nw.map { it.id }, nw.indexOf(t), "library") })
@@ -233,7 +239,7 @@ object Inicio {
         val kv = o.opt("k")
         if (kv is Number) { acts[kv.toInt()]?.invoke(); mark(); return }
         when (o.optString("k")) {
-            "#alarmPill" -> Ventanas.open("alarm")
+            "#alarmPill" -> Nativo.go("ajustes")
             ".hero-top .gear" -> Nativo.go("ajustes")
             "#artWrap", "#vizWrap", "#vinylWrap" -> Ventanas.open("np")
             "#tVoice" -> { val v = !Nova.voiceOn(); Prefs.set("voiceOn", v); if (!v) Voz.stop() else Nova.djTalk("Vuelvo a tener voz.", "test") }

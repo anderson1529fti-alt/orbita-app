@@ -201,8 +201,3 @@ object Charla {
 }
 
 
-/** El despertador de Nova. En el siguiente paso. */
-object Alarma {
-    fun pill(): String = ""
-    fun command(q: String): Boolean = false
-}

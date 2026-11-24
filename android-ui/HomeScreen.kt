@@ -368,20 +368,21 @@ internal fun ExactColumn(gap: Float, heights: List<Float>, modifier: Modifier = 
 /** Un botón de la app con las medidas de la web (normal, pequeño o grande), con su icono si lo lleva. */
 @Composable
 internal fun HBtn(text: String, sk: Skin, modifier: Modifier = Modifier, primary: Boolean = false, kind: Int = 0, enabled: Boolean = true, on: Boolean = false,
-                 icon: String? = null, iconFill: Boolean = false, iconSize: Float = 18f, iconSw: Float = 2f, dots: String? = null, danger: Boolean = false, onClick: () -> Unit) {
-    // kind: 0 normal, 1 pequeño, 2 grande
+                 icon: String? = null, iconFill: Boolean = false, iconSize: Float = 18f, iconSw: Float = 2f, dots: String? = null, danger: Boolean = false, ghost: Boolean = false, onClick: () -> Unit) {
+    // kind: 0 normal, 1 pequeño, 2 grande, 3 grande con más aire (el «Posponer» del despertador)
     val p = sk.pal
-    val rad = when (kind) { 1 -> 11f; 2 -> 16f; else -> 14f }
+    val rad = when (kind) { 1 -> 11f; 2, 3 -> 16f; else -> 14f }
     val shape = sk.r(rad)
-    val fs = when (kind) { 1 -> 13.6f; 2 -> 16.32f; else -> 15f } * sk.tk
-    val ph = when (kind) { 1 -> 13.dp; 2 -> 22.dp; else -> 18.dp }
-    val pv = when (kind) { 1 -> 8.dp; 2 -> 15.dp; else -> 12.dp }
-    val fg = if (primary) p.onAccent else if (danger) p.bad else if (on) p.accent else p.fg
+    val fs = when (kind) { 1 -> 13.6f; 2 -> 16.32f; 3 -> 17.92f; else -> 15f } * sk.tk
+    val ph = when (kind) { 1 -> 13.dp; 2 -> 22.dp; 3 -> 20.dp; else -> 18.dp }
+    val pv = when (kind) { 1 -> 8.dp; 2 -> 15.dp; 3 -> 20.dp; else -> 12.dp }
+    val fg = if (primary) p.onAccent else if (danger) p.bad else if (on) p.accent else if (ghost) p.muted else p.fg
     var m = modifier
     if (primary) m = m.glow(p.glow, (rad * sk.round).dp, 30.dp, 10.dp, (-10).dp)
     else if (on) m = m.glow(p.glow, (rad * sk.round).dp, 22.dp, 0.dp, (-8).dp)
     m = m.press(enabled = enabled, onClick = onClick).clip(shape)
-    m = if (primary) m.background(p.grad) else m.background(Color.White.copy(alpha = 0.04f)).border(sk.b, if (danger) p.bad else if (on) p.accent else p.line2, shape)
+    m = if (primary) m.background(p.grad) else if (ghost) m else m.background(Color.White.copy(alpha = 0.04f)).border(sk.b, if (danger) p.bad else if (on) p.accent else p.line2, shape)
+    if (ghost) m = m.padding(sk.b)
     Row(m.graphicsLayer { alpha = if (enabled) 1f else 0.5f }.padding(horizontal = ph + sk.b, vertical = pv + sk.b),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
         if (icon != null) Box {

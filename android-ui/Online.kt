@@ -93,7 +93,7 @@ object Online {
     }
 
     // ---------------------------------------------------------------- el tiempo
-    private fun wxDesc(c: Int): Pair<String, String> = when {
+    internal fun wxDesc(c: Int): Pair<String, String> = when {
         c == 0 -> "despejado" to "sol"; c <= 2 -> "algo nublado" to "nubes"; c == 3 -> "nublado" to "nubes"; c <= 48 -> "con niebla" to "niebla"
         c <= 57 -> "con llovizna" to "lluvia"; c <= 67 -> "lloviendo" to "lluvia"; c <= 77 -> "nevando" to "nieve"; c <= 82 -> "con chubascos" to "lluvia"; else -> "con tormenta" to "tormenta"
     }
@@ -133,6 +133,4 @@ object Online {
 }
 
 /** Recomendaciones (canciones que no tienes y que te gustarían): llega en el paso de «Buscar». */
-object Recos {
-    fun maybeOffer(t: Track) {}
-}
+

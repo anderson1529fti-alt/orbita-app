@@ -148,7 +148,7 @@ object Paginas {
             val meta = "${items.size} canciones · ${Cerebro.fmt(total)} · ${Json.s(p["moment"])}${if (Json.s(p["source"]) == "ai") " · Nova" else ""}"
             val del = "pl-del:$id"
             card(covers, Json.s(p["name"]), Json.s(p["description"]), meta, true, listOf(
-                btn("Escuchar", primary = true, small = true, icon = true) { playList(id, false) }.put("s", 22),
+                btn("Escuchar", primary = true, small = true, icon = true) { playList(id, false) }.put("s", 16),
                 JSONObject().put("ic", "pl-shuffle").put("armed", 0).put("t", "").put("l", "Escuchar en aleatorio").put("k", k { playList(id, true) }),
                 JSONObject().put("ic", "pl-del").put("armed", if (isArmed(del)) 1 else 0).put("t", if (isArmed(del)) "¿Borrar?" else "").put("l", "Borrar lista").put("k", k { armOrRun(del) { deleteList(id) } })
             ))

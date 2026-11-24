@@ -212,6 +212,7 @@ object Voz {
         tts = TextToSpeech(a.applicationContext) { st ->
             ready = st == TextToSpeech.SUCCESS
             if (ready) try { tts?.language = Locale("es", "ES") } catch (ignored: Throwable) { }
+            if (ready) { cache = null; applyVoice(); Ver.bump(); Inicio.mark() }
         }
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
@@ -221,12 +222,15 @@ object Voz {
         })
     }
 
+    /** El volumen de la música: lo que baja mientras habla Nova, por lo que suba el despertador. */
+    fun applyMaster() { try { NovaCore.eng().setMaster(duck * Alarma.f) } catch (ignored: Throwable) { } }
+
     private fun duckTo(v: Float, ms: Long) {
         val from = duck; val t0 = SystemClock.uptimeMillis()
         val r = object : Runnable { override fun run() {
             val k = min(1f, (SystemClock.uptimeMillis() - t0).toFloat() / max(1L, ms))
             duck = from + (v - from) * k
-            try { NovaCore.eng().setMaster(duck) } catch (ignored: Throwable) { }
+            applyMaster()
             if (k < 1) main.postDelayed(this, 25)
         } }
         main.post(r)
@@ -273,7 +277,64 @@ object Voz {
     }
 
     /** Lo que dice el botón de la voz en «Ahora». */
-    fun label(): String = "Voz del sistema"
+    fun label(): String = current()?.let { "Voz: " + labelOf(it).first } ?: "Elegir voz"
+
+    // ---------------------------------------------------------------- las voces del móvil («loadVoices»)
+    class V(val name: String, val lang: String, val local: Boolean, val voice: android.speech.tts.Voice?)
+    private var cache: List<V>? = null
+    /** Las voces del móvil, de la más natural a la más robótica (todas o solo las de español). */
+    fun voices(all: Boolean = false): List<V> {
+        ensure()
+        val list = cache ?: run {
+            val vs = try { tts?.voices?.toList() ?: emptyList() } catch (t: Throwable) { emptyList() }
+            if (vs.isEmpty()) return emptyList()
+            vs.map { V(it.name, it.locale.toLanguageTag(), !it.isNetworkConnectionRequired, it) }.sortedByDescending { score(it) }.also { cache = it }
+        }
+        return if (all) list else list.filter { it.lang.lowercase().startsWith("es") }
+    }
+    fun loaded(): Boolean = ready
+    fun score(v: V): Int {
+        val n = v.name; var s = 0
+        if (Regex("natural|neural", RegexOption.IGNORE_CASE).containsMatchIn(n)) s += 6
+        if (Regex("online", RegexOption.IGNORE_CASE).containsMatchIn(n)) s += 2
+        if (Regex("premium|enhanced|mejorada|siri", RegexOption.IGNORE_CASE).containsMatchIn(n)) s += 5
+        if (Regex("google", RegexOption.IGNORE_CASE).containsMatchIn(n)) s += 3
+        if (Regex("-network$", RegexOption.IGNORE_CASE).containsMatchIn(n)) s += 5
+        if (!v.local) s += 1
+        if (Regex("espeak|compact|eloquence", RegexOption.IGNORE_CASE).containsMatchIn(n)) s -= 4
+        if (Regex("^es[-_]ES", RegexOption.IGNORE_CASE).containsMatchIn(v.lang)) s += 1
+        return s
+    }
+    fun isNatural(v: V): Boolean = score(v) >= 4
+    private val REGION = mapOf("ES" to "España", "MX" to "México", "US" to "EE. UU.", "AR" to "Argentina", "CO" to "Colombia", "CL" to "Chile", "PE" to "Perú", "VE" to "Venezuela", "419" to "Latinoamérica", "CU" to "Cuba", "UY" to "Uruguay",
+        "PR" to "Puerto Rico", "EC" to "Ecuador", "BO" to "Bolivia", "CR" to "Costa Rica", "DO" to "Rep. Dominicana", "GT" to "Guatemala", "HN" to "Honduras", "NI" to "Nicaragua", "PA" to "Panamá", "PY" to "Paraguay", "SV" to "El Salvador", "GQ" to "Guinea Ecuatorial")
+    private val LANGS = mapOf("es" to "Español", "en" to "Inglés", "pt" to "Portugués", "fr" to "Francés", "it" to "Italiano", "de" to "Alemán", "ca" to "Catalán", "gl" to "Gallego", "eu" to "Euskera", "ja" to "Japonés", "ko" to "Coreano")
+    /** («voiceLabel») su nombre para enseñarlo y de dónde es. */
+    fun labelOf(v: V): Pair<String, String> {
+        val an = Regex("^[a-z]{2,3}-[a-z0-9]{2,4}-x-([a-z0-9]+)-(local|network)$", RegexOption.IGNORE_CASE).find(v.name)
+        val name = if (an != null) "Voz ${an.groupValues[1].uppercase()}${if (an.groupValues[2].lowercase() == "network") " HD" else ""}"
+            else v.name.replace(Regex("^(Microsoft|Google|Apple)\\s+", RegexOption.IGNORE_CASE), "").replace(Regex("\\s*Online\\s*\\(Natural\\)", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("\\s*\\((Natural|Enhanced|Premium)\\)", RegexOption.IGNORE_CASE), "").replace(Regex("\\s+-\\s+.*$"), "").trim().ifEmpty { v.name }
+        val parts = v.lang.split('-', '_'); val lang = parts.getOrElse(0) { "" }; val reg = parts.getOrElse(1) { "" }
+        val where = if (lang == "es") (REGION[reg.uppercase()] ?: "Español") else "${LANGS[lang] ?: lang}${if (reg.isNotEmpty()) " · " + reg.uppercase() else ""}"
+        return name to where
+    }
+    /** La voz elegida (o la de España, o la primera en español). */
+    fun current(): V? {
+        val all = voices(true); if (all.isEmpty()) return null
+        val saved = Prefs.str("voiceName", "")
+        val es = all.filter { it.lang.lowercase().startsWith("es") }
+        return all.firstOrNull { it.name == saved } ?: es.firstOrNull { Regex("^es[-_]ES", RegexOption.IGNORE_CASE).containsMatchIn(it.lang) } ?: es.firstOrNull()
+    }
+    fun use(name: String) { Prefs.set("voiceName", name); applyVoice() }
+    private fun applyVoice() { try { val v = current()?.voice; if (v != null) tts?.voice = v } catch (ignored: Throwable) { } }
+    /** «speakTTS» con una voz concreta (para «Probar»). */
+    fun test(text: String, name: String) {
+        ensure(); val v = voices(true).firstOrNull { it.name == name }?.voice
+        try { if (v != null) tts?.voice = v } catch (ignored: Throwable) { }
+        speak(text)
+        main.postDelayed({ applyVoice() }, 200)
+    }
 }
 
 /** Escuchar a quien habla (el reconocimiento de voz de Android, con su recuadro nativo). */

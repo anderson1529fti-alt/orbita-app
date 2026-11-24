@@ -362,6 +362,22 @@ class OrbitaUiPlugin : Plugin() {
         }
     }
 
+    /** Para las pruebas: mueve una pantalla nativa hasta «y» (en puntos), para sacar sus capturas. */
+    @PluginMethod
+    fun natScroll(call: PluginCall) {
+        val name = call.getString("name", "") ?: ""
+        val y = call.getDouble("y", 0.0) ?: 0.0
+        activity.runOnUiThread {
+            try {
+                val st = UiState.pageScroll(name)
+                val px = (y * activity.resources.displayMetrics.density).toFloat()
+                st.dispatchRawDelta(px - st.value)
+                val r = JSObject(); r.put("y", st.value / activity.resources.displayMetrics.density); r.put("max", st.maxValue / activity.resources.displayMetrics.density)
+                call.resolve(r)
+            } catch (t: Throwable) { call.reject(t.message ?: "error") }
+        }
+    }
+
     /** Para las pruebas: lo que se toca en una pantalla nativa, como si se hubiera tocado. */
     @PluginMethod
     fun natUi(call: PluginCall) {

@@ -166,8 +166,9 @@ object Ventanas {
 
     /** «Atrás» del móvil: cierra la de arriba (devuelve si había alguna). */
     fun back(): Boolean {
-        val top = stack.lastOrNull() ?: return false
-        if (top == "imp") return false
+        val top = stack.lastOrNull { it != "imp" } ?: return false
+        if (top == "alarm") return true
+        if (top == "onb") { Bienvenida.back(); return true }
         close(top); return true
     }
 }
@@ -202,6 +203,8 @@ fun NatWindows() {
                 "sleep" -> SleepWindow(sk)
                 "edit" -> EditWindow(sk)
                 "imp" -> ImportPill(sk, Modifier.align(Alignment.BottomCenter))
+                "alarm" -> AlarmWindow(sk)
+                "onb" -> OnbWindow(sk)
             }
         }
         if (list.any { it != "imp" }) ToastHost(sk, Modifier.align(Alignment.BottomCenter).padding(bottom = (190f + Bar.inset.toFloat() - 10f).dp))

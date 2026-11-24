@@ -60,6 +60,7 @@ public class NovaAlarmPlugin extends Plugin {
         SharedPreferences p = NovaAlarm.prefs(getContext());
         if (ring <= 0 || p.getInt("ringState", 0) == NovaAlarm.DONE) return;
         overLock(true);
+        try { if (Alarma.javaEvent("open", ring, p.getString("ringKind", "alarm"))) return; } catch (Throwable ignored) { }
         JSObject o = new JSObject();
         o.put("type", "open");
         o.put("ring", ring);
@@ -94,6 +95,8 @@ public class NovaAlarmPlugin extends Plugin {
     }
 
     static void emit(String type, long ring, String kind) {
+        // (la Órbita nativa: lo atiende Android, sin la parte web)
+        try { if (Alarma.javaEvent(type, ring, kind)) return; } catch (Throwable ignored) { }
         NovaAlarmPlugin p = instance;
         if (p == null) return;
         JSObject o = new JSObject();

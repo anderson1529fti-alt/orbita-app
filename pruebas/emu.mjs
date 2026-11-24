@@ -1327,7 +1327,11 @@ try {
       same('la mezcla a medida', [homeWeb.mixer.moment, homeWeb.mixer.moods.map(m => m.t), homeWeb.mixer.lens.map(m => m.t)], [hn.mixer.moment, hn.mixer.moods.map(m => m.t), hn.mixer.lens.map(m => m.t)]);
       same('la mezcla (vacía)', homeWeb.out, hn.out);
       same('el teletipo', homeWeb.tick, hn.tick);
-      same('«Para ti hoy» (las tarjetas)', (homeWeb.fy.cards || []).map(c => (c.body || []).map(e => e.e === 'eye' || e.e === 'h3' ? e.t : e.e)), (hn.fy.cards || []).map(c => (c.body || []).map(e => e.e === 'eye' || e.e === 'h3' ? e.t : e.e)));
+      // («Descubre» depende de internet y de cuándo se mira: se compara aparte)
+      const fyShape = f => (f.cards || []).map(c => (c.body || []).map(e => e.e === 'eye' || e.e === 'h3' ? e.t : e.e)).filter(b => !(typeof b[0] === 'string' && b[0].startsWith('Descubre')));
+      const hasRec = f => (f.cards || []).some(c => (c.body || []).some(e => e.e === 'eye' && String(e.t).startsWith('Descubre')));
+      same('«Para ti hoy» (las tarjetas)', fyShape(homeWeb.fy), fyShape(hn.fy));
+      if (hasRec(homeWeb.fy) && !hasRec(hn.fy)) { await sleep(4000); const h2 = await js(`return await Capacitor.Plugins.OrbitaUi.natHome();`).catch(() => null); if (!(h2 && hasRec(h2.fy))) cmp.push('«Descubre»: la web lo enseña y Android no'); }
     } else cmp.push('sin datos: ' + JSON.stringify({ web: homeWeb && homeWeb.err, android: hn && hn.err }));
     check('«Ahora» hecho por Android dice lo mismo que el de siempre', cmp.length === 0, cmp.join(' | ').slice(0, 1800));
     // «Mis listas» y «Tú», hechos por Android: lo mismo que mandaba la web
@@ -1345,6 +1349,11 @@ try {
     check('«Mis listas» y «Tú» hechos por Android dicen lo mismo que los de siempre' + (pagesWeb && pagesWeb.saved ? ' (con la mezcla del día guardada como lista)' : ''), pc.length === 0, pc.join(' | ').slice(0, 2400));
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'listas' } }); return 1;`).catch(() => null); await sleep(1500); shot('nativa-listas');
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'tu' } }); return 1;`).catch(() => null); await sleep(1500); shot('nativa-tu');
+    // «Ajustes», hecho por Android: se ve entero (capturas a lo largo) y no se cierra
+    await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'ajustes' } }); return 1;`).catch(() => null); await sleep(1500);
+    const sa = await js(NI); shot('nativa-ajustes-1');
+    let aj = null; for (const [i, y] of [[2, 900], [3, 1900], [4, 2900], [5, 3900], [6, 4900], [7, 99999]]) { aj = await js(`return await Capacitor.Plugins.OrbitaUi.natScroll({ name: 'ajustes', y: ${y} });`).catch(e => ({ err: String(e) })); await sleep(700); shot('nativa-ajustes-' + i); }
+    check('«Ajustes» hecho por Android: se abre y se recorre entero', !!sa && sa.screen === 'ajustes' && aj && !aj.err && aj.max > 1500 && crashes() === 0, JSON.stringify({ screen: sa && sa.screen, aj, log: sa && sa.log && sa.log.slice(-4) }));
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'tab', o: { view: 'inicio' } }); return 1;`).catch(() => null); await sleep(800);
     // «Girar la ruleta»: sale una canción y se queda la radio puesta
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'hTap', o: { k: '#btnRoulette' } }); return 1;`).catch(() => null);
