@@ -52,16 +52,19 @@ object Player {
             override fun spectrum(b64: String) {}   // (los visualizadores lo leen directamente del motor)
         }
         applyEq()
+        if (looping) return
+        looping = true
         tick()
         main.postDelayed({ takeListens() }, 3000)
     }
+    private var looping = false
 
     // ---------------------------------------------------------------- la barra y el tiempo
     private var tickN = 0
     private fun tick() {
         main.postDelayed({
             try {
-                val t = current()
+                val t = if (Nativo.on) current() else null
                 if (t != null) {
                     val p = NovaCore.position(slot)
                     Bar.pos = p.optDouble("pos", 0.0)

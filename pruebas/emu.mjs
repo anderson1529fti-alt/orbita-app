@@ -1291,7 +1291,7 @@ try {
     const n1 = up ? await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.ready === true;`, 30000) : false;
     const s1 = await js(NI); shot('nativa-musica');
     check('Órbita sin la parte web: arranca Android solo, con los datos ya en Android, y enseña «Música»', up && n1 && !!s1 && s1.on && s1.ready && s1.shown && s1.screen === 'biblioteca' && (await js(`return location.pathname;`)) === '/nativo.html' && (await js(`return typeof window.__orbita;`)) === 'undefined', JSON.stringify({ up, n1, err: await js(`return window.__natErr || '';`), s: s1 && { on: s1.on, ready: s1.ready, shown: s1.shown, screen: s1.screen, migra: s1.migra, log: s1.log } }).slice(0, 900));
-    check('con las mismas canciones que la app de siempre', !!s1 && !!before && s1.lib === before.songs && s1.songs === before.songs, JSON.stringify({ web: before && before.songs, android: s1 && [s1.lib, s1.songs] }));
+    check('con las mismas canciones que la app de siempre (y sus 4 de prueba)', !!s1 && !!before && s1.own === before.songs && s1.demos === 4, JSON.stringify({ web: before && before.songs, android: s1 && [s1.own, s1.demos, s1.songs] }));
     // (las portadas que pide la lista al verse: aquí, todas de una vez)
     await js(`await Capacitor.Plugins.OrbitaUi.natUi({ type: 'needCovers', o: { ids: ${JSON.stringify(before ? before.all : [])} } }); return 1;`).catch(() => null);
     const cv = await until(`const s = await Capacitor.Plugins.OrbitaUi.natInfo(); return s.covers >= ${before ? before.arts : 1} && s.covers > 0;`, 15000);
@@ -1344,7 +1344,7 @@ try {
     sh('input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1000);
     check('sin cierres por error en la Órbita nativa', crashes() === 0, crashText().slice(0, 1500));
     // y de vuelta a la de siempre (para lo que viene después)
-    await js(`localStorage.removeItem('orbita:_modo'); location.replace('index.html'); return 1;`).catch(() => null);
+    await js(`localStorage.removeItem('orbita:_modo'); await Capacitor.Plugins.OrbitaUi.natUi({ type: 'test-web', o: {} }).catch(() => null); location.replace('index.html'); return 1;`).catch(() => null);
     await sleep(8000); await webStart(true);
   };
   if (SOLO_NATIVO) {

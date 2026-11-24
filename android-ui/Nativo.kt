@@ -27,12 +27,24 @@ object Nativo {
     val log = ArrayList<String>()
     @Synchronized fun note(s: String) { log.add(s); if (log.size > 200) log.subList(0, log.size - 150).clear() }
 
+    private var prevEmit: ((String, com.getcapacitor.JSObject) -> Unit)? = null
+    private var prevSink: NovaCore.Sink? = null
+
+    /** (las pruebas) de vuelta a la app de siempre: lo que recibía la web, otra vez a la web. */
+    fun stop() {
+        if (!on) return
+        on = false; ready = false
+        prevEmit?.let { UiState.emit = it }
+        NovaCore.sink = prevSink
+    }
+
     fun start(act: Activity, ui: OrbitaUiPlugin) {
         if (on) return
         on = true; this.act = act; this.ui = ui
         Store.init(act)
         // (lo que la parte web dejó puesto en esta misma sesión no vale: aquí manda Android)
         UiState.covers.clear(); UiState.asked.clear(); UiState.coverOrder.clear()
+        prevEmit = UiState.emit; prevSink = NovaCore.sink
         UiState.emit = { type, o -> main.post { try { onUi(type, o) } catch (t: Throwable) { note("ui $type: ${t.message}") } } }
         if (!Migra.done()) { note("traspaso de los datos"); Migra.run(act, false) { ok, msg -> note("traspaso: $ok $msg"); boot() } }
         else boot()
@@ -143,6 +155,8 @@ object Nativo {
             "tab" -> go(o.optString("view"))
             // ---- (pruebas)
             "test-seek" -> NovaCore.eng().seek(Player.slot, o.optDouble("pos", 0.0))
+            // (las pruebas vuelven a la app de siempre: la web, otra vez a la vista, y lo nativo, fuera)
+            "test-web" -> { try { NovaCore.pause(0); NovaCore.pause(1) } catch (ignored: Throwable) { }; ui?.nativoOff() }
             else -> if (!Ventanas.onUi(type, o)) note("sin hacer todavía: $type")
         }
     }

@@ -321,7 +321,12 @@ class OrbitaUiPlugin : Plugin() {
     @PluginMethod
     fun nativo(call: PluginCall) {
         activity.runOnUiThread {
-            try { Nativo.start(activity, this); call.resolve(natInfoObj()) } catch (t: Throwable) { call.reject(t.message ?: "error") }
+            try {
+                Nativo.start(activity, this)
+                // (la web no enseña nada en la Órbita nativa: que no se quede con los toques de lo que hay debajo)
+                bridge.webView.visibility = View.INVISIBLE
+                call.resolve(natInfoObj())
+            } catch (t: Throwable) { call.reject(t.message ?: "error") }
         }
     }
 
@@ -340,6 +345,7 @@ class OrbitaUiPlugin : Plugin() {
     private fun natInfoObj(): JSObject {
         val r = JSObject()
         r.put("on", Nativo.on); r.put("ready", Nativo.ready); r.put("songs", UiState.tracks.size); r.put("lib", Lib.tracks.size)
+        r.put("own", Lib.tracks.count { !it.demo }); r.put("demos", Lib.tracks.count { it.demo })
         r.put("covers", UiState.covers.size); r.put("screen", UiState.screen); r.put("shown", host?.visibility == View.VISIBLE)
         r.put("now", UiState.nowId); r.put("qi", Player.qi); r.put("queue", JSArray(Player.queue.take(50))); r.put("playing", Player.playing)
         r.put("pos", try { NovaCore.position(Player.slot) } catch (t: Throwable) { JSObject() })
@@ -366,6 +372,15 @@ class OrbitaUiPlugin : Plugin() {
         place()
         UiState.screen = screen
         host?.visibility = View.VISIBLE
+    }
+
+    /** (las pruebas, al volver a la app de siempre) la web a la vista y las capas nativas fuera */
+    internal fun nativoOff() {
+        Nativo.stop()
+        bridge.webView.visibility = View.VISIBLE
+        natWinHost?.visibility = View.GONE
+        Base.on = false; baseHost?.visibility = View.GONE
+        host?.visibility = View.GONE
     }
 
     /** Fase 4, parte 2 · La capa de las ventanas nativas (el reproductor, el temporizador…): encima de todo, del tamaño de la web. */
