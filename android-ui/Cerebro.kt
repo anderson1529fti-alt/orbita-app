@@ -19,7 +19,7 @@ import kotlin.random.Random
  */
 object Cerebro {
     // ---------------------------------------------------------------- lo que recuerda
-    val ban: MutableSet<String> = HashSet()
+    val ban: MutableSet<String> = LinkedHashSet()
     private var w: DoubleArray? = null
     var n = 0; private set
     private var at = 0
@@ -52,7 +52,7 @@ object Cerebro {
         val h = s / 3600; val m = Math.round((s % 3600) / 60.0)
         return if (h > 0) "$h h" + (if (m > 0) " $m min" else "") else "$m min"
     }
-    fun fmt(s: Double): String { if (s.isNaN() || s <= 0) return "0:00"; val r = Math.round(s); return "${r / 60}:${(r % 60).toString().padStart(2, '0')}" }
+    fun fmt(s: Double): String { if (!s.isFinite() || s <= 0) return "0:00"; val r = Math.round(s); return "${r / 60}:${(r % 60).toString().padStart(2, '0')}" }
     fun franjaOf(h: Int): Momento.Franja = Momento.FRANJAS.firstOrNull { h >= it.from && h < it.to } ?: Momento.FRANJAS[0]
     fun nameOf(t: Track): String = if (t.demo) "${t.title}, una pista de prueba" else if (t.mine) "${t.title}, cantada por ti" else if (t.artist.isNotEmpty() && t.artist != "Artista desconocido") "${t.title}, de ${t.artist}" else t.title
     private fun hourNow(): Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)

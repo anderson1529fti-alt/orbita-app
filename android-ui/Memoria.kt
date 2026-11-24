@@ -61,6 +61,14 @@ object Memoria {
 
     fun onLike(t: Track) { Nova.onLike(t) }
 
+    /** «Borrar mi historial»: todas las escuchas, y lo que cada canción sabía de ellas (las favoritas y las listas, igual). */
+    fun forget() {
+        synchronized(this) { events.clear(); statCache.clear(); gen++ }
+        try { Store.clearEvents() } catch (ignored: Throwable) { }
+        for (t in Lib.tracks) if (t.listenSec != 0.0 || t.skips != 0 || t.hours != null) { t.listenSec = 0.0; t.skips = 0; t.hours = null; Biblio.save(t) }
+        Nativo.onMemory()
+    }
+
     // ---------------------------------------------------------------- lo que se cuenta («memStats»)
     fun dayKey(ts: Long = System.currentTimeMillis()): String { val c = Calendar.getInstance(); c.timeInMillis = ts; return "${c.get(Calendar.YEAR)}-${Momento.pad(c.get(Calendar.MONTH) + 1)}-${Momento.pad(c.get(Calendar.DAY_OF_MONTH))}" }
 

@@ -131,6 +131,9 @@ object Store {
 
     // ---------------------------------------------------------------- todo
     /** Borra todo (antes de un traspaso desde cero). Los archivos de la web que no son de aquí no se tocan. */
+    /** «Borrar mi historial»: todas las escuchas guardadas. */
+    @Synchronized fun clearEvents() { db.delete("ev", null, null) }
+
     fun clearAll() {
         db.beginTransaction()
         try { db.delete("kv", null, null); db.delete("rec", null, null); db.delete("ev", null, null); db.setTransactionSuccessful() } finally { db.endTransaction() }

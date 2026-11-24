@@ -348,6 +348,20 @@ class OrbitaUiPlugin : Plugin() {
         }
     }
 
+    /** Para las pruebas: «Mis listas» o «Tú» tal como los prepara Android (las mismas piezas que mandaba la web). */
+    @PluginMethod
+    fun natPage(call: PluginCall) {
+        val name = call.getString("name", "") ?: ""
+        activity.runOnUiThread {
+            try {
+                Paginas.sync(name, true)
+                val r = JSObject()
+                for ((k, v) in UiState.pages) if (k.startsWith("$name.")) r.put(k.substring(name.length + 1), v)
+                call.resolve(r)
+            } catch (t: Throwable) { call.reject(t.message ?: "error") }
+        }
+    }
+
     /** Para las pruebas: lo que se toca en una pantalla nativa, como si se hubiera tocado. */
     @PluginMethod
     fun natUi(call: PluginCall) {

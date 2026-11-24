@@ -148,7 +148,7 @@ object Nativo {
                 if (o.has("sort")) { UiState.sort = o.optString("sort", "recent"); Prefs.set("sort", UiState.sort) }
             }
             // ---- «Ahora»
-            "hTap" -> Inicio.onTap(o)
+            "hTap" -> { val kv = o.opt("k"); if (kv is Number && Paginas.owns(kv.toInt())) Paginas.onTap(o) else Inicio.onTap(o) }
             "hSel" -> Inicio.onSel(o.optString("sel"), o.optString("v"))
             "hAsk" -> Ordenes.run(o.optString("text"))
             "hFocus" -> {}
@@ -175,8 +175,9 @@ object Nativo {
     /** Cambiar de pestaña. */
     fun go(view: String) {
         val v = if (view in listOf("inicio", "buscar", "biblioteca", "listas", "tu", "ajustes", "voz", "chat")) view else "biblioteca"
-        if (v !in listOf("biblioteca", "inicio")) { toast("Esta pantalla aún no está en la Órbita nativa."); return }
+        if (v !in listOf("biblioteca", "inicio", "listas", "tu")) { toast("Esta pantalla aún no está en la Órbita nativa."); return }
         if (v == "inicio") Inicio.sync(true)
+        if (v in Paginas.NAMES) { UiState.screen = v; Paginas.sync(v, true) }
         Prefs.set("lastView", v)
         ui?.nativoShow(v)
     }
@@ -186,15 +187,15 @@ object Nativo {
     @Volatile var awake = true
 
     fun libraryChanged() { pushLibrary(); Biblio.boxes(); if (Player.has()) Player.barSync() }
-    fun onTrack(t: Track) { UiState.nowId = t.id }
+    fun onTrack(t: Track) { UiState.nowId = t.id; Paginas.mark("tu") }
     fun onQueue() { Ventanas.refresh("np") }
     fun onSleep() { Player.barSync(); Ventanas.refresh("sleep") }
     fun onImport() { Ventanas.refresh("imp") }
-    fun onMemory() {}
+    fun onMemory() { Paginas.mark("tu"); Inicio.mark() }
     fun onNova() { Inicio.mark() }
     fun onHome() { Inicio.mark() }
     fun onChat() {}
-    fun onLists() {}
+    fun onLists() { Paginas.mark("listas") }
 
     /** Animaciones reducidas (las del móvil o «Animaciones: ligeras» de Ajustes). */
     fun reduceMotion(): Boolean = try { android.provider.Settings.Global.getFloat(act?.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f } catch (t: Throwable) { false }

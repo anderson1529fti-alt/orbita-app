@@ -89,7 +89,7 @@ object Ordenes {
         if (iss("(al (acabar|terminar)|cuando (acabe|termine)) (esta|la cancion)")) { Player.setSleep("track"); return }
         if (iss("^(pon |ensename |muestrame |abre )?(la )?letra$|karaoke")) { if (t != null) { Ventanas.open("np"); Ventanas.lyOn = true }; return }
         if (iss("visualizador|^(pon )?(el )?visual$")) { Ventanas.open("viz"); return }
-        if (iss("(resumen|repaso) (de mi|del|de este|de tu|de todo el) ano|(mi|tu) ano en orbita|(^| )wrapped$|que (he|e) escuchado este ano")) { Ventanas.open("recap"); return }
+        if (iss("(resumen|repaso) (de mi|del|de este|de tu|de todo el) ano|(mi|tu) ano en orbita|(^| )wrapped$|que (he|e) escuchado este ano")) { Recap.open(0); return }
         if (iss("^(pon |ponme |reproduce |quiero (oir|escuchar) )?(todas (mis|las) canciones|toda mi (musica|biblioteca)|todo mi orbita|todo orbita)( sin repetir)?$|^(ponlas|ponmelas|reproducelas) todas$|^(pon|reproduce|ponme) todas( sin repetir)?$")) { Todo.startAll(); return }
         if (iss("(recomienda(me|s)?|que me recomiendas|alguna recomendacion|sugiereme|descubreme (algo|canciones|musica)|(canciones?|algo) nuev[oa]s? (de internet )?que me (puedan? )?gust)")) { say("Las recomendaciones de internet llegan con «Buscar» en la Órbita nativa."); return }
         if (Recuerdos.command(q, raw)) return
@@ -200,11 +200,6 @@ object Charla {
     fun ctxMix(request: String, hint: String) {}
 }
 
-/** Lo que Nova recuerda de ti («no me pongas…», «¿qué recuerdas de mí?», tu semana). En el siguiente paso. */
-object Recuerdos {
-    fun command(q: String, raw: String): Boolean = false
-    fun weekSummary(): String = ""
-}
 
 /** El despertador de Nova. En el siguiente paso. */
 object Alarma {

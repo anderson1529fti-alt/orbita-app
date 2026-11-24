@@ -28,28 +28,30 @@ object Inicio {
     fun sync(force: Boolean) {
         if (!Nativo.ready) return
         if (force) keys.clear()
-        if (acts.size > 1500) acts.clear()
-        put("top", top()) { UiState.hTop = it }
-        put("tick", tick()) { UiState.hTick = it }
-        put("dj", dj()) { o ->
+        if (acts.size > 3000) { acts.clear(); keys.clear() }
+        put("top", { top() }) { UiState.hTop = it }
+        put("tick", { tick() }) { UiState.hTick = it }
+        put("dj", { dj() }) { o ->
             val was = UiState.hDj?.optString("inp", "") ?: ""
             val now = o.optString("inp", "")
             if (now != was) UiState.homeDraft = now
             UiState.hDj = o
         }
-        put("bub", bub()) { UiState.hBub = it }
-        put("slot", slot()) { UiState.hSlot = it }
-        put("fy", fy()) { UiState.hFy = it }
-        put("mixer", mixer()) { UiState.hMixer = it }
-        put("out", out()) { UiState.hOut = it }
+        put("bub", { bub() }) { UiState.hBub = it }
+        put("slot", { slot() }) { UiState.hSlot = it }
+        put("fy", { fy() }) { UiState.hFy = it }
+        put("mixer", { mixer() }) { UiState.hMixer = it }
+        put("out", { out() }) { UiState.hOut = it }
         vinyl()
     }
 
     /** (si no ha cambiado, no se toca: la pantalla no se vuelve a pintar entera) */
-    private fun put(name: String, o: JSONObject, set: (JSONObject) -> Unit) {
-        // la clave sin los números de los botones (cambian cada vez)
+    private fun put(name: String, build: () -> JSONObject, set: (JSONObject) -> Unit) {
+        val from = seq
+        val o = try { build() } catch (t: Throwable) { Nativo.note("«Ahora» ($name): ${t.message}"); return }
+        // la clave sin los números de los botones (cambian cada vez); si no ha cambiado, los botones nuevos sobran
         val key = o.toString().replace(Regex("\"k\":\\d+"), "")
-        if (keys[name] == key) return
+        if (keys[name] == key) { if (seq > from) for (i in from + 1..seq) acts.remove(i); return }
         keys[name] = key; set(o)
     }
 
@@ -71,6 +73,11 @@ object Inicio {
             ban.put(JSONObject().put("b", "Conecta la música de tu móvil").put("t", "Dale acceso y Órbita reproducirá todas tus canciones directamente, sin copiarlas ni ocupar espacio extra.")
                 .put("btns", JSONArray().put(btn("Dar acceso", primary = true, small = true) { Prefs.set("devWelcomeDone", true); Biblio.connect(); mark() })
                     .put(btn("Luego", small = true) { Prefs.set("devWelcomeDone", true); mark() })))
+        }
+        Recap.hint()?.let { (head, text) ->
+            ban.put(JSONObject().put("b", head).put("t", text)
+                .put("btns", JSONArray().put(btn("Verlo", primary = true, small = true) { Recap.open(0) })
+                    .put(btn("Luego", small = true) { Prefs.set("recapHintOff", Recap.year()); mark() })))
         }
         val hero = Prefs.str("heroMode", "vinyl")
         val o = JSONObject().put("ban", ban).put("clock", m.hh).put("alarm", Alarma.pill()).put("day", m.day).put("frag", m.franja.phrase).put("hint", m.hint)
